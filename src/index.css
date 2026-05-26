@@ -1,0 +1,78 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Space Grotesk", sans-serif;
+}
+
+/* Base print stylesheet overrides */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 1.2cm 1cm 1.2cm 1cm;
+  }
+  
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-size: 10px !important;
+  }
+
+  /* Hide UI elements that are irrelevant in physical reporting sheets */
+  header, 
+  footer,
+  #bulk-update-drawer,
+  #sheet-ledger-container > div:first-child, /* Toolbars */
+  #sheet-ledger-container > div:nth-child(2), /* Seach bar */
+  #sheet-ledger-container > div:last-child, /* Pagination */
+  #dashboard-section,
+  #applet-core > main > div.grid, /* Summary cards */
+  #applet-core > main > div:last-child { /* Info footer wrapper */
+    display: none !important;
+  }
+
+  /* Make table content fits and expand correctly without scroll bars */
+  #excel-grid-viewport {
+    max-height: none !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+
+  /* Remove sticky frozen column coordinates for printing */
+  .sticky {
+    position: static !important;
+    background-color: transparent !important;
+    color: #000000 !important;
+  }
+
+  th {
+    background-color: #0f172a !important;
+    color: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+
+  td {
+    border: 1px solid #cbd5e1 !important;
+    background-color: #ffffff !important;
+  }
+
+  /* Alternate row background styles inside print ledger */
+  tr:nth-child(even) {
+    background-color: #f8fafc !important;
+  }
+
+  input {
+    border: none !important;
+    background-color: transparent !important;
+    color: #000005 !important;
+    font-weight: 500 !important;
+    pointer-events: none !important;
+  }
+
+  /* Always start printing on page bounds */
+  tr {
+    page-break-inside: avoid !important;
+  }
+}

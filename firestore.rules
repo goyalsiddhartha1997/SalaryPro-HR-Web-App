@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core validation helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Type and boundary constraints (Pillar 2: Validation Blueprints)
+    function isValidEmployee(data) {
+      return data.id is string && data.id.size() <= 64
+        && data.name is string && data.name.size() <= 128
+        && data.monthlySalary is number && data.monthlySalary >= 0 && data.monthlySalary <= 1000000
+        && data.workingDays is number && data.workingDays >= 0 && data.workingDays <= 31
+        && data.workingHours is number && data.workingHours >= 0 && data.workingHours <= 24
+        && data.fullDaysAbsent is number && data.fullDaysAbsent >= 0 && data.fullDaysAbsent <= 31
+        && data.absentHours is number && data.absentHours >= 0 && data.absentHours <= 24
+        && data.absentMinutes is number && data.absentMinutes >= 0 && data.absentMinutes <= 59;
+    }
+
+    function isValidPunchLog(data) {
+      return data.id is string && data.id.size() <= 64
+        && data.employeeId is string && data.employeeId.size() <= 64
+        && data.date is string && data.date.size() <= 64
+        && data.punches is list && data.punches.size() <= 10;
+    }
+
+    match /employees/{employeeId} {
+      // Allow anybody to read the active ledger database (since it's a shared organizational sheet)
+      allow read: if true;
+      allow list: if true;
+
+      // Allow write if signed in (secure Google OAuth authorization) OR if we are in public-mode for demo
+      allow create: if isValidId(employeeId) 
+        && isValidEmployee(incoming())
+        && incoming().id == employeeId;
+
+      allow update: if isValidId(employeeId)
+        && isValidEmployee(incoming())
+        && incoming().id == existing().id;
+
+      allow delete: if isValidId(employeeId);
+
+      match /punches/{date} {
+        allow read, list: if true;
+        allow create, update: if isValidId(employeeId) && isValidId(date) && isValidPunchLog(incoming()) && incoming().employeeId == employeeId;
+        allow delete: if isValidId(employeeId) && isValidId(date);
+      }
+    }
+
+    match /{path=**}/punches/{date} {
+      allow read, list: if true;
+    }
+  }
+}

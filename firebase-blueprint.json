@@ -1,0 +1,136 @@
+{
+  "entities": {
+    "Employee": {
+      "title": "Employee",
+      "description": "An employee record in the organization ledger",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The unique employee ID (e.g. EMP-001 or EMP_TEMP_006)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name of the employee"
+        },
+        "monthlySalary": {
+          "type": "number",
+          "description": "Monthly base salary of the employee"
+        },
+        "workingDays": {
+          "type": "number",
+          "description": "Designated working days in the month"
+        },
+        "workingHours": {
+          "type": "number",
+          "description": "Designated working hours per day"
+        },
+        "fullDaysAbsent": {
+          "type": "number",
+          "description": "Number of full days employee was absent"
+        },
+        "absentHours": {
+          "type": "number",
+          "description": "Number of partial hours employee was absent"
+        },
+        "absentMinutes": {
+          "type": "number",
+          "description": "Number of partial minutes employee was absent"
+        },
+        "role": {
+          "type": "string",
+          "description": "Departmental role of the employee"
+        },
+        "email": {
+          "type": "string",
+          "description": "Company or personal email"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact telephone number"
+        },
+        "gender": {
+          "type": "string",
+          "description": "Biological gender or self-identified gender"
+        },
+        "dob": {
+          "type": "string",
+          "description": "Date of Birth"
+        },
+        "address": {
+          "type": "string",
+          "description": "Home or correspondence address"
+        },
+        "joinDate": {
+          "type": "string",
+          "description": "Data record join date"
+        },
+        "workModel": {
+          "type": "string",
+          "description": "Hybrid, Remote, or On-Site"
+        },
+        "employmentType": {
+          "type": "string",
+          "description": "Full-Time, Part-Time, or Contract"
+        },
+        "notes": {
+          "type": "array",
+          "description": "Array of string log messages or annotations"
+        },
+        "documents": {
+          "type": "array",
+          "description": "Array of uploaded documents with name, size, date details"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "monthlySalary",
+        "workingDays",
+        "workingHours",
+        "fullDaysAbsent",
+        "absentHours",
+        "absentMinutes"
+      ]
+    },
+    "PunchLog": {
+      "title": "Punch Log",
+      "description": "A collection of check-in and check-out events for an employee on a single day",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Date of punch log in YYYY-MM-DD format"
+        },
+        "employeeId": {
+          "type": "string",
+          "description": "The associated employee id"
+        },
+        "date": {
+          "type": "string",
+          "description": "Date of the punch log in YYYY-MM-DD format"
+        },
+        "punches": {
+          "type": "array",
+          "description": "Array of strings representing up to 8 max IN-OUT log events (e.g. 08:00 IN)"
+        }
+      },
+      "required": [
+        "id",
+        "employeeId",
+        "date",
+        "punches"
+      ]
+    }
+  },
+  "firestore": {
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Rosters and employee records inside the Firestore ledger"
+    },
+    "/employees/{employeeId}/punches/{date}": {
+      "schema": "PunchLog",
+      "description": "Daily biometric punch IN-OUT logs array for the employee"
+    }
+  }
+}
