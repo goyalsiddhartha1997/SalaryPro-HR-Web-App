@@ -26,7 +26,7 @@ import {
   UserPlus
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { isEmployeePresent } from '../data';
 
@@ -2065,6 +2065,29 @@ export default function AttendanceImport({
           console.error(`Import sync failed for employeeId ${targetRow?.id || targetRow?.employeeId}:`, res.reason);
         }
       });
+
+      if (importMode === 'attendance') {
+        const importedEmployeeIds = new Set(previewData.map(row => row.employeeId));
+        const absentEmployeesToDelete = activeEmployees.filter(emp => !importedEmployeeIds.has(emp.id));
+        if (absentEmployeesToDelete.length > 0) {
+          const deleteResults = await Promise.allSettled(
+            absentEmployeesToDelete.map(async (emp) => {
+              const ref = doc(db, 'employees', emp.id, 'punches', importDate);
+              await deleteDoc(ref);
+              syncedPunchesLog.push({
+                employeeId: emp.id,
+                date: importDate,
+                punches: []
+              });
+            })
+          );
+          deleteResults.forEach((res, idx) => {
+            if (res.status === 'rejected') {
+              console.error(`Failed to delete punch log for absent employee ${absentEmployeesToDelete[idx]?.id}:`, res.reason);
+            }
+          });
+        }
+      }
 
       if (onPunchesSynced && syncedPunchesLog.length > 0) {
         onPunchesSynced(syncedPunchesLog);

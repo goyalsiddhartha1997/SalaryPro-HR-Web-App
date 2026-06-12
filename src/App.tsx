@@ -366,6 +366,79 @@ export default function App() {
         }
       }
 
+      // --- SELF-HEALING / UPGRADE SALARIES FROM JUNE & MAY OVERRIDES ---
+      // We promote June 2026 overrides or specific corrections (like Raju Tiwari) to become master values permanently.
+      if (firestoreEmployees.length > 0) {
+        const migrationBatch = writeBatch(db);
+        let migrationNeeded = false;
+
+        await Promise.all(firestoreEmployees.map(async (emp) => {
+          try {
+            let updatedObj = { ...emp };
+            let changed = false;
+
+            // 1. Specific Rule: Raju Tiwari to Rs 700 daily wage
+            if (emp.name && emp.name.toLowerCase().includes('raju') && emp.name.toLowerCase().includes('tiwari')) {
+              if (emp.monthlySalary !== 700 || emp.salaryType !== 'daily') {
+                updatedObj.monthlySalary = 700;
+                updatedObj.salaryType = 'daily';
+                changed = true;
+              }
+            } else {
+              // 2. Standard Rule: Fetch June 2026 override document
+              const juneRef = doc(db, 'employees', emp.id, 'monthlyPayroll', '2026-06');
+              const juneSnap = await getDoc(juneRef);
+              if (juneSnap.exists()) {
+                const data = juneSnap.data();
+                if (data.monthlySalary !== undefined && data.monthlySalary > 0 && data.monthlySalary !== emp.monthlySalary) {
+                  updatedObj.monthlySalary = Number(data.monthlySalary);
+                  if (updatedObj.monthlySalary <= 2000) {
+                    updatedObj.salaryType = 'daily';
+                  } else if (updatedObj.monthlySalary > 2000) {
+                    updatedObj.salaryType = 'fixed';
+                  }
+                  changed = true;
+                }
+              } else {
+                // Check May 2026 override as fallback
+                const mayRef = doc(db, 'employees', emp.id, 'monthlyPayroll', '2026-05');
+                const maySnap = await getDoc(mayRef);
+                if (maySnap.exists()) {
+                  const data = maySnap.data();
+                  if (data.monthlySalary !== undefined && data.monthlySalary > 0 && data.monthlySalary !== emp.monthlySalary) {
+                    updatedObj.monthlySalary = Number(data.monthlySalary);
+                    if (updatedObj.monthlySalary <= 2000) {
+                      updatedObj.salaryType = 'daily';
+                    } else if (updatedObj.monthlySalary > 2000) {
+                      updatedObj.salaryType = 'fixed';
+                    }
+                    changed = true;
+                  }
+                }
+              }
+            }
+
+            if (changed) {
+              migrationNeeded = true;
+              migrationBatch.set(doc(db, 'employees', emp.id), updatedObj);
+              Object.assign(emp, updatedObj);
+            }
+          } catch (subErr) {
+            console.error(`Error self-healing salary of ${emp.name || emp.id}:`, subErr);
+          }
+        }));
+
+        if (migrationNeeded) {
+          try {
+            await migrationBatch.commit();
+            console.log("Successfully migrated baseline salaries to master database docs.");
+          } catch (writeErr) {
+            console.error("Failed to commit master salary migration batch:", writeErr);
+          }
+        }
+      }
+      // --- END OF SELF-HEALING ---
+
       const merged: Employee[] = [...firestoreEmployees];
       const takenIds = new Set(firestoreEmployees.map(e => e.id.toLowerCase()));
       let currentNum = 46;
@@ -686,7 +759,7 @@ export default function App() {
   const [isSignUpMode, setIsSignUpMode] = useState(false);
   const [customLoginLoading, setCustomLoginLoading] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'payroll' | 'calendar' | 'attendance' | 'performance' | 'leave' | 'recruitment' | 'advance' | 'gatepass' | 'overtime' | 'looms'>(() => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'payroll' | 'calendar' | 'attendance' | 'performance' | 'advance' | 'gatepass' | 'overtime' | 'looms'>(() => {
     const email = localStorage.getItem('salarypro_logged_in_email');
     return email === 'hr@fortuneflexipack.com' ? 'gatepass' : 'employees';
   });
@@ -785,7 +858,7 @@ export default function App() {
 
       const finalAbsentHours = monthOverrides.absentHours !== undefined ? monthOverrides.absentHours : (emp.absentHours || 0);
       const finalAbsentMinutes = monthOverrides.absentMinutes !== undefined ? monthOverrides.absentMinutes : (emp.absentMinutes || 0);
-      const finalMonthlySalary = monthOverrides.monthlySalary !== undefined ? monthOverrides.monthlySalary : (emp.monthlySalary || 0);
+      const finalMonthlySalary = emp.monthlySalary || 0;
       const finalFoodBalance = monthOverrides.foodBalance !== undefined ? monthOverrides.foodBalance : (emp.foodBalance || 0);
       const finalFoodRemarks = monthOverrides.foodRemarks !== undefined ? monthOverrides.foodRemarks : (emp.foodRemarks || '');
       const finalAdvanceDate = monthOverrides.advanceDate !== undefined ? monthOverrides.advanceDate : emp.advanceDate;
@@ -1011,7 +1084,6 @@ export default function App() {
       updatedFields.workingHours !== undefined ||
       updatedFields.absentHours !== undefined ||
       updatedFields.absentMinutes !== undefined ||
-      updatedFields.monthlySalary !== undefined ||
       updatedFields.foodBalance !== undefined ||
       updatedFields.foodRemarks !== undefined;
 
@@ -1029,6 +1101,7 @@ export default function App() {
       updatedFields.designation !== undefined ||
       updatedFields.sundayPaid !== undefined ||
       updatedFields.salaryType !== undefined ||
+      updatedFields.monthlySalary !== undefined ||
       updatedFields.notes !== undefined ||
       updatedFields.documents !== undefined ||
       updatedFields.id !== undefined;
@@ -1044,7 +1117,7 @@ export default function App() {
       
       const numFields = [
         'workingDays', 'fullDaysAbsent', 'advancePayment', 'workingHours', 
-        'absentHours', 'absentMinutes', 'monthlySalary', 'foodBalance'
+        'absentHours', 'absentMinutes', 'foodBalance'
       ];
 
       const strFields = [
@@ -2214,36 +2287,6 @@ export default function App() {
               </button>
             )}
 
-            {/* Leave Management Link */}
-            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
-              <button
-                onClick={() => { setActiveTab('leave'); setMobileMenuOpen(false); }}
-                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
-                  activeTab === 'leave' 
-                    ? 'bg-slate-55 text-slate-850 font-black' 
-                    : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <Briefcase size={16} />
-                <span>Leave Management</span>
-              </button>
-            )}
-
-            {/* Recruitment Link */}
-            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
-              <button
-                onClick={() => { setActiveTab('recruitment'); setMobileMenuOpen(false); }}
-                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
-                  activeTab === 'recruitment' 
-                    ? 'bg-slate-55 text-slate-850 font-black' 
-                    : 'text-slate-405 hover:text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <Globe size={16} />
-                <span>Recruitment</span>
-              </button>
-            )}
-
           </nav>
 
           <div className="p-4 mr-3 mt-auto ml-1 mb-2">
@@ -2300,8 +2343,6 @@ export default function App() {
                   {activeTab === 'calendar' && 'Search EMP'}
                   {activeTab === 'attendance' && 'Attendance Logs'}
                   {activeTab === 'performance' && 'Evaluation Overviews'}
-                  {activeTab === 'leave' && 'Leave Applications'}
-                  {activeTab === 'recruitment' && 'Global Sourcing'}
                 </span>
                 <span className="hidden sm:inline-block text-[9.5px] font-extrabold text-slate-400 font-mono">
                   v2.5
@@ -2678,63 +2719,6 @@ export default function App() {
             </div>
           )}
 
-          {/* ==================== TAB: 4. INBOX PANEL (Removed) ==================== */}
-
-          {/* ==================== TAB: 5. LEAVE MANAGEMENT (Mock approval) ==================== */}
-          {activeTab === 'leave' && loggedInEmail !== 'hr@fortuneflexipack.com' && (
-            <div className="bg-white border border-slate-150 rounded-3xl p-6.5 shadow-sm max-w-3xl mx-auto space-y-6 animate-fade-in font-sans">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Leave Validation Console</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Authorise staff leave requests and sync hours logged charts automatically.</p>
-              </div>
-
-              <div className="space-y-3.5">
-                {mockLeaves.map(lv => (
-                  <div key={lv.id} className="p-4 rounded-2xl border border-slate-150 hover:bg-slate-50/50 transition-colors flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-800">{lv.name}</span>
-                        <span className="bg-slate-100 text-slate-500 text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase">{lv.type}</span>
-                      </div>
-                      <div className="text-[11px] text-slate-400 mt-1.5 font-medium flex gap-3 text-mono uppercase">
-                        <span>Duration: {lv.duration}</span>
-                        <span>•</span>
-                        <span>Schedule: {lv.date}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
-                      {lv.status === 'Pending' ? (
-                        <>
-                          <button 
-                            onClick={() => handleModifyLeave(lv.id, 'Approved')}
-                            className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs p-2.5 px-3.5 rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-1"
-                          >
-                            <CheckCircle size={13} />
-                            <span>Approve</span>
-                          </button>
-                          <button 
-                            onClick={() => handleModifyLeave(lv.id, 'Rejected')}
-                            className="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs p-2.5 px-3.5 rounded-xl cursor-pointer inline-flex items-center gap-1"
-                          >
-                            <X size={13} />
-                            <span>Reject</span>
-                          </button>
-                        </>
-                      ) : (
-                        <span className={`text-xs font-bold font-mono uppercase px-3 py-1 rounded-lg ${
-                          lv.status === 'Approved' ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' : 'bg-rose-50 text-rose-800 border border-rose-100'
-                        }`}>
-                          {lv.status}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* ==================== TAB: 6. ATTENDANCE LOG INTEGRATOR ==================== */}
           {activeTab === 'attendance' && loggedInEmail !== 'hr@fortuneflexipack.com' && (
             <AttendanceImport 
@@ -2811,29 +2795,6 @@ export default function App() {
               setLedgerMonth={setLedgerMonth}
               setLedgerYear={setLedgerYear}
             />
-          )}
-
-          {/* ==================== MOCK TABS FALLBACKS (Recruitment) ==================== */}
-          {activeTab === 'recruitment' && loggedInEmail !== 'hr@fortuneflexipack.com' && (
-            <div className="bg-white border border-slate-150 rounded-3xl p-10 shadow-sm max-w-xl mx-auto text-center space-y-4 animate-fade-in font-sans">
-              <div className="w-14 h-14 bg-sky-50 text-teal-600 rounded-2xl mx-auto flex items-center justify-center">
-                <Award size={26} className="text-emerald-500" />
-              </div>
-              <div>
-                <h3 className="text-base font-black text-slate-800 uppercase tracking-wider">
-                  Global Pipeline Hub
-                </h3>
-                <p className="text-xs text-slate-400 mt-1.5 leading-relaxed font-semibold max-w-sm mx-auto">
-                  This secure module is active under Sandbox and holds read-access rights for HR Admin HR Dept. Active roster edits must be completed in components inside the "Employees" profile details or "Payroll Ledger" excel spreadsheet.
-                </p>
-              </div>
-              <button
-                onClick={() => setActiveTab('employees')}
-                className="bg-emerald-500 hover:bg-emerald-600 px-4.5 py-3.5 rounded-2xl text-white font-bold text-xs tracking-wider uppercase shadow-md shadow-emerald-500/10 cursor-pointer"
-              >
-                Go to Active Profile Details
-              </button>
-            </div>
           )}
 
         </main>

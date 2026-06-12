@@ -822,6 +822,11 @@ export default function AdvancePaid({
               </div>
             ) : (
               <div className="overflow-x-auto text-[11px]">
+                <div className="mb-3 bg-emerald-50/70 border border-emerald-100 rounded-2xl p-3 px-4 flex justify-between items-center text-xs select-none">
+                  <span className="font-extrabold text-slate-500 uppercase tracking-wider text-[10px]">Total Monthly Advances</span>
+                  <span className="font-mono font-black text-emerald-600 text-sm">{formatINR(recordedDisbursals.reduce((sum, r) => sum + r.amount, 0))}</span>
+                </div>
+
                 <table className="w-full text-left border-collapse select-text">
                   <thead>
                      <tr className="border-b border-slate-150 text-[9px] font-black tracking-wider text-slate-400 uppercase select-none">
@@ -1182,6 +1187,11 @@ export default function AdvancePaid({
               </div>
             ) : (
               <div className="overflow-x-auto text-[11px]">
+                <div className="mb-3 bg-orange-50/70 border border-orange-100 rounded-2xl p-3 px-4 flex justify-between items-center text-xs select-none">
+                  <span className="font-extrabold text-slate-500 uppercase tracking-wider text-[10px]">Total Monthly Food Bills</span>
+                  <span className="font-mono font-black text-orange-600 text-sm">{formatINR(recordedFoodBills.reduce((sum, r) => sum + r.amount, 0))}</span>
+                </div>
+
                 <table className="w-full text-left border-collapse select-text">
                   <thead>
                     <tr className="border-b border-slate-150 text-[9px] font-black tracking-wider text-slate-400 uppercase select-none">

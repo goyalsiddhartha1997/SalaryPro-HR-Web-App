@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ComputedEmployee } from '../types';
 import { 
   Users, 
@@ -13,7 +13,10 @@ import {
   TrendingDown, 
   Layers,
   Award,
-  Clock
+  Clock,
+  X,
+  Search,
+  Info
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -31,6 +34,10 @@ export default function Dashboard({
   setLedgerMonth,
   setLedgerYear
 }: DashboardProps) {
+  const [modalType, setModalType] = useState<'payroll' | 'deductions' | null>(null);
+  const [modalSearch, setModalSearch] = useState('');
+  const [auditFilter, setAuditFilter] = useState<'all' | 'hourly_abs' | 'full_day_abs' | 'advances_food'>('all');
+
   // Memoize summaries for performance
   const stats = useMemo(() => {
     const liveEmployees = employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_'));
@@ -43,13 +50,50 @@ export default function Dashboard({
     let highAbsenceCount = 0; // Employees with >= 3 days absent
     let dayShiftCount = 0;
     let nightShiftCount = 0;
+    let totalSundayOT = 0;
+    let totalUnrecoveredDeductions = 0;
+
+    let totalDeductionFullDay = 0;
+    let totalDeductionHourly = 0;
+    let totalDeductionPartialDay = 0;
+    let totalAdvancePayment = 0;
+    let totalFoodBalance = 0;
+
+    const currentMonth = ledgerMonth || 6;
+    const currentYear = ledgerYear || 2026;
+    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+    let totalSalaryAmount = 0;
+    let totalDailyOwed = 0;
 
     liveEmployees.forEach(emp => {
+      // Calculate Total Salary Amount (theoretical max assuming 100% attendance)
+      if (emp.salaryType === 'daily') {
+        totalSalaryAmount += (emp.monthlySalary || 0) * daysInMonth;
+      } else {
+        totalSalaryAmount += (emp.monthlySalary || 0);
+      }
+
+      totalDailyOwed += emp.dailyRate || 0;
+
       totalBaseSalary += emp.grossSalary;
       totalDeductions += emp.totalDeduction;
       totalPayable += emp.finalPayable;
       totalFullDaysAbsent += emp.fullDaysAbsent;
       totalAbsentHours += emp.absentHours + (emp.absentMinutes / 60);
+      const sundayOT = emp.sundayOTAmount || 0;
+      totalSundayOT += sundayOT;
+
+      totalDeductionFullDay += emp.deductionFullDay || 0;
+      totalDeductionHourly += emp.deductionHourly || 0;
+      totalDeductionPartialDay += emp.deductionPartialDay || 0;
+      totalAdvancePayment += emp.advancePayment || 0;
+      totalFoodBalance += emp.foodBalance || 0;
+
+      // Calculate deductions that could not be fully recovered because net payable is capped at 0
+      const potentialPay = emp.grossSalary + sundayOT;
+      const unrecovered = Math.max(0, emp.totalDeduction - potentialPay);
+      totalUnrecoveredDeductions += unrecovered;
+
       if (emp.fullDaysAbsent >= 3) {
         highAbsenceCount++;
       }
@@ -60,9 +104,12 @@ export default function Dashboard({
       }
     });
 
+    const totalGrossEarnings = totalBaseSalary + totalSundayOT;
+    const totalDeductionsApplied = totalDeductions - totalUnrecoveredDeductions;
+
     const avgPayable = totalCount > 0 ? totalPayable / totalCount : 0;
     const avgBase = totalCount > 0 ? totalBaseSalary / totalCount : 0;
-    const deductionPercentage = totalBaseSalary > 0 ? (totalDeductions / totalBaseSalary) * 105 / 1.05 === totalDeductions ? 0 : (totalDeductions / totalBaseSalary) * 100 : 0;
+    const deductionPercentage = totalGrossEarnings > 0 ? (totalDeductionsApplied / totalGrossEarnings) * 100 : 0;
 
     // Salary brackets breakdown
     const brackets = {
@@ -89,7 +136,11 @@ export default function Dashboard({
     return {
       totalCount,
       totalBaseSalary,
+      totalSundayOT,
+      totalGrossEarnings,
       totalDeductions,
+      totalDeductionsApplied,
+      totalUnrecoveredDeductions,
       totalPayable,
       totalFullDaysAbsent,
       totalAbsentHours: Math.round(totalAbsentHours * 100) / 100,
@@ -99,9 +150,17 @@ export default function Dashboard({
       brackets,
       outliers,
       dayShiftCount,
-      nightShiftCount
+      nightShiftCount,
+      totalDeductionFullDay,
+      totalDeductionHourly,
+      totalDeductionPartialDay,
+      totalAdvancePayment,
+      totalFoodBalance,
+      totalSalaryAmount,
+      totalDailyOwed,
+      daysInMonth
     };
-  }, [employees]);
+  }, [employees, ledgerMonth, ledgerYear]);
 
   // Helper to format currency
   const formatINR = (value: number) => {
@@ -160,7 +219,7 @@ export default function Dashboard({
 
       {/* KPI Overviews */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Metric 1 */}
+        {/* Metric 1: Total Headcount */}
         <div id="stat-total-employees" className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm transition-all hover:shadow-md flex flex-col justify-between min-w-0">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">Total Headcount</span>
@@ -177,10 +236,48 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Metric 2 */}
-        <div id="stat-total-payroll" className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm transition-all hover:shadow-md flex flex-col justify-between min-w-0">
+        {/* Metric 2: Total Salary Amount (Assuming 100% Attendance) */}
+        <div id="stat-total-salary-amount" className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm transition-all hover:shadow-md flex flex-col justify-between min-w-0">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">Net Payroll (Payable)</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate font-semibold">Total Salary Amount</span>
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg shrink-0">
+              <Layers size={18} />
+            </div>
+          </div>
+          <div className="mt-3">
+            <h3 className="text-xl sm:text-2xl lg:text-xl xl:text-2xl font-black text-slate-800 tracking-tight truncate" title={formatINR(stats.totalSalaryAmount)}>
+              {formatINR(stats.totalSalaryAmount)}
+            </h3>
+            <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 truncate">
+              For full attendance ({stats.daysInMonth} days)
+            </p>
+            <div className="flex items-center gap-1.5 mt-2 text-[10px] font-bold select-none">
+              <span className="text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded truncate" title="Total daily payroll liability for full attendance on a single day">
+                Daily equivalent: {formatINR(stats.totalDailyOwed)} / day
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Metric 3: Net Payroll (Payable) */}
+        <div 
+          id="stat-total-payroll" 
+          onClick={() => {
+            setModalType('payroll');
+            setModalSearch('');
+          }}
+          className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm transition-all hover:shadow-md flex flex-col justify-between min-w-0 cursor-pointer hover:border-emerald-500 hover:bg-emerald-50/15 active:scale-[0.99] group/card relative"
+          title="Click to view detailed Net Payroll breakup"
+        >
+          <div className="flex items-center justify-between w-full">
+            <div className="flex flex-col gap-1.5 min-w-0">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">
+                Net Payroll (Payable)
+              </span>
+              <span className="inline-flex self-start text-[9px] font-extrabold text-emerald-700 bg-emerald-100/80 border border-emerald-250 px-2 py-0.5 rounded-lg shadow-2xs select-none group-hover/card:bg-emerald-500 group-hover/card:text-white group-hover/card:border-emerald-500 transition-all font-sans uppercase tracking-wider">
+                View Breakup
+              </span>
+            </div>
             <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg shrink-0">
               <IndianRupee size={18} />
             </div>
@@ -189,16 +286,38 @@ export default function Dashboard({
             <h3 className="text-xl sm:text-2xl lg:text-xl xl:text-2xl font-black text-slate-800 tracking-tight truncate" title={formatINR(stats.totalPayable)}>
               {formatINR(stats.totalPayable)}
             </h3>
-            <p className="text-[10.5px] text-emerald-600 font-bold mt-0.5 truncate" title={`Gross: ${formatINR(stats.totalBaseSalary)}`}>
-              Gross: {formatINR(stats.totalBaseSalary)}
-            </p>
+            <div className="mt-1 space-y-0.5 text-[10px]">
+              <p className="text-[#059669] font-bold truncate" title={`Base Salary: ${formatINR(stats.totalBaseSalary)}`}>
+                Gross Base: {formatINR(stats.totalBaseSalary)}
+              </p>
+              {stats.totalSundayOT > 0 && (
+                <p className="text-emerald-700 font-bold truncate" title="Extra earnings from Sunday OT shifts">
+                  + Sunday OT: {formatINR(stats.totalSundayOT)}
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Metric 3 */}
-        <div id="stat-total-deductions" className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm transition-all hover:shadow-md flex flex-col justify-between min-w-0">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">Total Deductions</span>
+        {/* Metric 4: Total Deductions */}
+        <div 
+          id="stat-total-deductions" 
+          onClick={() => {
+            setModalType('deductions');
+            setModalSearch('');
+          }}
+          className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm transition-all hover:shadow-md flex flex-col justify-between min-w-0 cursor-pointer hover:border-rose-500 hover:bg-rose-50/15 active:scale-[0.99] group/card relative"
+          title="Click to view detailed Deductions breakup"
+        >
+          <div className="flex items-center justify-between w-full">
+            <div className="flex flex-col gap-1.5 min-w-0">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">
+                Total Deductions
+              </span>
+              <span className="inline-flex self-start text-[9px] font-extrabold text-rose-700 bg-rose-100/80 border border-rose-250 px-2 py-0.5 rounded-lg shadow-2xs select-none group-hover/card:bg-rose-500 group-hover/card:text-white group-hover/card:border-rose-500 transition-all font-sans uppercase tracking-wider">
+                View Breakup
+              </span>
+            </div>
             <div className="p-2 bg-rose-50 text-rose-600 rounded-lg shrink-0">
               <TrendingDown size={18} />
             </div>
@@ -207,27 +326,16 @@ export default function Dashboard({
             <h3 className="text-xl sm:text-2xl lg:text-xl xl:text-2xl font-black text-rose-600 tracking-tight truncate" title={formatINR(stats.totalDeductions)}>
               {formatINR(stats.totalDeductions)}
             </h3>
-            <p className="text-[10.5px] text-rose-500 font-bold mt-0.5 truncate" title={`Absence Rate: ${stats.deductionPercentage.toFixed(2)}% of Gross`}>
-              Rate: {stats.deductionPercentage.toFixed(1)}% of Gross
-            </p>
-          </div>
-        </div>
-
-        {/* Metric 4 */}
-        <div id="stat-avg-payable" className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm transition-all hover:shadow-md flex flex-col justify-between min-w-0">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate font-semibold">Average Take-Home</span>
-            <div className="p-2 bg-amber-50 text-amber-600 rounded-lg shrink-0">
-              <Layers size={18} />
+            <div className="mt-1 space-y-0.5 text-[10px]">
+              <p className="text-rose-600 font-bold truncate" title={`Actually recovered/deducted this month: ${formatINR(stats.totalDeductionsApplied)}`}>
+                Applied Rate: {stats.deductionPercentage.toFixed(1)}% of Gross
+              </p>
+              {stats.totalUnrecoveredDeductions > 0 && (
+                <p className="text-slate-450 font-normal truncate" title="Deductions not fully recovered this month because individual employee payable cannot fall below 0. These are carried over.">
+                  Capped Deficit: {formatINR(stats.totalUnrecoveredDeductions)}
+                </p>
+              )}
             </div>
-          </div>
-          <div className="mt-3">
-            <h3 className="text-xl sm:text-2xl lg:text-xl xl:text-2xl font-black text-slate-800 tracking-tight truncate" title={formatINR(stats.avgPayable)}>
-              {formatINR(stats.avgPayable)}
-            </h3>
-            <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 truncate">
-              Per-employee mean pay
-            </p>
           </div>
         </div>
       </div>
@@ -368,6 +476,337 @@ export default function Dashboard({
         </div>
 
       </div>
+
+      {/* Dynamic Breakdown Modal */}
+      {modalType && (
+        <div 
+          onClick={() => setModalType(null)}
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 sm:p-6 transition-all duration-300"
+          id="breakdown-modal-overlay"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-slate-200 rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden font-sans animation-fade-in"
+            id="breakdown-modal-content"
+          >
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-150 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className={`p-2.5 rounded-2xl ${modalType === 'payroll' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                  {modalType === 'payroll' ? <IndianRupee size={22} /> : <TrendingDown size={22} />}
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-800 tracking-tight">
+                    {modalType === 'payroll' ? 'Corporate Net Payroll Reconciliation' : 'Comprehensive Deductions Audit Sheet'}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium">
+                    Ledger Period: {monthsList[(ledgerMonth || 6) - 1]} {ledgerYear || 2026}
+                  </p>
+                </div>
+              </div>
+
+              {/* Close Button & Switcher */}
+              <div className="flex items-center gap-3">
+                {/* Switcher Buttons inside modal header */}
+                <span className="hidden sm:inline-flex bg-slate-200/60 p-1 rounded-xl text-xs font-semibold gap-1">
+                  <button 
+                    onClick={() => {
+                      setModalType('payroll');
+                      setModalSearch('');
+                    }}
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${modalType === 'payroll' ? 'bg-white shadow-xs text-slate-800 font-bold' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    Payable
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setModalType('deductions');
+                      setModalSearch('');
+                    }}
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${modalType === 'deductions' ? 'bg-white shadow-xs text-slate-800 font-bold' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    Deductions
+                  </button>
+                </span>
+                
+                <button 
+                  onClick={() => setModalType(null)}
+                  className="p-1.5 hover:bg-slate-200 text-slate-400 hover:text-slate-700 rounded-lg transition-all cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body (Scrollable) */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-6">
+              
+              {/* Stat Cards Row */}
+              {modalType === 'payroll' ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Headcount</span>
+                    <span className="text-lg font-black text-slate-800 block mt-1">{stats.totalCount}</span>
+                    <span className="text-[9px] text-slate-400">active employees</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Gross Base Salary</span>
+                    <span className="text-lg font-black text-slate-800 block mt-1">{formatINR(stats.totalBaseSalary)}</span>
+                    <span className="text-[9px] text-slate-400">for entire roster</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Sunday Premium OT</span>
+                    <span className="text-lg font-black text-slate-800 block mt-1">{formatINR(stats.totalSundayOT)}</span>
+                    <span className="text-[9px] text-emerald-600 font-semibold">+{((stats.totalSundayOT / (stats.totalBaseSalary || 1)) * 100).toFixed(1)}% extra</span>
+                  </div>
+                  <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/50 px-1.5 py-0.5 rounded uppercase tracking-wider inline-block">Final Net Net</span>
+                    <span className="text-lg font-black text-emerald-800 block mt-1">{formatINR(stats.totalPayable)}</span>
+                    <span className="text-[9px] text-emerald-600 font-semibold opacity-90">fully cleared and payable</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Full Day Absence</span>
+                    <span className="text-base font-black text-slate-800 block mt-1">{formatINR(stats.totalDeductionFullDay)}</span>
+                  </div>
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Hourly Absences</span>
+                    <span className="text-base font-black text-slate-800 block mt-1">{formatINR(stats.totalDeductionHourly + stats.totalDeductionPartialDay)}</span>
+                  </div>
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Advance Paid</span>
+                    <span className="text-base font-black text-slate-800 block mt-1">{formatINR(stats.totalAdvancePayment)}</span>
+                  </div>
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Canteen / Food Bill</span>
+                    <span className="text-base font-black text-slate-800 block mt-1">{formatINR(stats.totalFoodBalance)}</span>
+                  </div>
+                  <div className="p-3.5 bg-rose-50 rounded-2xl border border-rose-100 col-span-2 md:col-span-1">
+                    <span className="text-[9px] font-bold text-rose-700 uppercase tracking-wider block">Total Deductions</span>
+                    <span className="text-base font-black text-rose-800 block mt-1">{formatINR(stats.totalDeductionsApplied)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Informative reconcile helper */}
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4.5 flex gap-3 text-slate-650 text-xs items-start">
+                <Info size={16} className={`shrink-0 mt-0.5 ${modalType === 'payroll' ? 'text-emerald-600' : 'text-slate-500'}`} />
+                <div>
+                  {modalType === 'payroll' ? (
+                    <p className="leading-relaxed">
+                      <strong>Reconciliation Logic:</strong> Net Payable equals `Gross Base Salary` + `Sunday OT Pay` minus `Applied Deductions`. If an employee's total accumulated monthly deductions exceed their total monthly earnings, their net payable of that month is capped at 0, resulting in a capped unrecovered deficit of <strong>{formatINR(stats.totalUnrecoveredDeductions)}</strong> which is deferred.
+                    </p>
+                  ) : (
+                    <p className="leading-relaxed">
+                      <strong>Deductions Audit:</strong> Total individual computed deductions are <strong>{formatINR(stats.totalDeductions)}</strong>. Out of this, <strong>{formatINR(stats.totalDeductionsApplied)}</strong> was applied/recovered this ledger month, and <strong>{formatINR(stats.totalUnrecoveredDeductions)}</strong> was capped to prevent net employee pay from plunging into negative balances.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Employees List Section */}
+              <div className="space-y-3">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div className="flex flex-col gap-2">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      Individual Breakdown Sheet
+                    </h4>
+                    {modalType === 'deductions' && (
+                      <div className="flex flex-wrap items-center gap-1.5 bg-slate-100/80 p-0.5 rounded-xl border border-slate-150">
+                        <button 
+                          onClick={() => setAuditFilter('all')}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-black cursor-pointer transition-all ${auditFilter === 'all' ? 'bg-white shadow-xs text-slate-800' : 'text-slate-500 hover:text-slate-800'}`}
+                        >
+                          All ({employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_')).length})
+                        </button>
+                        <button 
+                          onClick={() => setAuditFilter('hourly_abs')}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-black cursor-pointer transition-all ${auditFilter === 'hourly_abs' ? 'bg-rose-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                        >
+                          Hourly Absences ({employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_')).filter(emp => (emp.deductionHourly || 0) + (emp.deductionPartialDay || 0) > 0).length})
+                        </button>
+                        <button 
+                          onClick={() => setAuditFilter('full_day_abs')}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-black cursor-pointer transition-all ${auditFilter === 'full_day_abs' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                        >
+                          Full-Day Absences ({employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_')).filter(emp => emp.fullDaysAbsent > 0).length})
+                        </button>
+                        <button 
+                          onClick={() => setAuditFilter('advances_food')}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-black cursor-pointer transition-all ${auditFilter === 'advances_food' ? 'bg-indigo-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                        >
+                          Advances & Food ({employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_')).filter(emp => (emp.advancePayment || 0) + (emp.foodBalance || 0) > 0).length})
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  {/* Search bar inside popup */}
+                  <div className="relative w-full md:w-64">
+                    <span className="absolute left-3 top-2.5 text-slate-400">
+                      <Search size={14} />
+                    </span>
+                    <input 
+                      type="text"
+                      placeholder="Search name, ID or role..."
+                      value={modalSearch}
+                      onChange={(e) => setModalSearch(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-1.5 text-xs font-semibold text-slate-700 focus:outline-none focus:bg-white focus:ring-1 focus:ring-emerald-500 transition-all font-sans"
+                    />
+                    {modalSearch && (
+                      <button 
+                        onClick={() => setModalSearch('')}
+                        className="absolute right-3 top-2 text-xs font-bold text-slate-400 hover:text-slate-605 cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>                {/* Table Header/Container */}
+                <div className="border border-slate-150 rounded-2xl overflow-hidden bg-white">
+                  <div className="overflow-x-auto max-h-72">
+                    <table className="w-full text-left text-xs">
+                      {modalType === 'payroll' ? (
+                        <thead>
+                          <tr className="bg-slate-50/80 text-slate-500 font-bold border-b border-slate-100 select-none">
+                            <th className="p-3">Employee</th>
+                            <th className="p-3 text-right">Gross Base</th>
+                            <th className="p-3 text-right">Sunday OT</th>
+                            <th className="p-3 text-right text-rose-600">Deductions</th>
+                            <th className="p-3 text-right text-emerald-700">Net Payable</th>
+                          </tr>
+                        </thead>
+                      ) : (
+                        <thead>
+                          <tr className="bg-slate-50/80 text-slate-500 font-bold border-b border-slate-100 select-none">
+                            <th className="p-3">Employee</th>
+                            <th className="p-3 text-right">Full-Day Ded.</th>
+                            <th className="p-3 text-right">Hourly Ded.</th>
+                            <th className="p-3 text-right">Advance Salary</th>
+                            <th className="p-3 text-right">Canteen/Food</th>
+                            <th className="p-3 text-right text-rose-700">Total Deduct</th>
+                          </tr>
+                        </thead>
+                      )}
+                      <tbody>
+                        {(() => {
+                          const live = employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_'));
+                          let filtered = modalSearch.trim() === '' ? live : live.filter(emp => 
+                            (emp.name || '').toLowerCase().includes(modalSearch.toLowerCase()) || 
+                            (emp.id || '').toLowerCase().includes(modalSearch.toLowerCase()) ||
+                            (emp.role || emp.designation || '').toLowerCase().includes(modalSearch.toLowerCase())
+                          );
+
+                          if (modalType === 'deductions' && auditFilter !== 'all') {
+                            if (auditFilter === 'hourly_abs') {
+                              filtered = filtered.filter(emp => (emp.deductionHourly || 0) + (emp.deductionPartialDay || 0) > 0);
+                            } else if (auditFilter === 'full_day_abs') {
+                              filtered = filtered.filter(emp => emp.fullDaysAbsent > 0);
+                            } else if (auditFilter === 'advances_food') {
+                              filtered = filtered.filter(emp => (emp.advancePayment || 0) + (emp.foodBalance || 0) > 0);
+                            }
+                          }
+
+                          if (filtered.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={modalType === 'payroll' ? 5 : 6} className="p-8 text-center text-slate-400 font-medium">
+                                  No employees found matching "{modalSearch}"
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return filtered.map(emp => {
+                            const empAbsencesDed = (emp.deductionFullDay || 0) + (emp.deductionHourly || 0) + (emp.deductionPartialDay || 0);
+                            return (
+                              <tr key={emp.id} className="border-b border-dashed border-slate-100 hover:bg-slate-50/70 transition-all font-sans">
+                                <td className="p-3 flex items-center gap-2">
+                                  <span className="text-[10px] font-mono font-bold text-slate-500 bg-slate-150 px-1.5 py-0.5 rounded shrink-0">{emp.id}</span>
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-slate-800 truncate">{emp.name}</p>
+                                    <p className="text-[9.5px] text-slate-400 font-medium truncate uppercase">{emp.salaryType} • {emp.role || emp.designation || 'Staff'}</p>
+                                  </div>
+                                </td>
+                                {modalType === 'payroll' ? (
+                                  <>
+                                    <td className="p-3 text-right font-medium text-slate-700">{formatINR(emp.grossSalary)}</td>
+                                    <td className="p-3 text-right text-slate-600">
+                                      {emp.sundayOTAmount > 0 ? (
+                                        <span className="text-emerald-700 font-bold font-mono">+{formatINR(emp.sundayOTAmount)}</span>
+                                      ) : '-'}
+                                    </td>
+                                    <td className="p-3 text-right text-rose-600 font-medium">
+                                      {emp.totalDeduction > 0 ? `-${formatINR(emp.totalDeduction)}` : '-'}
+                                    </td>
+                                    <td className="p-3 text-right font-black text-emerald-800 bg-emerald-500/5 font-mono">
+                                      {formatINR(emp.finalPayable)}
+                                    </td>
+                                  </>
+                                ) : (
+                                  <>
+                                    <td className="p-3 text-right">
+                                      {emp.deductionFullDay > 0 ? (
+                                        <div className="text-right">
+                                          <span className="font-bold text-slate-700 font-mono">-{formatINR(emp.deductionFullDay)}</span>
+                                          <p className="text-[9px] text-slate-400 font-bold font-sans">{emp.fullDaysAbsent} day{emp.fullDaysAbsent > 1 ? 's' : ''} abs</p>
+                                        </div>
+                                      ) : '-'}
+                                    </td>
+                                    <td className="p-3 text-right">
+                                      {((emp.deductionHourly || 0) + (emp.deductionPartialDay || 0)) > 0 ? (
+                                        <div className="text-right" title={`Hourly: ${emp.absentHours}h ${emp.absentMinutes}m\nPartial working days deductions: ${emp.deductionPartialDay || 0}`}>
+                                          <span className="font-bold text-slate-700 font-mono">-{formatINR(Math.round((emp.deductionHourly || 0) + (emp.deductionPartialDay || 0)))}</span>
+                                          <p className="text-[9px] text-slate-400 font-medium font-sans">
+                                            {emp.absentHours > 0 || emp.absentMinutes > 0 ? `${emp.absentHours}h ${emp.absentMinutes}m` : ''}
+                                            {emp.deductionPartialDay > 0 ? ` + partial` : ''}
+                                          </p>
+                                          <p className="text-[8.5px] text-indigo-500 font-bold font-mono">rate: {formatINR(emp.hourlyRate)}/hr</p>
+                                        </div>
+                                      ) : '-'}
+                                    </td>
+                                    <td className="p-3 text-right text-amber-700 font-medium">
+                                      {emp.advancePayment > 0 ? (
+                                        <span className="font-mono">-{formatINR(emp.advancePayment)}</span>
+                                      ) : '-'}
+                                    </td>
+                                    <td className="p-3 text-right text-indigo-700 font-medium">
+                                      {emp.foodBalance > 0 ? (
+                                        <span className="font-mono">-{formatINR(emp.foodBalance)}</span>
+                                      ) : '-'}
+                                    </td>
+                                    <td className="p-3 text-right font-black text-rose-700 bg-rose-500/5 font-mono">
+                                      -{formatINR(emp.totalDeduction)}
+                                    </td>
+                                  </>
+                                )}
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center text-[10.5px] text-slate-400 font-medium font-sans">
+              <span className="font-mono">SalaryPro Enterprise Analytics Suite v2</span>
+              <button 
+                onClick={() => setModalType(null)}
+                className="px-4 py-2 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-700 cursor-pointer transition-all hover:shadow-sm"
+              >
+                Close Breakup Sheet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
