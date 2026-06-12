@@ -395,6 +395,7 @@ export default function App() {
       
       const monthsToSync = new Set<string>();
       monthsToSync.add(monthStr);
+      monthsToSync.add('2026-05'); // Make sure May 2026 punches are always fully synchronized
       monthsToSync.add('2026-06'); // Make sure June 2026 punches are always fully synchronized
 
       const logs: Record<string, Record<string, string[]>> = {};

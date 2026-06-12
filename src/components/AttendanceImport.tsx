@@ -22,7 +22,8 @@ import {
   Save,
   AlertTriangle,
   XCircle,
-  Download
+  Download,
+  UserPlus
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
@@ -1049,6 +1050,7 @@ export default function AttendanceImport({
   const [showOnlyFaults, setShowOnlyFaults] = useState<boolean>(false);
   const [showOnlyAutoRepaired, setShowOnlyAutoRepaired] = useState<boolean>(false);
   const [showOnlyShiftWarning, setShowOnlyShiftWarning] = useState<boolean>(false);
+  const [showOnlyNewEntrants, setShowOnlyNewEntrants] = useState<boolean>(false);
 
   // Compute number of rows with anomalies/faults (odd punches or break > 1.5h)
   const faultRowsCount = useMemo(() => {
@@ -1062,10 +1064,15 @@ export default function AttendanceImport({
     }).length;
   }, [previewData]);
 
-  // Order faults first, or filter only faults, auto-repaired & shift warnings
+  // Compute unique non-existent employee codes from imported punch rows
+  const uniqueNewAdditions = useMemo(() => {
+    return Array.from(new Set(previewData.filter(row => !row.existsInDb).map(row => row.employeeId || row.id)));
+  }, [previewData]);
+
+  // Order faults first, or filter only faults, auto-repaired, shift warnings & new additions
   const sortedAndFilteredPreviewData = useMemo(() => {
     let list = [...previewData];
-    if (showOnlyFaults || showOnlyAutoRepaired || showOnlyShiftWarning) {
+    if (showOnlyFaults || showOnlyAutoRepaired || showOnlyShiftWarning || showOnlyNewEntrants) {
       list = list.filter(row => {
         const cleanPunches = getCleanPunches(row.punches);
         const isOdd = cleanPunches.length % 2 !== 0;
@@ -1083,6 +1090,7 @@ export default function AttendanceImport({
         let passFault = true;
         let passAutoRepaired = true;
         let passShiftWarning = true;
+        let passNewEntrant = true;
 
         if (showOnlyFaults) {
           passFault = hasAnomaly;
@@ -1093,8 +1101,11 @@ export default function AttendanceImport({
         if (showOnlyShiftWarning) {
           passShiftWarning = hasShiftWarning;
         }
+        if (showOnlyNewEntrants) {
+          passNewEntrant = !row.existsInDb;
+        }
 
-        return passFault && passAutoRepaired && passShiftWarning;
+        return passFault && passAutoRepaired && passShiftWarning && passNewEntrant;
       });
     } else {
       list.sort((a, b) => {
@@ -1114,7 +1125,7 @@ export default function AttendanceImport({
       });
     }
     return list;
-  }, [previewData, showOnlyFaults, showOnlyAutoRepaired, showOnlyShiftWarning, employees]);
+  }, [previewData, showOnlyFaults, showOnlyAutoRepaired, showOnlyShiftWarning, showOnlyNewEntrants, employees, importShift, dayShiftRules, nightShiftRules]);
 
   // Memoize registered/active employees whose ID is entered into ledger (non-temp)
   const activeEmployees = useMemo(() => {
@@ -2087,6 +2098,7 @@ export default function AttendanceImport({
     setRowLayout('single');
     setLogsAlreadyExistForDate(false);
     setIsCheckingExistingLogs(false);
+    setShowOnlyNewEntrants(false);
     setMappings({
       id: '',
       name: '',
@@ -2194,13 +2206,11 @@ export default function AttendanceImport({
         });
       });
 
-      // Rearrange by department column in ascending order for every generated sheet
+      // Rearrange by designation column in ascending order for every generated sheet
       sheetData.sort((a, b) => {
-        const empA = activeEmployees.find(e => e.id === a['emp code']);
-        const empB = activeEmployees.find(e => e.id === b['emp code']);
-        const deptA = String((empA && empA.department) || '').toLowerCase().trim();
-        const deptB = String((empB && empB.department) || '').toLowerCase().trim();
-        return deptA.localeCompare(deptB);
+        const desigA = String(a['designation'] || '').toLowerCase().trim();
+        const desigB = String(b['designation'] || '').toLowerCase().trim();
+        return desigA.localeCompare(desigB);
       });
 
       if (sheetData.length > 0) {
@@ -2289,12 +2299,8 @@ export default function AttendanceImport({
         'OUT2': getPunchTime(punches, 3, highlightAutoPunches),
         'IN3': getPunchTime(punches, 4, highlightAutoPunches),
         'OUT3': getPunchTime(punches, 5, highlightAutoPunches),
-        'IN4': getPunchTime(punches, 6, highlightAutoPunches),
-        'OUT4': getPunchTime(punches, 7, highlightAutoPunches),
-        'IN5': getPunchTime(punches, 8, highlightAutoPunches),
-        'OUT5': getPunchTime(punches, 9, highlightAutoPunches),
-        'Total Work Time': workFormatted,
-        'Total Break Time': breakFormatted
+        'TWH': workFormatted,
+        'BREAK': breakFormatted
       });
     });
 
@@ -2327,7 +2333,7 @@ export default function AttendanceImport({
     worksheet['!cols'] = maxKeys.map((k) => {
       if (k === 'Date') return { wch: 18 };
       if (k === 'Attendance Status') return { wch: 16 };
-      if (k === 'Total Work Time' || k === 'Total Break Time') return { wch: 20 };
+      if (k === 'TWH' || k === 'BREAK') return { wch: 16 };
       return { wch: 12 };
     });
 
@@ -4041,6 +4047,24 @@ export default function AttendanceImport({
                 </div>
               ) : null}
 
+              {/* Unique new additions detected alert banner */}
+              {uniqueNewAdditions.length > 0 && (
+                <div className="bg-amber-50 border-2 border-amber-200 p-4 rounded-2xl flex items-start gap-3 select-none">
+                  <div className="w-9 h-9 bg-amber-150 rounded-xl flex items-center justify-center text-amber-800 shrink-0 mt-0.5 border border-amber-200">
+                    <UserPlus size={16} className="animate-pulse" />
+                  </div>
+                  <div>
+                    <h5 className="text-[11.5px] font-bold text-amber-900 uppercase font-mono tracking-wider flex items-center gap-1.5">
+                      <span>New Employee Code Addition Alert ({uniqueNewAdditions.length})</span>
+                    </h5>
+                    <p className="text-[10.5px] text-amber-850 mt-1 leading-relaxed font-sans font-medium">
+                      The uploaded file contains employee codes that are not present in your database: <strong className="font-mono text-amber-950 font-black">{uniqueNewAdditions.join(', ')}</strong>. 
+                      Proceeding will automatically **add and register these employees** as new profiles in the database.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Filter Controls Toolbar */}
               <div className="flex flex-wrap items-center gap-2.5 pb-1 pt-1 font-sans">
                 <span className="text-[10px] uppercase font-black text-slate-400 font-mono tracking-wider ml-1">Filter Preview List:</span>
@@ -4087,14 +4111,31 @@ export default function AttendanceImport({
                   <span>Shift Warning</span>
                 </button>
 
+                {/* New Additions Filter Button */}
+                {uniqueNewAdditions.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowOnlyNewEntrants(!showOnlyNewEntrants)}
+                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-xl transition-all border shrink-0 cursor-pointer flex items-center gap-1.5 ${
+                      showOnlyNewEntrants 
+                        ? 'bg-teal-600 text-white border-teal-500 shadow-xs' 
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 shadow-2xs'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${showOnlyNewEntrants ? 'bg-teal-100' : 'bg-teal-500'}`}></span>
+                    <span>New Additions</span>
+                  </button>
+                )}
+
                 {/* Reset button if any filter is active */}
-                {(showOnlyFaults || showOnlyAutoRepaired || showOnlyShiftWarning) && (
+                {(showOnlyFaults || showOnlyAutoRepaired || showOnlyShiftWarning || showOnlyNewEntrants) && (
                   <button
                     type="button"
                     onClick={() => {
                       setShowOnlyFaults(false);
                       setShowOnlyAutoRepaired(false);
                       setShowOnlyShiftWarning(false);
+                      setShowOnlyNewEntrants(false);
                     }}
                     className="px-2 py-1 text-[10px] font-bold uppercase text-slate-400 hover:text-slate-700 cursor-pointer tracking-wider"
                   >

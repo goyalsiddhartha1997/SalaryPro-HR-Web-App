@@ -63,7 +63,7 @@ export default function GatePassRecord({
   const [loadingPasses, setLoadingPasses] = useState<boolean>(true);
 
   // --- STATE FOR SORTING ---
-  const [sortField, setSortField] = useState<'date' | 'employeeId' | null>(null);
+  const [sortField, setSortField] = useState<'date' | 'employeeId' | null>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   // Real-time synchronization of all gate passes

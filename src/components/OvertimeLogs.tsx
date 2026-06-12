@@ -71,7 +71,7 @@ export default function OvertimeLogs({
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // --- STATE FOR SORTING ---
-  const [sortField, setSortField] = useState<'date' | 'employeeId' | null>(null);
+  const [sortField, setSortField] = useState<'date' | 'employeeId' | null>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   // --- REAL-TIME OVERTIME LOGS FROM FIRESTORE ---

@@ -67,7 +67,7 @@ export default function AdvancePaid({
   const [isSubmittingAdvance, setIsSubmittingAdvance] = useState(false);
 
   // --- STATE FOR SORTING ADVANCES ---
-  const [sortField, setSortField] = useState<'date' | 'employeeId' | null>(null);
+  const [sortField, setSortField] = useState<'date' | 'employeeId' | null>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   // --- STATE FOR SORTING FOOD BILLS ---

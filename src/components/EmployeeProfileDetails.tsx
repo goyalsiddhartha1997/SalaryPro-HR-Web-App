@@ -323,6 +323,12 @@ export default function EmployeeProfileDetails({
     if (ledgerYear) setOtFilterYear(ledgerYear);
   }, [ledgerMonth, ledgerYear]);
 
+  // Sync otFilter values automatically with ATTENDANCE MAP navigation selections
+  useEffect(() => {
+    setOtFilterMonth(calendarMonth);
+    setOtFilterYear(calendarYear);
+  }, [calendarMonth, calendarYear]);
+
   useEffect(() => {
     if (!employee.id) return;
     const q = collection(db, 'overtimeLogs');
@@ -377,6 +383,11 @@ export default function EmployeeProfileDetails({
       return logYear === otFilterYear && logMonth === otFilterMonth;
     });
   }, [employeeOvertimeLogs, otFilterMonth, otFilterYear]);
+
+  const filteredAdvanceHistory = useMemo(() => {
+    const targetMonthYearStr = `${otFilterYear}-${String(otFilterMonth + 1).padStart(2, '0')}`;
+    return employeeAdvanceHistory.filter(adv => adv.id === targetMonthYearStr);
+  }, [employeeAdvanceHistory, otFilterMonth, otFilterYear]);
 
   const totalOtHours = useMemo(() => {
     let total = 0;
@@ -1377,24 +1388,43 @@ export default function EmployeeProfileDetails({
             {/* Advances Paid history logs */}
             <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 flex flex-col justify-between min-h-[300px]">
               <div>
-                <div className="flex justify-between items-center mb-4">
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 mb-4">
                   <div className="flex items-center gap-1.5">
                     <Wallet size={14} className="text-emerald-500" />
                     <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest">Advances Paid</h4>
                   </div>
-                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded">Statement</span>
+                  <div className="flex items-center gap-1.5">
+                    <select 
+                      value={otFilterMonth}
+                      onChange={(e) => setOtFilterMonth(parseInt(e.target.value, 10))}
+                      className="bg-slate-50 text-[10px] font-extrabold text-slate-650 rounded-lg px-2 py-1 cursor-pointer focus:outline-hidden border border-slate-200/60"
+                    >
+                      {monthsList.map((m, idx) => (
+                        <option key={idx} value={idx}>{m.substring(0, 3)}</option>
+                      ))}
+                    </select>
+                    <select 
+                      value={otFilterYear}
+                      onChange={(e) => setOtFilterYear(parseInt(e.target.value, 10))}
+                      className="bg-slate-50 text-[10px] font-extrabold text-slate-650 rounded-lg px-2 py-1 cursor-pointer focus:outline-hidden border border-slate-200/60"
+                    >
+                      {[2024, 2025, 2026, 2027, 2028].map(y => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 {/* List items */}
                 <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
-                  {employeeAdvanceHistory.length === 0 ? (
+                  {filteredAdvanceHistory.length === 0 ? (
                     <div className="text-center py-10">
                       <Coins size={20} className="mx-auto text-slate-300 mb-2" />
                       <p className="text-[10px] font-black text-slate-450 uppercase tracking-widest">No Advances Paid</p>
-                      <p className="text-[9px] text-slate-400 mt-0.5 font-semibold">No advance payouts logged for this employee</p>
+                      <p className="text-[9px] text-slate-400 mt-0.5 font-semibold">No advance payouts logged for this employee in {monthsList[otFilterMonth]} {otFilterYear}</p>
                     </div>
                   ) : (
-                    employeeAdvanceHistory.map((adv) => (
+                    filteredAdvanceHistory.map((adv) => (
                       <div key={adv.id} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/50 border border-slate-100 hover:bg-slate-50 transition-all">
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div className="w-8 h-8 bg-amber-50 rounded-xl flex items-center justify-center text-amber-500 shrink-0 border border-amber-100/50">
