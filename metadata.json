@@ -1,5 +1,5 @@
 {
-  "name": "SalaryPro",
+  "name": "Salary Pro FFPL",
   "description": "An interactive digital HR payroll system with automatic formula rates, 150+ seeded live staff rows, accounting validations, and .xlsx spreadsheet workbook exports.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

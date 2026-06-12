@@ -21,7 +21,8 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
-  Unlock
+  Unlock,
+  Undo2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -62,12 +63,20 @@ function CellInput({ value, onBlur, className, type = "text", ...props }: CellIn
 
 interface ExcelTableProps {
   employees: ComputedEmployee[];
-  onUpdateEmployee: (id: string, updatedFields: Partial<Employee>) => void;
+  onUpdateEmployee: (id: string, updatedFields: Partial<Employee>, skipUndoPush?: boolean) => void;
   onAddEmployee: () => void;
   onDeleteEmployee: (id: string) => void;
   onResetData: () => void;
   onBulkUpdateSettings: (workingDays: number, workingHours: number) => void;
   onViewProfile?: (id: string) => void;
+  canUndo: boolean;
+  onUndo: () => void;
+  onPushUndo: () => void;
+  viewOnly?: boolean;
+  ledgerMonth?: number;
+  setLedgerMonth?: (m: number) => void;
+  ledgerYear?: number;
+  setLedgerYear?: (y: number) => void;
 }
 
 export default function ExcelTable({
@@ -77,7 +86,15 @@ export default function ExcelTable({
   onDeleteEmployee,
   onResetData,
   onBulkUpdateSettings,
-  onViewProfile
+  onViewProfile,
+  canUndo,
+  onUndo,
+  onPushUndo,
+  viewOnly = false,
+  ledgerMonth = 5,
+  setLedgerMonth = () => {},
+  ledgerYear = 2026,
+  setLedgerYear = () => {}
 }: ExcelTableProps) {
   // Search & Filter state
   const [filterOpts, setFilterOpts] = useState<FilterOptions>({
@@ -116,8 +133,8 @@ export default function ExcelTable({
     if (filterOpts.searchQuery.trim()) {
       const q = filterOpts.searchQuery.toLowerCase();
       result = result.filter(emp => 
-        emp.id.toLowerCase().includes(q) || 
-        emp.name.toLowerCase().includes(q)
+        (emp.id || '').toLowerCase().includes(q) || 
+        (emp.name || '').toLowerCase().includes(q)
       );
     }
 
@@ -125,13 +142,13 @@ export default function ExcelTable({
     if (filterOpts.minSalary) {
       const min = Number(filterOpts.minSalary);
       if (!isNaN(min)) {
-        result = result.filter(emp => emp.monthlySalary >= min);
+        result = result.filter(emp => emp.grossSalary >= min);
       }
     }
     if (filterOpts.maxSalary) {
       const max = Number(filterOpts.maxSalary);
       if (!isNaN(max)) {
-        result = result.filter(emp => emp.monthlySalary <= max);
+        result = result.filter(emp => emp.grossSalary <= max);
       }
     }
 
@@ -142,7 +159,7 @@ export default function ExcelTable({
 
     // 4. High Deductions (Total Deduction > 10% of base salary)
     if (filterOpts.highDeductionsOnly) {
-      result = result.filter(emp => emp.totalDeduction > (emp.monthlySalary * 0.1));
+      result = result.filter(emp => emp.totalDeduction > (emp.grossSalary * 0.1));
     }
 
     // 5. Sorting
@@ -200,17 +217,23 @@ export default function ExcelTable({
     let totalGross = 0;
     let totalDeductions = 0;
     let totalPayable = 0;
+    let totalAdvance = 0;
+    let totalFood = 0;
 
     filteredEmployees.forEach(emp => {
-      totalGross += emp.monthlySalary || 0;
+      totalGross += emp.grossSalary || 0;
       totalDeductions += emp.totalDeduction || 0;
       totalPayable += emp.finalPayable || 0;
+      totalAdvance += emp.advancePayment || 0;
+      totalFood += emp.foodBalance || 0;
     });
 
     return {
       gross: Math.round(totalGross * 100) / 100,
       deductions: Math.round(totalDeductions * 100) / 100,
-      payable: Math.round(totalPayable * 100) / 100
+      payable: Math.round(totalPayable * 100) / 100,
+      advance: Math.round(totalAdvance * 100) / 100,
+      food: Math.round(totalFood * 100) / 100
     };
   }, [filteredEmployees]);
 
@@ -256,6 +279,33 @@ export default function ExcelTable({
       return;
     }
 
+    if (field === 'department') {
+      const trimmedVal = value.trim();
+      onUpdateEmployee(id, { department: trimmedVal });
+      return;
+    }
+
+    if (field === 'designation') {
+      const trimmedVal = value.trim();
+      onUpdateEmployee(id, { designation: trimmedVal, role: trimmedVal });
+      return;
+    }
+
+    if (field === 'salaryType') {
+      onUpdateEmployee(id, { salaryType: value as 'fixed' | 'daily' });
+      return;
+    }
+
+    if (field === 'shift') {
+      onUpdateEmployee(id, { shift: value as 'DAY' | 'NIGHT' });
+      return;
+    }
+
+    if (field === 'sundayPaid') {
+      onUpdateEmployee(id, { sundayPaid: value as 'Paid' | 'Not Paid' });
+      return;
+    }
+
     // numeric fields conversion
     const num = parseFloat(value);
     parsedValue = isNaN(num) ? 0 : num;
@@ -267,7 +317,7 @@ export default function ExcelTable({
       parsedValue = Math.max(0, Math.round(parsedValue));
     } else if (field === 'workingHours') {
       parsedValue = Math.max(0, parsedValue);
-    } else if (field === 'fullDaysAbsent' || field === 'absentHours' || field === 'monthlySalary') {
+    } else if (field === 'fullDaysAbsent' || field === 'absentHours' || field === 'monthlySalary' || field === 'advancePayment' || field === 'foodBalance') {
       parsedValue = Math.max(0, parsedValue);
     }
 
@@ -289,6 +339,15 @@ export default function ExcelTable({
     const dataToExport = employees.map(emp => ({
       'Employee ID': emp.id,
       'Employee Name': emp.name,
+      'Department': emp.department || '',
+      'Designation': emp.designation || emp.role || '',
+      'Shift': String(emp.shift || 'DAY'),
+      'Salary Type': String(emp.salaryType || 'fixed'),
+      'Sunday Paid Status': String(emp.sundayPaid || 'Not Paid'),
+      'Shift Time': emp.shiftTime || '',
+      'Contact Number': emp.phone || '',
+      'Address': emp.address || '',
+      'Monthly/Daily Rate Indicator': emp.salaryType === 'daily' ? 'Per-Day' : 'Monthly Fixed',
       'Monthly Salary (INR)': emp.monthlySalary,
       'Working Days in Month': emp.workingDays,
       'Daily Salary Rate (INR)': emp.dailyRate,
@@ -297,20 +356,39 @@ export default function ExcelTable({
       'Full Days Absent': emp.fullDaysAbsent,
       'Absent Hours': emp.absentHours,
       'Absent Minutes': emp.absentMinutes,
+      'Sunday OT Days Worked': emp.sundayOTDays || 0,
+      'Sunday OT Amount (INR)': emp.sundayOTAmount || 0,
       'Deduction: Full Day (INR)': emp.deductionFullDay,
       'Deduction: Hourly (INR)': emp.deductionHourly,
+      'Deduction: Partial Day (INR)': emp.deductionPartialDay || 0,
+      'Advance Payment (INR)': emp.advancePayment || 0,
+      'Food Balance (INR)': emp.foodBalance || 0,
       'Total Deduction (INR)': emp.totalDeduction,
       'Final Payable Salary (INR)': emp.finalPayable
     }));
 
     // Add calculations total row at the end
-    const totalGross = employees.reduce((acc, current) => acc + current.monthlySalary, 0);
+    const totalGross = employees.reduce((acc, current) => acc + current.grossSalary, 0);
     const totalDeds = employees.reduce((acc, current) => acc + current.totalDeduction, 0);
     const totalPays = employees.reduce((acc, current) => acc + current.finalPayable, 0);
+    const totalAdvance = employees.reduce((acc, current) => acc + (current.advancePayment || 0), 0);
+    const totalFood = employees.reduce((acc, current) => acc + (current.foodBalance || 0), 0);
+    const totalPartialDeds = employees.reduce((acc, current) => acc + (current.deductionPartialDay || 0), 0);
+    const totalSundayOTDays = employees.reduce((acc, current) => acc + (current.sundayOTDays || 0), 0);
+    const totalSundayOTAmount = employees.reduce((acc, current) => acc + (current.sundayOTAmount || 0), 0);
 
     dataToExport.push({
       'Employee ID': 'TOTAL ROWS: ' + employees.length,
       'Employee Name': 'Summary Ledger Sums',
+      'Department': '',
+      'Designation': '',
+      'Shift': '',
+      'Salary Type': '',
+      'Sunday Paid Status': '',
+      'Shift Time': '',
+      'Contact Number': '',
+      'Address': '',
+      'Monthly/Daily Rate Indicator': '',
       'Monthly Salary (INR)': totalGross,
       'Working Days in Month': 0,
       'Daily Salary Rate (INR)': 0,
@@ -319,8 +397,13 @@ export default function ExcelTable({
       'Full Days Absent': 0,
       'Absent Hours': 0,
       'Absent Minutes': 0,
+      'Sunday OT Days Worked': totalSundayOTDays,
+      'Sunday OT Amount (INR)': totalSundayOTAmount,
       'Deduction: Full Day (INR)': 0,
       'Deduction: Hourly (INR)': 0,
+      'Deduction: Partial Day (INR)': totalPartialDeds,
+      'Advance Payment (INR)': totalAdvance,
+      'Food Balance (INR)': totalFood,
       'Total Deduction (INR)': totalDeds,
       'Final Payable Salary (INR)': totalPays
     });
@@ -341,6 +424,8 @@ export default function ExcelTable({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    onPushUndo();
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const data = new Uint8Array(event.target?.result as ArrayBuffer);
@@ -350,32 +435,63 @@ export default function ExcelTable({
       const parsedData = XLSX.utils.sheet_to_json<any>(worksheet);
 
       // Map parsed excel rows to our strict Employee interface
+      const findFuzzyValue = (r: any, aliases: string[]) => {
+        const rowKeys = Object.keys(r);
+        for (const alias of aliases) {
+          const matchKey = rowKeys.find(k => {
+            const cleanKey = k.toLowerCase().replace(/[\s\._\-]/g, '');
+            const cleanAlias = alias.toLowerCase().replace(/[\s\._\-]/g, '');
+            return cleanKey === cleanAlias;
+          });
+          if (matchKey !== undefined) {
+            return r[matchKey];
+          }
+        }
+        return undefined;
+      };
+
       let rowCounter = employees.length + 1;
       parsedData.forEach((row: any) => {
-        // Find or generate ID
-        const rawId = row['Employee ID'] || row['id'] || row['ID'] || `EMP-${String(rowCounter++).padStart(3, '0')}`;
+        // Find or generate ID with multi-alias backup
+        const idVal = findFuzzyValue(row, ['Employee ID', 'id', 'ID', 'empId', 'code', 'employeeCode', 'EmployeeNo']);
+        const rawId = idVal !== undefined ? idVal : `EMP-${String(rowCounter++).padStart(3, '0')}`;
         
         // Skip aggregate totals labels
         if (rawId.toString().includes('TOTAL') || rawId.toString().includes('Summary')) return;
 
-        const name = row['Employee Name'] || row['name'] || row['Name'] || 'Imported Staff';
-        const monthlySalary = Number(row['Monthly Salary (INR)'] || row['monthlySalary'] || row['Salary'] || row['salary'] || 0);
-        const workingDays = Number(row['Working Days in Month'] || row['workingDays'] || row['Days'] || 26);
-        const workingHours = Number(row['Working Hours per Day'] || row['workingHours'] || row['Hours'] || 9);
-        const fullDaysAbsent = Number(row['Full Days Absent'] || row['fullDaysAbsent'] || 0);
-        const absentHours = Number(row['Absent Hours'] || row['absentHours'] || 0);
-        const absentMinutes = Number(row['Absent Minutes'] || row['absentMinutes'] || 0);
+        const name = String(findFuzzyValue(row, ['Employee Name', 'name', 'Name', 'FullName', 'StaffName']) || 'Imported Staff');
+        const department = String(findFuzzyValue(row, ['Department', 'department', 'Dept', 'Dept.', 'Section', 'Division']) || '');
+        const designation = String(findFuzzyValue(row, ['Designation', 'designation', 'Role', 'role', 'Post', 'Job Title']) || '');
+        const rawShiftStr = String(findFuzzyValue(row, ['Shift', 'shift', 'Shift [DAY/NIGHT]']) || 'DAY').toUpperCase();
+        const shift = rawShiftStr.includes('NIGHT') ? 'NIGHT' : 'DAY';
+        const rawTypeStr = String(findFuzzyValue(row, ['Salary Type', 'salaryType', 'Type', 'SalaryBasis', 'Basis']) || 'fixed').toLowerCase();
+        const salaryType = rawTypeStr.includes('daily') ? 'daily' : 'fixed';
+        const monthlySalary = Number(findFuzzyValue(row, ['Monthly Salary (INR)', 'Monthly Salary', 'Rate', 'monthlySalary', 'Salary', 'salary']) || 0);
+        const workingDays = Number(findFuzzyValue(row, ['Working Days in Month', 'workingDays', 'Days', 'Working Days']) || 26);
+        const workingHours = Number(findFuzzyValue(row, ['Working Hours per Day', 'workingHours', 'Hours', 'Working Hours']) || 9);
+        const fullDaysAbsent = Number(findFuzzyValue(row, ['Full Days Absent', 'fullDaysAbsent', 'Absent Days', 'Absent']) || 0);
+        const absentHours = Number(findFuzzyValue(row, ['Absent Hours', 'absentHours', 'Total Absent Hours']) || 0);
+        const absentMinutes = Number(findFuzzyValue(row, ['Absent Minutes', 'absentMinutes', 'Total Absent Minutes']) || 0);
+        const advancePayment = Number(findFuzzyValue(row, ['Advance Payment (INR)', 'advancePayment', 'Advance', 'Advances', 'Advance Paid']) || 0);
+        const foodBalance = Number(findFuzzyValue(row, ['Food Balance (INR)', 'foodBalance', 'Food Bal', 'Meals', 'Food Bill', 'Canteen']) || 0);
 
         onUpdateEmployee(rawId.toString(), {
           id: rawId.toString(),
           name,
+          department,
+          designation,
+          role: designation || String(findFuzzyValue(row, ['role', 'Role']) || ''),
+          shift,
+          salaryType,
           monthlySalary,
           workingDays,
           workingHours,
           fullDaysAbsent,
           absentHours,
-          absentMinutes
-        });
+          absentMinutes,
+          advancePayment,
+          foodBalance
+        }, true);
       });
     };
     reader.readAsArrayBuffer(file);
@@ -416,12 +532,59 @@ export default function ExcelTable({
 
         {/* Toolbar Button actions */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Month / Year Run Selection of Ledger */}
+          <div className="flex items-center gap-1.5 bg-sky-50/70 border border-sky-100 px-2.5 py-1.5 rounded-xl mr-2 animate-fade-in">
+            <span className="text-[10px] font-black uppercase text-sky-800 tracking-wider font-mono">Ledger Run:</span>
+            <select
+              value={ledgerMonth}
+              onChange={(e) => setLedgerMonth(Number(e.target.value))}
+              className="bg-white border border-slate-200 rounded-lg py-0.5 px-2 text-xs font-bold text-slate-700 cursor-pointer focus:outline-hidden focus:ring-1 focus:ring-sky-400"
+            >
+              {[
+                { v: 1, l: 'Jan' },
+                { v: 2, l: 'Feb' },
+                { v: 3, l: 'Mar' },
+                { v: 4, l: 'Apr' },
+                { v: 5, l: 'May' },
+                { v: 6, l: 'Jun' },
+                { v: 7, l: 'Jul' },
+                { v: 8, l: 'Aug' },
+                { v: 9, l: 'Sep' },
+                { v: 10, l: 'Oct' },
+                { v: 11, l: 'Nov' },
+                { v: 12, l: 'Dec' },
+              ].map(m => (
+                <option key={m.v} value={m.v}>{m.l}</option>
+              ))}
+            </select>
+            <select
+              value={ledgerYear}
+              onChange={(e) => setLedgerYear(Number(e.target.value))}
+              className="bg-white border border-slate-200 rounded-lg py-0.5 px-2 text-xs font-bold text-slate-700 cursor-pointer focus:outline-hidden focus:ring-1 focus:ring-sky-400"
+            >
+              {[2024, 2025, 2026, 2027, 2028].map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Lock/Unlock Switch */}
           {!isUnlocked ? (
             <button 
               id="btn-unlock-formulas"
-              onClick={() => setShowUnlockModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 hover:border-blue-300 text-slate-700 hover:text-blue-600 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+              onClick={() => {
+                if (viewOnly) {
+                  alert("Access Restricted. Sheet formula constant variables are locked for observers.");
+                  return;
+                }
+                setShowUnlockModal(true);
+              }}
+              disabled={viewOnly}
+              className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                viewOnly 
+                  ? 'border-slate-150 bg-slate-50 text-slate-350 cursor-not-allowed opacity-50' 
+                  : 'border-slate-200 hover:border-blue-300 text-slate-700 hover:text-blue-600'
+              }`}
             >
               <Unlock size={14} />
               Unlock Constants Override
@@ -440,18 +603,58 @@ export default function ExcelTable({
           {/* Bulk Update Controls */}
           <button 
             id="btn-bulk-settings"
-            onClick={() => setShowBulkPanel(!showBulkPanel)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 border text-xs font-semibold cursor-pointer rounded-lg transition-colors ${showBulkPanel ? 'bg-slate-900 border-slate-900 text-white' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+            onClick={() => {
+              if (viewOnly) {
+                alert("Access Restricted. Bulk settings constants cannot be overwritten in view-only observer mode.");
+                return;
+              }
+              setShowBulkPanel(!showBulkPanel);
+            }}
+            disabled={viewOnly}
+            className={`flex items-center gap-1.5 px-3 py-1.5 border text-xs font-semibold cursor-pointer rounded-lg transition-colors ${
+              viewOnly
+                ? 'border-slate-150 bg-slate-50 text-slate-350 cursor-not-allowed opacity-50'
+                : showBulkPanel 
+                  ? 'bg-slate-900 border-slate-900 text-white' 
+                  : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+            }`}
           >
             <RefreshCw size={13} />
             Bulk Settings
           </button>
 
+          {/* Simple Undo Stack Button */}
+          <button 
+            id="btn-undo-action"
+            onClick={onUndo}
+            disabled={!canUndo || viewOnly}
+            className={`flex items-center gap-1.5 px-3 py-1.5 border text-xs font-semibold rounded-lg transition-all ${
+              canUndo && !viewOnly
+                ? 'bg-[#1abc9c]/20 hover:bg-[#1abc9c]/35 border-[#1abc9c]/30 text-teal-800 hover:shadow cursor-pointer' 
+                : 'border-slate-150 bg-slate-50 text-slate-350 cursor-not-allowed opacity-50'
+            }`}
+            title={viewOnly ? "Undo disabled in read-only observer session" : "Undo last change (recover from accidental deletions or incorrect input updates)"}
+          >
+            <Undo2 size={13} className={canUndo && !viewOnly ? "text-[#16a085]" : ""} />
+            <span>Undo ({canUndo && !viewOnly ? 'Last Change' : 'No changes yet'})</span>
+          </button>
+
           {/* New Employee */}
           <button 
             id="btn-add-staff"
-            onClick={onAddEmployee}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 hover:shadow text-white rounded-lg text-xs font-semibold cursor-pointer transition-all"
+            onClick={() => {
+              if (viewOnly) {
+                alert("Access Restricted. Observer mode restricts database addition operations.");
+                return;
+              }
+              onAddEmployee();
+            }}
+            disabled={viewOnly}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-white rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+              viewOnly
+                ? 'bg-slate-300 text-slate-100 cursor-not-allowed opacity-50'
+                : 'bg-blue-600 hover:bg-blue-700 hover:shadow'
+            }`}
           >
             <Plus size={14} />
             Add Employee Card
@@ -461,11 +664,20 @@ export default function ExcelTable({
           <button 
             id="btn-seed-restorer"
             onClick={() => {
+              if (viewOnly) {
+                alert("Access Restricted. Ledger database reset operations require administrator credentials.");
+                return;
+              }
               if (confirm('Are you sure you want to restore the ledger to clean baseline data (first 5 employees filled, remaining 155 as empty template)? Any current edits will be overwritten.')) {
                 onResetData();
               }
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-rose-200 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+            disabled={viewOnly}
+            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+              viewOnly
+                ? 'border-slate-150 bg-slate-50 text-slate-350 cursor-not-allowed opacity-50'
+                : 'border-rose-200 text-rose-700 hover:bg-rose-50'
+            }`}
             title="Reset ledger to baseline (first 5 filled, remaining 155 template rows)"
           >
             <RefreshCw size={13} />
@@ -589,10 +801,7 @@ export default function ExcelTable({
       <div className="overflow-x-auto w-full max-w-full relative scrollbar-thin max-h-[580px]" id="excel-grid-viewport">
         <table className="w-full text-left border-collapse table-fixed select-text">
           <thead>
-            {/* Frozen Table Headers Row */}
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[11px] font-bold tracking-wider text-center h-11 uppercase sticky top-0 z-10 shadow-xs">
-              
-              {/* Frozen Left Headers */}
               <th className="w-24 text-left px-3 border-r border-slate-200 bg-slate-50 font-bold sticky left-0 z-20">
                 <div className="flex items-center justify-between">
                   <span>EMP ID</span>
@@ -611,18 +820,38 @@ export default function ExcelTable({
                 </div>
               </th>
 
-              {/* Scrollable headers */}
-              <th className="w-36 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500">
+              <th className="w-36 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 text-[11px]">
+                Department
+              </th>
+
+              <th className="w-36 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 text-[11px]">
+                Designation
+              </th>
+
+              <th className="w-32 px-2 border-r border-slate-200 bg-blue-50/50 font-bold text-blue-850 text-[11px] leading-tight">
+                Sunday Paid?
+              </th>
+
+              <th className="w-28 px-2 border-r border-slate-200 bg-amber-50/40 font-bold text-amber-850 text-[11px]">
+                Shift
+              </th>
+
+              <th className="w-[110px] px-2 border-r border-slate-200 bg-indigo-50/40 font-bold text-indigo-800 text-[11px] leading-tight">
+                Basis
+              </th>
+
+              <th className="w-40 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500">
                 <div className="flex items-center justify-between px-1">
-                  <span>Monthly Salary (₹)</span>
+                  <span>Salary / Rate (₹)</span>
                   <button onClick={() => triggerSort('salary')} className="cursor-pointer text-slate-400 hover:text-slate-650 transition-colors">
                     <ArrowUpDown size={11} />
                   </button>
                 </div>
               </th>
 
-              <th className="w-24 px-1 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 text-wrap leading-tight">
-                Working Days
+              <th className="w-24 px-1 border-r border-slate-200 bg-teal-50/40 text-teal-850 font-bold text-wrap leading-tight" title="Imported automatically from attendance logs of the selected month run, and editable.">
+                <div>Working Days</div>
+                <span className="block text-[8px] font-black uppercase text-teal-600 tracking-widest leading-none mt-0.5">🔄 Synced</span>
               </th>
 
               <th className="w-28 px-2 border-r border-slate-200 bg-slate-50 text-slate-500 italic font-mono text-[10px]">
@@ -637,8 +866,9 @@ export default function ExcelTable({
                 Hourly Rate (₹)
               </th>
 
-              <th className="w-24 px-1 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 leading-tight">
-                Full Days Absent
+              <th className="w-24 px-1 border-r border-slate-200 bg-teal-50/40 text-teal-850 font-bold leading-tight" title="Imported automatically from attendance logs of the selected month run, and editable.">
+                <div>Full Days Absent</div>
+                <span className="block text-[8px] font-black uppercase text-teal-600 tracking-widest leading-none mt-0.5">🔄 Synced</span>
               </th>
 
               <th className="w-24 px-1 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 leading-tight">
@@ -655,6 +885,14 @@ export default function ExcelTable({
 
               <th className="w-32 px-1 border-r border-slate-200 bg-slate-50 text-slate-500 italic font-mono text-[10px]">
                 Deduction: Hourly
+              </th>
+
+              <th className="w-28 px-1.5 border-r border-slate-200 bg-sky-50 font-bold text-indigo-900 text-[10.5px] leading-tight select-none">
+                Advance (₹)
+              </th>
+
+              <th className="w-28 px-1.5 border-r border-slate-200 bg-sky-50 font-bold text-indigo-900 text-[10.5px] leading-tight select-none">
+                Food Bal. (₹)
               </th>
 
               <th className="w-32 px-1.5 border-r border-slate-200 bg-rose-50/50 font-bold text-rose-750">
@@ -690,14 +928,14 @@ export default function ExcelTable({
                   id={`row-${emp.id}`}
                   className={`h-9 border-b border-slate-100 text-xs transition-colors align-middle text-center ${hasErrors ? 'bg-rose-55' : 'odd:bg-white even:bg-slate-50/30 hover:bg-blue-50/45 hover:odd:bg-blue-50/45'}`}
                 >
-                  {/* FROZEN Employee ID - Editable Column: Light Blue Cell */}
                   <td className="sticky left-0 bg-sky-50 text-slate-800 text-center align-middle border-r border-slate-200 sticky-left-col z-5 px-1 pr-1.5 h-full">
                     <div className="flex items-center justify-between gap-1">
                       <CellInput 
                         type="text" 
                         value={emp.id.startsWith('EMP_TEMP_') ? '' : emp.id} 
                         onBlur={(val) => handleCellBlur(emp.id, 'id', val)}
-                        className="w-[calc(100%-35px)] h-7 border-0 px-1 bg-transparent text-center font-mono font-bold text-[11px] rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:shadow-xs uppercase"
+                        disabled={viewOnly}
+                        className="w-[calc(100%-35px)] h-7 border-0 px-1 bg-transparent text-center font-mono font-bold text-[11px] rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:shadow-xs uppercase disabled:text-slate-500 disabled:font-semibold"
                       />
                       <div className="flex items-center gap-1 shrink-0">
                         {onViewProfile && (
@@ -709,119 +947,180 @@ export default function ExcelTable({
                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                           </button>
                         )}
-                        <button 
-                          onClick={() => onDeleteEmployee(emp.id)}
-                          className="text-slate-350 hover:text-rose-600 transition-colors opacity-0 hover:opacity-100 focus:opacity-100 cursor-pointer duration-150 p-0.5"
-                          title="Remove Employee"
-                        >
-                          <Trash2 size={11} />
-                        </button>
+                        {!viewOnly && (
+                          <button 
+                            onClick={() => onDeleteEmployee(emp.id)}
+                            className="text-slate-350 hover:text-rose-600 transition-colors opacity-0 hover:opacity-100 focus:opacity-100 cursor-pointer duration-150 p-0.5"
+                            title="Remove Employee"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </td>
 
-                  {/* FROZEN Name - Editable Column: Light Blue Cell */}
                   <td className="sticky left-24 bg-sky-50 text-slate-800 text-left align-middle border-r border-slate-200 sticky-left-col z-5 px-1 pr-2">
                     <CellInput 
                       type="text" 
                       value={emp.name} 
                       onBlur={(val) => handleCellBlur(emp.id, 'name', val)}
-                      className="w-full h-7 border-0 px-2 bg-transparent text-left font-medium rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:shadow-xs uppercase"
+                      disabled={viewOnly}
+                      className="w-full h-7 border-0 px-2 bg-transparent text-left font-medium rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:shadow-xs uppercase disabled:text-slate-500"
                     />
                   </td>
 
-                  {/* Monthly Gross Salary (₹) - Editable Column: Light Blue Cell */}
-                  <td className={`bg-sky-50 text-right font-medium text-slate-800 px-1 border-r border-slate-150`}>
-                    <div className="flex items-center bg-transparent">
-                      <span className="text-[10px] text-slate-400 pl-1">₹</span>
+                  <td className="bg-sky-50 text-slate-800 text-left align-middle border-r border-slate-150 px-1 pr-2">
+                    <CellInput 
+                      type="text" 
+                      value={emp.department || ''} 
+                      onBlur={(val) => handleCellBlur(emp.id, 'department', val)}
+                      disabled={viewOnly}
+                      placeholder="e.g. Sales"
+                      className="w-full h-7 border-0 px-2 bg-transparent text-left font-medium rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:shadow-xs disabled:text-slate-500"
+                    />
+                  </td>
+
+                  <td className="bg-sky-50 text-slate-800 text-left align-middle border-r border-slate-150 px-1 pr-2">
+                    <CellInput 
+                      type="text" 
+                      value={emp.designation || ''} 
+                      onBlur={(val) => handleCellBlur(emp.id, 'designation', val)}
+                      disabled={viewOnly}
+                      placeholder="e.g. Manager"
+                      className="w-full h-7 border-0 px-2 bg-transparent text-left font-medium rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:shadow-xs disabled:text-slate-500"
+                    />
+                  </td>
+
+                  <td className={`p-1 border-r border-slate-150 align-middle text-center ${emp.sundayPaid === 'Paid' ? 'bg-emerald-50/40' : 'bg-rose-50/20'}`}>
+                    <select 
+                      value={emp.sundayPaid || 'Not Paid'}
+                      onChange={(e) => handleCellBlur(emp.id, 'sundayPaid', e.target.value)}
+                      disabled={viewOnly}
+                      className={`w-full h-7 border-0 bg-transparent text-center font-bold text-[10px] rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer uppercase py-0 ${emp.sundayPaid === 'Paid' ? 'text-emerald-800' : 'text-rose-700'}`}
+                    >
+                      <option value="Paid" className="text-emerald-800 font-bold">PAID</option>
+                      <option value="Not Paid" className="text-rose-700 font-bold">NOT PAID</option>
+                    </select>
+                  </td>
+
+                  <td className={`p-1 border-r border-slate-150 align-middle text-center ${emp.shift === 'NIGHT' ? 'bg-purple-50/40' : 'bg-amber-50/30'}`}>
+                    <select 
+                      value={emp.shift || 'DAY'}
+                      onChange={(e) => handleCellBlur(emp.id, 'shift', e.target.value)}
+                      disabled={viewOnly}
+                      className={`w-full h-7 border-0 bg-transparent text-center font-bold text-[10px] rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer uppercase py-0 ${emp.shift === 'NIGHT' ? 'text-purple-800' : 'text-amber-850'}`}
+                    >
+                      <option value="DAY" className="text-amber-850 font-bold">DAY</option>
+                      <option value="NIGHT" className="text-purple-800 font-bold">NIGHT</option>
+                    </select>
+                  </td>
+
+                  <td className={`p-1 border-r border-slate-150 align-middle text-center ${emp.salaryType === 'daily' ? 'bg-emerald-50/50' : 'bg-indigo-50/40'}`}>
+                    <select 
+                      value={emp.salaryType || 'fixed'}
+                      onChange={(e) => handleCellBlur(emp.id, 'salaryType', e.target.value)}
+                      disabled={viewOnly}
+                      className="w-full h-7 border-0 bg-transparent text-center font-bold text-[10px] rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer uppercase py-0"
+                    >
+                      <option value="fixed" className="text-indigo-850 font-bold">Fixed</option>
+                      <option value="daily" className="text-emerald-850 font-bold">Daily</option>
+                    </select>
+                  </td>
+
+                  <td className="bg-sky-50 text-right font-medium text-slate-800 px-1 border-r border-slate-150">
+                    <div className="flex items-center bg-transparent justify-between">
+                      <span className={`text-[9px] font-bold px-1 py-0.5 rounded-xs shrink-0 select-none ${
+                        emp.salaryType === 'daily' ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'
+                      }`}>
+                        {emp.salaryType === 'daily' ? '₹/D' : '₹/M'}
+                      </span>
                       <CellInput 
                         type="number" 
                         value={emp.monthlySalary || ''} 
                         onBlur={(val) => handleCellBlur(emp.id, 'monthlySalary', val)}
+                        disabled={viewOnly}
                         placeholder="0"
                         min="0"
-                        className="w-full h-7 border-0 px-1 bg-transparent text-right font-semibold rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                        className="w-full h-7 border-0 px-1 bg-transparent text-right font-semibold rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:text-slate-500"
                       />
                     </div>
                   </td>
 
-                  {/* Working Days in Month - Editable Column: Light Blue Cell */}
                   <td className="bg-sky-50 px-1 border-r border-slate-150">
                     <CellInput 
                       type="number" 
                       value={emp.workingDays || ''} 
                       onBlur={(val) => handleCellBlur(emp.id, 'workingDays', val)}
+                      disabled={viewOnly}
                       placeholder="e.g. 26"
                       min="1"
                       max="31"
-                      className="w-full h-7 border-0 px-1 bg-transparent text-center rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                      className="w-full h-7 border-0 px-1 bg-transparent text-center rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:text-slate-500"
                     />
                   </td>
 
-                  {/* Daily Rate (₹) - FORMULA column (Protected) */}
                   <td className="bg-slate-100 text-right font-mono text-slate-500 text-[11px] px-2.5 border-r border-slate-200 relative group select-none">
                     <span>{formatINR(emp.dailyRate).replace('INR', '')}</span>
                     <Lock size={8} className="absolute right-1 top-1 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </td>
 
-                  {/* Working Hrs/Day - Editable Column: Light Blue Cell */}
                   <td className="bg-sky-50 px-1 border-r border-slate-150">
                     <CellInput 
                       type="number" 
                       step="0.5"
                       value={emp.workingHours || ''} 
                       onBlur={(val) => handleCellBlur(emp.id, 'workingHours', val)}
+                      disabled={viewOnly}
                       placeholder="e.g. 9"
                       min="1"
                       max="24"
-                      className="w-full h-7 border-0 px-1 bg-transparent text-center rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                      className="w-full h-7 border-0 px-1 bg-transparent text-center rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:text-slate-500"
                     />
                   </td>
 
-                  {/* Hourly Rate (₹) - FORMULA column (Protected) */}
                   <td className="bg-slate-100 text-right font-mono text-slate-500 text-[11px] px-2.5 border-r border-slate-200 relative group select-none">
                     <span>{formatINR(emp.hourlyRate).replace('INR', '')}</span>
                     <Lock size={8} className="absolute right-1 top-1 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </td>
 
-                  {/* Full Days Absent - Editable Column: Light Blue Cell */}
                   <td className={`px-1 border-r border-slate-150 transition-all ${isHighAbsent ? 'bg-rose-100 border-rose-200' : 'bg-sky-50'}`}>
                     <CellInput 
-                      type="number"
+                      type="number" 
                       value={emp.fullDaysAbsent || ''} 
                       onBlur={(val) => handleCellBlur(emp.id, 'fullDaysAbsent', val)}
+                      disabled={viewOnly}
                       placeholder="0"
                       min="0"
-                      className={`w-full h-7 border-0 px-1 bg-transparent text-center rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold ${isHighAbsent ? 'text-rose-800 font-bold' : 'text-slate-800'}`}
+                      className={`w-full h-7 border-0 px-1 bg-transparent text-center rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold ${isHighAbsent ? 'text-rose-800 font-bold' : 'text-slate-800'} disabled:text-slate-500`}
                     />
                   </td>
 
-                  {/* Absent Hours - Editable Column: Light Blue Cell */}
                   <td className={`bg-sky-50 px-1 border-r border-slate-150`}>
                     <CellInput 
                       type="number" 
                       value={emp.absentHours || ''} 
                       onBlur={(val) => handleCellBlur(emp.id, 'absentHours', val)}
+                      disabled={viewOnly}
                       placeholder="0"
                       min="0"
-                      className="w-full h-7 border-0 px-1 bg-transparent text-center rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                      className="w-full h-7 border-0 px-1 bg-transparent text-center rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:text-slate-500"
                     />
                   </td>
 
-                  {/* Absent Minutes - Editable Column: Pastel Yellow Cell */}
                   <td className="bg-amber-100/60 px-1 border-r border-slate-150">
                     <CellInput 
                       type="number" 
                       value={emp.absentMinutes || ''} 
                       onBlur={(val) => handleCellBlur(emp.id, 'absentMinutes', val)}
+                      disabled={viewOnly}
                       placeholder="0"
                       min="0"
                       max="59"
-                      className="w-full h-7 border-0 px-1 bg-transparent text-center text-amber-900 rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                      className="w-full h-7 border-0 px-1 bg-transparent text-center text-amber-900 rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:text-slate-500 disabled:font-semibold"
                     />
                   </td>
 
-                  {/* Deduction: Full Day (₹) - FORMULA column (Protected) */}
                   <td className="bg-slate-100 text-right font-mono text-slate-600 text-[11px] px-2 border-r border-slate-200 relative group select-none">
                     <span className={emp.deductionFullDay > 0 ? 'text-slate-800 font-medium' : 'text-slate-400'}>
                       {emp.deductionFullDay > 0 ? formatINR(emp.deductionFullDay).replace('INR', '') : '-'}
@@ -829,7 +1128,6 @@ export default function ExcelTable({
                     <Lock size={8} className="absolute right-1 top-1 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </td>
 
-                  {/* Deduction: Hourly (₹) - FORMULA column (Protected) */}
                   <td className="bg-slate-100 text-right font-mono text-slate-600 text-[11px] px-2 border-r border-slate-200 relative group select-none">
                     <span className={emp.deductionHourly > 0 ? 'text-slate-800 font-medium' : 'text-slate-400'}>
                       {emp.deductionHourly > 0 ? formatINR(emp.deductionHourly).replace('INR', '') : '-'}
@@ -837,7 +1135,36 @@ export default function ExcelTable({
                     <Lock size={8} className="absolute right-1 top-1 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </td>
 
-                  {/* Total Deduction (₹) - FORMULA column (Protected) */}
+                  <td className="bg-sky-50 text-right font-medium text-slate-800 px-1 border-r border-slate-150">
+                    <div className="flex items-center bg-transparent">
+                      <span className="text-[10px] text-slate-400 pl-1 select-none">₹</span>
+                      <CellInput 
+                        type="number" 
+                        value={emp.advancePayment || ''} 
+                        onBlur={(val) => handleCellBlur(emp.id, 'advancePayment', val)}
+                        disabled={viewOnly}
+                        placeholder="0"
+                        min="0"
+                        className="w-full h-7 border-0 px-1 bg-transparent text-right font-semibold rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:text-slate-500"
+                      />
+                    </div>
+                  </td>
+
+                  <td className="bg-sky-50 text-right font-medium text-slate-800 px-1 border-r border-slate-150">
+                    <div className="flex items-center bg-transparent">
+                      <span className="text-[10px] text-slate-400 pl-1 select-none">₹</span>
+                      <CellInput 
+                        type="number" 
+                        value={emp.foodBalance || ''} 
+                        onBlur={(val) => handleCellBlur(emp.id, 'foodBalance', val)}
+                        disabled={viewOnly}
+                        placeholder="0"
+                        min="0"
+                        className="w-full h-7 border-0 px-1 bg-transparent text-right font-semibold rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:text-slate-500"
+                      />
+                    </div>
+                  </td>
+
                   <td className="bg-rose-50/50 text-right font-mono font-bold text-rose-700 text-[11px] px-2.5 border-r border-slate-200 select-none relative group">
                     <span className={emp.totalDeduction > 0 ? 'text-rose-700' : 'text-slate-400'}>
                       {emp.totalDeduction > 0 ? formatINR(emp.totalDeduction).replace('INR', '') : '-'}
@@ -845,7 +1172,6 @@ export default function ExcelTable({
                     <Lock size={8} className="absolute right-1 top-1 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </td>
 
-                  {/* Final Payable Salary (₹) - FORMULA Column with excel style heat-map alert coloring */}
                   <td className={`text-right font-mono font-bold text-[11px] px-2.5 transition-all select-none ${
                     hasLeaves 
                       ? isHighAbsent 
@@ -862,7 +1188,7 @@ export default function ExcelTable({
             {/* Zero state display */}
             {totalItems === 0 && (
               <tr>
-                <td colSpan={14} className="h-44 text-center text-slate-400 text-xs">
+                <td colSpan={21} className="h-44 text-center text-slate-400 text-xs">
                   <div className="flex flex-col items-center justify-center space-y-2">
                     <AlertTriangle size={24} className="text-slate-300" />
                     <span>No employee records found matching current query or search criteria.</span>
@@ -884,28 +1210,34 @@ export default function ExcelTable({
           {totalItems > 0 && (
             <tfoot>
               <tr className="bg-slate-800 text-white font-bold text-[11.5px] tracking-wide text-center uppercase h-11 sticky bottom-0 z-10 border-t-2 border-slate-300 relative shadow-md">
-                {/* Frozen label columns */}
-                <td className="sticky left-0 bg-slate-900 px-3 text-left border-r border-slate-700 z-10 font-bold select-none h-full text-slate-200">
+                <td className="sticky left-0 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold select-none h-full text-slate-200">
                   SUMS:
                 </td>
-                <td className="sticky left-24 bg-slate-900 px-3 text-left border-r border-slate-700 z-10 font-bold text-slate-200">
+                <td className="sticky left-24 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold text-slate-2002">
                   {totalItems} rows
                 </td>
-
-                <td className="text-right p-2.5 border-r border-slate-700 font-mono text-sky-200 font-bold bg-slate-800">
-                  {formatINR(totals.gross)}
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="text-right p-2.5 border-r border-slate-700 font-mono text-sky-200 font-bold bg-slate-800 select-all">
+                  {formatINR(totals.gross).replace('INR', '')}
                 </td>
-
-                <td colSpan={10} className="text-right px-4 text-slate-400 bg-slate-800 border-r border-slate-700 italic normal-case text-[10.5px] select-none font-medium">
-                  Ledger Sum calculations are dynamic. Alt-underlines enabled.
+                <td colSpan={9} className="text-right px-4 text-slate-450 bg-slate-850 border-r border-slate-700 italic normal-case text-[10px] select-none font-medium">
+                  Totals recalculated live. Double border underline.
                 </td>
-
-                <td className="text-right p-2.5 border-r border-slate-700 font-mono font-bold text-rose-300 bg-slate-800">
-                  {formatINR(totals.deductions)}
+                <td className="text-right p-2.5 border-r border-slate-700 font-mono text-indigo-200 font-bold bg-slate-800 select-all">
+                  {formatINR(totals.advance).replace('INR', '')}
                 </td>
-
-                <td className="text-right p-2.5 font-mono text-[12px] font-extrabold text-emerald-300 bg-emerald-900/90 underline decoration-double decoration-emerald-400 decoration-2">
-                  {formatINR(totals.payable)}
+                <td className="text-right p-2.5 border-r border-slate-700 font-mono text-indigo-200 font-bold bg-slate-800 select-all">
+                  {formatINR(totals.food).replace('INR', '')}
+                </td>
+                <td className="text-right p-2.5 border-r border-slate-700 font-mono font-bold text-rose-350 bg-slate-800 select-all">
+                  {formatINR(totals.deductions).replace('INR', '')}
+                </td>
+                <td className="text-right p-2.5 font-mono text-[12px] font-extrabold text-emerald-300 bg-emerald-900/95 underline decoration-double decoration-emerald-400 decoration-2 select-all">
+                  {formatINR(totals.payable).replace('INR', '')}
                 </td>
               </tr>
             </tfoot>

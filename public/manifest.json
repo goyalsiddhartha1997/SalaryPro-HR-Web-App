@@ -1,0 +1,22 @@
+{
+  "short_name": "Salary Pro",
+  "name": "Salary Pro FFPL",
+  "description": "An interactive digital HR payroll system with automatic formula rates, seeded staff rows, accounting validations, and .xlsx spreadsheet exports.",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0da16e",
+  "theme_color": "#0da16e",
+  "display": "standalone",
+  "orientation": "portrait"
+}

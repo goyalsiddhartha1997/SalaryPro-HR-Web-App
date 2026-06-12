@@ -43,6 +43,70 @@ service cloud.firestore {
         && data.punches is list && data.punches.size() <= 10;
     }
 
+    function isValidGatePass(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.employeeId is string && data.employeeId.size() <= 64
+        && data.employeeName is string && data.employeeName.size() <= 128
+        && data.date is string && data.date.size() <= 64
+        && data.outTime is string && data.outTime.size() <= 64
+        && data.inTime is string && data.inTime.size() <= 64
+        && data.createdAt is string && data.createdAt.size() <= 128;
+    }
+
+    function isValidOvertimeLog(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.employeeId is string && data.employeeId.size() <= 64
+        && data.employeeName is string && data.employeeName.size() <= 128
+        && data.date is string && data.date.size() <= 64
+        && data.arrTime is string && data.arrTime.size() <= 64
+        && data.outTime is string && data.outTime.size() <= 64
+        && data.shiftPattern is string && data.shiftPattern.size() <= 128
+        && data.createdAt is string && data.createdAt.size() <= 128
+        && (!('remarks' in data) || data.remarks is string)
+        && (!('empShift' in data) || data.empShift is string)
+        && (!('empShiftTime' in data) || data.empShiftTime is string);
+    }
+
+    function isValidShiftRules(rules) {
+      return rules.prependInCutoff is string && rules.prependInCutoff.size() <= 64
+        && rules.prependInTime is string && rules.prependInTime.size() <= 64
+        && rules.morningDupStart is string && rules.morningDupStart.size() <= 64
+        && rules.morningDupEnd is string && rules.morningDupEnd.size() <= 64
+        && rules.eveningDupStart is string && rules.eveningDupStart.size() <= 64
+        && rules.eveningDupEnd is string && rules.eveningDupEnd.size() <= 64
+        && rules.lunchStart is string && rules.lunchStart.size() <= 64
+        && rules.lunchEnd is string && rules.lunchEnd.size() <= 64
+        && rules.warningThreshold is number && rules.warningThreshold >= 0 && rules.warningThreshold <= 1440
+        && rules.defaultExitTime is string && rules.defaultExitTime.size() <= 64;
+    }
+
+    function isValidSettings(data) {
+      return data.dayRules is map && isValidShiftRules(data.dayRules)
+        && data.nightRules is map && isValidShiftRules(data.nightRules);
+    }
+
+    function isValidLoomOrder(data) {
+      return ('id' in data && data.id is string)
+        && ('orderNo' in data && data.orderNo is string)
+        && ('date' in data && data.date is string)
+        && ('status' in data && data.status is string)
+        && ('rows' in data && data.rows is list)
+        && (!('createdAt' in data) || data.createdAt is string);
+    }
+
+    function isValidCanteenFoodBill(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.challanNo is string && data.challanNo.size() <= 128
+        && data.issuedBy is string && data.issuedBy.size() <= 200
+        && data.mealType is string && (data.mealType == 'Lunch' || data.mealType == 'Dinner')
+        && data.noOfMeals is number && data.noOfMeals >= 0
+        && data.amount is number && data.amount >= 0
+        && data.date is string && data.date.size() <= 64
+        && data.monthYear is string && data.monthYear.size() <= 32
+        && (!('remarks' in data) || data.remarks is string);
+    }
+
+
     match /employees/{employeeId} {
       // Allow anybody to read the active ledger database (since it's a shared organizational sheet)
       allow read: if true;
@@ -64,10 +128,52 @@ service cloud.firestore {
         allow create, update: if isValidId(employeeId) && isValidId(date) && isValidPunchLog(incoming()) && incoming().employeeId == employeeId;
         allow delete: if isValidId(employeeId) && isValidId(date);
       }
+
+      match /monthlyPayroll/{yearMonth} {
+        allow read, list: if true;
+        allow create, update, delete: if isValidId(employeeId) && isValidId(yearMonth);
+      }
     }
 
     match /{path=**}/punches/{date} {
       allow read, list: if true;
+    }
+
+    match /{path=**}/monthlyPayroll/{yearMonth} {
+      allow read, list: if true;
+    }
+
+    match /custom_users/{email} {
+      allow read, write: if true;
+    }
+
+    match /gatePasses/{passId} {
+      allow read, list: if true;
+      allow create, update: if isValidId(passId) && isValidGatePass(incoming()) && incoming().id == passId;
+      allow delete: if isValidId(passId);
+    }
+
+    match /overtimeLogs/{logId} {
+      allow read, list: if true;
+      allow create, update: if isValidId(logId) && isValidOvertimeLog(incoming()) && incoming().id == logId;
+      allow delete: if isValidId(logId);
+    }
+
+    match /settings/{settingsId} {
+      allow read: if true;
+      allow create, update: if isValidId(settingsId) && isValidSettings(incoming());
+    }
+
+    match /loomOrders/{orderId} {
+      allow read, list: if true;
+      allow create, update: if isValidId(orderId) && isValidLoomOrder(incoming()) && incoming().id == orderId;
+      allow delete: if isValidId(orderId);
+    }
+
+    match /canteenFoodBills/{billId} {
+      allow read, list: if true;
+      allow create, update: if isValidId(billId) && isValidCanteenFoodBill(incoming()) && incoming().id == billId;
+      allow delete: if isValidId(billId);
     }
   }
 }

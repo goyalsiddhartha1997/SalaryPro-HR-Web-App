@@ -18,9 +18,19 @@ import {
 
 interface DashboardProps {
   employees: ComputedEmployee[];
+  ledgerMonth?: number;
+  ledgerYear?: number;
+  setLedgerMonth?: (m: number) => void;
+  setLedgerYear?: (y: number) => void;
 }
 
-export default function Dashboard({ employees }: DashboardProps) {
+export default function Dashboard({ 
+  employees,
+  ledgerMonth,
+  ledgerYear,
+  setLedgerMonth,
+  setLedgerYear
+}: DashboardProps) {
   // Memoize summaries for performance
   const stats = useMemo(() => {
     const liveEmployees = employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_'));
@@ -31,9 +41,11 @@ export default function Dashboard({ employees }: DashboardProps) {
     let totalFullDaysAbsent = 0;
     let totalAbsentHours = 0;
     let highAbsenceCount = 0; // Employees with >= 3 days absent
+    let dayShiftCount = 0;
+    let nightShiftCount = 0;
 
     liveEmployees.forEach(emp => {
-      totalBaseSalary += emp.monthlySalary;
+      totalBaseSalary += emp.grossSalary;
       totalDeductions += emp.totalDeduction;
       totalPayable += emp.finalPayable;
       totalFullDaysAbsent += emp.fullDaysAbsent;
@@ -41,11 +53,16 @@ export default function Dashboard({ employees }: DashboardProps) {
       if (emp.fullDaysAbsent >= 3) {
         highAbsenceCount++;
       }
+      if (emp.shift === 'NIGHT') {
+        nightShiftCount++;
+      } else {
+        dayShiftCount++;
+      }
     });
 
     const avgPayable = totalCount > 0 ? totalPayable / totalCount : 0;
     const avgBase = totalCount > 0 ? totalBaseSalary / totalCount : 0;
-    const deductionPercentage = totalBaseSalary > 0 ? (totalDeductions / totalBaseSalary) * 100 : 0;
+    const deductionPercentage = totalBaseSalary > 0 ? (totalDeductions / totalBaseSalary) * 105 / 1.05 === totalDeductions ? 0 : (totalDeductions / totalBaseSalary) * 100 : 0;
 
     // Salary brackets breakdown
     const brackets = {
@@ -56,9 +73,10 @@ export default function Dashboard({ employees }: DashboardProps) {
     };
 
     liveEmployees.forEach(emp => {
-      if (emp.monthlySalary < 25000) brackets.under25++;
-      else if (emp.monthlySalary <= 50000) brackets['25to50']++;
-      else if (emp.monthlySalary <= 80000) brackets['50to80']++;
+      const gSalary = emp.grossSalary;
+      if (gSalary < 25000) brackets.under25++;
+      else if (gSalary <= 50000) brackets['25to50']++;
+      else if (gSalary <= 80000) brackets['50to80']++;
       else brackets.above80++;
     });
 
@@ -79,7 +97,9 @@ export default function Dashboard({ employees }: DashboardProps) {
       avgPayable,
       deductionPercentage,
       brackets,
-      outliers
+      outliers,
+      dayShiftCount,
+      nightShiftCount
     };
   }, [employees]);
 
@@ -101,8 +121,43 @@ export default function Dashboard({ employees }: DashboardProps) {
     1 // avoid division by zero
   );
 
+  const monthsList = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
   return (
     <div className="space-y-6" id="dashboard-section">
+      {/* Dynamic Month/Year Reporting Period Filter for Corporate Workforce Analytics */}
+      {setLedgerMonth && setLedgerYear && ledgerMonth !== undefined && ledgerYear !== undefined && (
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-slate-50 border border-slate-100 rounded-2xl gap-3 select-none">
+          <div>
+            <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Analysis Reporting Period</h4>
+            <p className="text-[11px] text-slate-400 font-medium">Select a payroll month and year to view real-time corporate analytics</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={ledgerMonth}
+              onChange={(e) => setLedgerMonth(Number(e.target.value))}
+              className="bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs font-black text-slate-800 cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all font-sans"
+            >
+              {monthsList.map((m, idx) => (
+                <option key={m} value={idx + 1}>{m}</option>
+              ))}
+            </select>
+            <select
+              value={ledgerYear}
+              onChange={(e) => setLedgerYear(Number(e.target.value))}
+              className="bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-xs font-black text-slate-800 cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all font-sans"
+            >
+              {[2025, 2026, 2027].map((yr) => (
+                <option key={yr} value={yr}>{yr}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
       {/* KPI Overviews */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Metric 1 */}
@@ -115,7 +170,10 @@ export default function Dashboard({ employees }: DashboardProps) {
           </div>
           <div className="mt-3">
             <h3 className="text-xl sm:text-2xl lg:text-xl xl:text-2xl font-black text-slate-800 tracking-tight truncate">{stats.totalCount}</h3>
-            <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 truncate">Active profiles in ledger</p>
+            <div className="flex items-center gap-1.5 mt-1 text-[10px] font-bold select-none">
+              <span className="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded truncate">Day Shift: {stats.dayShiftCount}</span>
+              <span className="text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded truncate">Night Shift: {stats.nightShiftCount}</span>
+            </div>
           </div>
         </div>
 

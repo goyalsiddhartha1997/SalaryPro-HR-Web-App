@@ -7,71 +7,111 @@
   --font-display: "Space Grotesk", sans-serif;
 }
 
-/* Base print stylesheet overrides */
+/* Base print stylesheet overrides for high-fidelity screenshot-style output */
 @media print {
+  /* Force exact color and background replication in all browsers */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
   @page {
-    size: A4 landscape;
-    margin: 1.2cm 1cm 1.2cm 1cm;
+    size: auto;
+    margin: 0.5cm;
   }
   
-  body {
+  html, body, #applet-core {
+    background-color: #f8fafc !important; /* Keep original light slate workspace background */
+    color: #334155 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    min-height: 100vh !important;
+    height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Force sidebars, headers, banners and other wrappers to persist like a high-fidelity screenshot layout */
+  aside.print\:hidden {
+    display: flex !important;
+    position: sticky !important;
+    top: 0;
+    height: 100vh !important;
+  }
+
+  header.print\:hidden {
+    display: flex !important;
+    position: relative !important;
+    top: 0 !important;
+  }
+
+  div.print\:hidden,
+  footer.print\:hidden {
+    display: flex !important;
+  }
+
+  main {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    max-width: none !important;
+    padding: 24px !important;
+    margin: 0 !important;
+  }
+
+  /* Specific background-color rendering overrides for reliability */
+  .bg-white {
     background-color: #ffffff !important;
-    color: #000000 !important;
-    font-size: 10px !important;
   }
 
-  /* Hide UI elements that are irrelevant in physical reporting sheets */
-  header, 
-  footer,
-  #bulk-update-drawer,
-  #sheet-ledger-container > div:first-child, /* Toolbars */
-  #sheet-ledger-container > div:nth-child(2), /* Seach bar */
-  #sheet-ledger-container > div:last-child, /* Pagination */
-  #dashboard-section,
-  #applet-core > main > div.grid, /* Summary cards */
-  #applet-core > main > div:last-child { /* Info footer wrapper */
-    display: none !important;
+  .bg-slate-50 {
+    background-color: #f8fafc !important;
   }
 
-  /* Make table content fits and expand correctly without scroll bars */
+  .bg-slate-900 {
+    background-color: #0f172a !important;
+  }
+
+  .bg-emerald-500 {
+    background-color: #10b981 !important;
+  }
+
+  .bg-rose-500 {
+    background-color: #ef4444 !important;
+  }
+
+  .bg-amber-400 {
+    background-color: #fbbf24 !important;
+  }
+
+  .text-white {
+    color: #ffffff !important;
+  }
+
+  /* Expand scrollable lists on print rather than cutting off */
+  .max-h-\[140px\],
+  .max-h-\[220px\],
+  .max-h-48,
+  .overflow-y-auto {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
   #excel-grid-viewport {
     max-height: none !important;
     overflow: visible !important;
     width: 100% !important;
   }
 
-  /* Remove sticky frozen column coordinates for printing */
-  .sticky {
-    position: static !important;
-    background-color: transparent !important;
-    color: #000000 !important;
+  /* Hide print trigger buttons from printing to keep the layout professional */
+  #global-print-trigger-btn,
+  .print-action-hidden {
+    display: none !important;
   }
 
-  th {
-    background-color: #0f172a !important;
-    color: #ffffff !important;
-    border: 1px solid #cbd5e1 !important;
-  }
-
-  td {
-    border: 1px solid #cbd5e1 !important;
-    background-color: #ffffff !important;
-  }
-
-  /* Alternate row background styles inside print ledger */
-  tr:nth-child(even) {
-    background-color: #f8fafc !important;
-  }
-
-  input {
-    border: none !important;
-    background-color: transparent !important;
-    color: #000005 !important;
-    font-weight: 500 !important;
-    pointer-events: none !important;
-  }
-
-  /* Always start printing on page bounds */
   tr {
     page-break-inside: avoid !important;
   }

@@ -8,23 +8,38 @@ export interface Employee {
   name: string;
   monthlySalary: number;
   workingDays: number;
-  workingHours: number;
+  workingHours?: number;
   fullDaysAbsent: number;
   absentHours: number;
   absentMinutes: number;
   
   // Custom interactive HR profile fields matching SalaryPro design
   role?: string;
+  department?: string;
+  designation?: string;
   email?: string;
   phone?: string;
   gender?: string;
   dob?: string;
   address?: string;
-  joinDate?: string;
-  workModel?: string; // 'Hybrid' | 'Remote' | 'On-Site'
-  employmentType?: string; // 'Full-Time' | 'Part-Time' | 'Contract'
+  shiftTime?: string;
+  shift?: 'DAY' | 'NIGHT';
+  sundayPaid?: 'Paid' | 'Not Paid';
   notes?: string[];
   documents?: { name: string; size: string; date: string }[];
+  
+  // Salary model attributes
+  salaryType?: 'fixed' | 'daily';
+  advancePayment?: number;
+  advanceRemarks?: string;
+  advanceDate?: string;
+  foodBalance?: number;
+  foodRemarks?: string;
+  foodDate?: string;
+  partialDays?: { date: string; minutes: number }[];
+  sundayOTDays?: number;
+  sundayOTAmount?: number;
+  elapsedDays?: number;
 }
 
 export interface ComputedEmployee extends Employee {
@@ -32,10 +47,14 @@ export interface ComputedEmployee extends Employee {
   hourlyRate: number;
   deductionFullDay: number;
   deductionHourly: number;
+  deductionPartialDay?: number;
   totalDeduction: number;
   finalPayable: number;
+  grossSalary: number;
   hasErrors: boolean;
   errorMessages: string[];
+  sundayOTDays?: number;
+  sundayOTAmount?: number;
 }
 
 export interface SalarySettings {
@@ -59,4 +78,22 @@ export interface PunchLog {
   employeeId: string;
   date: string; // YYYY-MM-DD
   punches: string[]; // Format: "HH:MM IN" or "HH:MM OUT" (e.g., ["08:00 IN", "13:00 OUT"])
+}
+
+export interface LoomOrderRow {
+  size: string;
+  quality: string;
+  gsm: number;
+  denier: number;
+  fabricWeight: number; // FABRIC WEIGHT PER METER
+  totalQuantity: number; // TOTAL QUANTITY TO MAKE (IN TON)
+}
+
+export interface LoomOrder {
+  id: string;
+  orderNo: string;
+  date: string; // YYYY-MM-DD
+  status: 'Pending' | 'Production' | 'Completed';
+  rows: LoomOrderRow[];
+  createdAt: string;
 }

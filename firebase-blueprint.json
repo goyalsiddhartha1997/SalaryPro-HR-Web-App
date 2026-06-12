@@ -61,17 +61,9 @@
           "type": "string",
           "description": "Home or correspondence address"
         },
-        "joinDate": {
+        "shiftTime": {
           "type": "string",
-          "description": "Data record join date"
-        },
-        "workModel": {
-          "type": "string",
-          "description": "Hybrid, Remote, or On-Site"
-        },
-        "employmentType": {
-          "type": "string",
-          "description": "Full-Time, Part-Time, or Contract"
+          "description": "Shift hours, e.g. 08:00 - 17:00"
         },
         "notes": {
           "type": "array",
@@ -121,9 +113,286 @@
         "date",
         "punches"
       ]
+    },
+    "CustomUser": {
+      "title": "Custom User",
+      "description": "Credentials and authorization settings for observers and custom managers.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Registered email address"
+        },
+        "password": {
+          "type": "string",
+          "description": "Associated password credential if fallback is utilized"
+        },
+        "role": {
+          "type": "string",
+          "description": "Assigned access role (e.g. admin, observer)"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp in ISO-8601 string structure"
+        }
+      },
+      "required": [
+        "email",
+        "role",
+        "createdAt"
+      ]
+    },
+    "GatePass": {
+      "title": "Gate Pass",
+      "description": "Gate pass record to track employee out and in times",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique record id"
+        },
+        "employeeId": {
+          "type": "string",
+          "description": "Registered employee identification"
+        },
+        "employeeName": {
+          "type": "string",
+          "description": "Full name of the employee"
+        },
+        "date": {
+          "type": "string",
+          "description": "The date for which the gate pass was issued"
+        },
+        "outTime": {
+          "type": "string",
+          "description": "The time of exit"
+        },
+        "inTime": {
+          "type": "string",
+          "description": "The return time of the employee"
+        },
+        "remarks": {
+          "type": "string",
+          "description": "Optional details or reasons for the gate pass"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp in ISO structured syntax"
+        }
+      },
+      "required": [
+        "id",
+        "employeeId",
+        "employeeName",
+        "date",
+        "outTime",
+        "inTime",
+        "createdAt"
+      ]
+    },
+    "OvertimeLog": {
+      "title": "Overtime Log",
+      "description": "Overtime record to track employee arrival, exit, shift pattern, and remarks",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique record id"
+        },
+        "employeeId": {
+          "type": "string",
+          "description": "Registered employee identification"
+        },
+        "employeeName": {
+          "type": "string",
+          "description": "Full name of the employee"
+        },
+        "date": {
+          "type": "string",
+          "description": "Overtime date (YYYY-MM-DD)"
+        },
+        "arrTime": {
+          "type": "string",
+          "description": "The check-in/arrival time of the overtime"
+        },
+        "outTime": {
+          "type": "string",
+          "description": "The check-out/exit time of the overtime"
+        },
+        "shiftPattern": {
+          "type": "string",
+          "description": "The overtime shift mode (e.g. Triple Shift, Regular OT, Night OT)"
+        },
+        "remarks": {
+          "type": "string",
+          "description": "Optional details or reasons for the overtime"
+        },
+        "empShift": {
+          "type": "string",
+          "description": "Copy of the employee shift designation"
+        },
+        "empShiftTime": {
+          "type": "string",
+          "description": "Copy of the employee shift hours value"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp in ISO structured syntax"
+        }
+      },
+      "required": [
+        "id",
+        "employeeId",
+        "employeeName",
+        "date",
+        "arrTime",
+        "outTime",
+        "shiftPattern",
+        "createdAt"
+      ]
+    },
+    "ShiftRules": {
+      "title": "Shift Rules",
+      "description": "Parameters and parameters for shift reconstruction and filtering rules",
+      "type": "object",
+      "properties": {
+        "prependInCutoff": { "type": "string" },
+        "prependInTime": { "type": "string" },
+        "morningDupStart": { "type": "string" },
+        "morningDupEnd": { "type": "string" },
+        "eveningDupStart": { "type": "string" },
+        "eveningDupEnd": { "type": "string" },
+        "lunchStart": { "type": "string" },
+        "lunchEnd": { "type": "string" },
+        "warningThreshold": { "type": "number" },
+        "defaultExitTime": { "type": "string" }
+      },
+      "required": [
+        "prependInCutoff",
+        "prependInTime",
+        "morningDupStart",
+        "morningDupEnd",
+        "eveningDupStart",
+        "eveningDupEnd",
+        "lunchStart",
+        "lunchEnd",
+        "warningThreshold",
+        "defaultExitTime"
+      ]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Global rules, configurations, and variables for biometric connection and reporting",
+      "type": "object",
+      "properties": {
+        "dayRules": {
+          "$ref": "#/entities/ShiftRules"
+        },
+        "nightRules": {
+          "$ref": "#/entities/ShiftRules"
+        }
+      },
+      "required": ["dayRules", "nightRules"]
+    },
+    "LoomOrder": {
+      "title": "PP Fabric Loom Order",
+      "description": "An order produced at the PP fabric Loom plant",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique record id of the loom order"
+        },
+        "orderNo": {
+          "type": "string",
+          "description": "Customer or plant order code"
+        },
+        "date": {
+          "type": "string",
+          "description": "Order date in YYYY-MM-DD"
+        },
+        "status": {
+          "type": "string",
+          "description": "Production status (e.g. Pending, Production, Completed)"
+        },
+        "rows": {
+          "type": "array",
+          "description": "Multiple product specification rows mapped to this order"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp in ISO structure"
+        }
+      },
+      "required": [
+        "id",
+        "orderNo",
+        "date",
+        "status",
+        "rows",
+        "createdAt"
+      ]
+    },
+    "CanteenFoodBill": {
+      "title": "Canteen Food Bill",
+      "description": "Daily food bill entry logged by HR as a challan",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique challan log ID"
+        },
+        "challanNo": {
+          "type": "string",
+          "description": "The unique or physical challan number"
+        },
+        "issuedBy": {
+          "type": "string",
+          "description": "The person who issued the challan"
+        },
+        "mealType": {
+          "type": "string",
+          "enum": ["Lunch", "Dinner"],
+          "description": "Whether the challan was for lunch or dinner"
+        },
+        "noOfMeals": {
+          "type": "number",
+          "description": "Number of meals supplied"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Auto-calculated cost of food based on noOfMeals * 55"
+        },
+        "date": {
+          "type": "string",
+          "description": "Date of record e.g. 10 Jun 2026"
+        },
+        "monthYear": {
+          "type": "string",
+          "description": "Year-Month key, e.g. 2026-06, for quick monthly querying"
+        },
+        "remarks": {
+          "type": "string",
+          "description": "Optional notes or details"
+        }
+      },
+      "required": [
+        "id",
+        "challanNo",
+        "issuedBy",
+        "mealType",
+        "noOfMeals",
+        "amount",
+        "date",
+        "monthYear"
+      ]
     }
   },
   "firestore": {
+    "/settings/{settingsId}": {
+      "schema": "Settings",
+      "description": "System settings and rules engine database document configurations"
+    },
     "/employees/{employeeId}": {
       "schema": "Employee",
       "description": "Rosters and employee records inside the Firestore ledger"
@@ -131,6 +400,26 @@
     "/employees/{employeeId}/punches/{date}": {
       "schema": "PunchLog",
       "description": "Daily biometric punch IN-OUT logs array for the employee"
+    },
+    "/custom_users/{email}": {
+      "schema": "CustomUser",
+      "description": "Approved and registered observer custom emails database for portal access"
+    },
+    "/gatePasses/{passId}": {
+      "schema": "GatePass",
+      "description": "Employee gate pass records for exit and return tracking logged by HR"
+    },
+    "/overtimeLogs/{logId}": {
+      "schema": "OvertimeLog",
+      "description": "Employee overtime logs including shift pattern and arrival/exit bounds"
+    },
+    "/loomOrders/{orderId}": {
+      "schema": "LoomOrder",
+      "description": "PP Fabric Loom plant production scheduling orders"
+    },
+    "/canteenFoodBills/{billId}": {
+      "schema": "CanteenFoodBill",
+      "description": "Challan-based daily logged food bills for canteen lunches and dinners"
     }
   }
 }
