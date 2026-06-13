@@ -336,7 +336,8 @@ export default function ExcelTable({
   // Convert files: Export to real Excel
   const triggerExportExcel = () => {
     // Generate clean flat array for SheetJS to parse
-    const dataToExport = employees.map(emp => ({
+    const dataToExport: any[] = employees.map((emp, index) => ({
+      'S.No': index + 1,
       'Employee ID': emp.id,
       'Employee Name': emp.name,
       'Department': emp.department || '',
@@ -378,6 +379,7 @@ export default function ExcelTable({
     const totalSundayOTAmount = employees.reduce((acc, current) => acc + (current.sundayOTAmount || 0), 0);
 
     dataToExport.push({
+      'S.No': '',
       'Employee ID': 'TOTAL ROWS: ' + employees.length,
       'Employee Name': 'Summary Ledger Sums',
       'Department': '',
@@ -802,7 +804,11 @@ export default function ExcelTable({
         <table className="w-full text-left border-collapse table-fixed select-text">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[11px] font-bold tracking-wider text-center h-11 uppercase sticky top-0 z-10 shadow-xs">
-              <th className="w-24 text-left px-3 border-r border-slate-200 bg-slate-50 font-bold sticky left-0 z-20">
+              <th className="w-16 text-center px-1 border-r border-slate-200 bg-slate-50 font-bold sticky left-0 z-20 select-none">
+                <span>S.No</span>
+              </th>
+
+              <th className="w-24 text-left px-3 border-r border-slate-200 bg-slate-50 font-bold sticky left-16 z-20">
                 <div className="flex items-center justify-between">
                   <span>EMP ID</span>
                   <button onClick={() => triggerSort('id')} className="cursor-pointer text-slate-400 hover:text-slate-650 transition-colors">
@@ -811,7 +817,7 @@ export default function ExcelTable({
                 </div>
               </th>
 
-              <th className="w-48 text-left px-3 border-r border-slate-200 bg-slate-50 font-bold sticky left-24 z-20">
+              <th className="w-48 text-left px-3 border-r border-slate-200 bg-slate-50 font-bold sticky left-40 z-20">
                 <div className="flex items-center justify-between">
                   <span>Employee Name</span>
                   <button onClick={() => triggerSort('name')} className="cursor-pointer text-slate-400 hover:text-slate-650 transition-colors">
@@ -916,11 +922,15 @@ export default function ExcelTable({
           </thead>
 
           <tbody>
-            {paginatedEmployees.map((emp) => {
+            {paginatedEmployees.map((emp, index) => {
               // Conditional formatting evaluations
               const isHighAbsent = emp.fullDaysAbsent >= 3;
               const hasLeaves = emp.fullDaysAbsent > 0 || emp.absentHours > 0 || emp.absentMinutes > 0;
               const hasErrors = emp.hasErrors;
+
+              // Calculate Serial Number (starting from 1)
+              const verifiedPage = Math.min(currentPage, totalPages);
+              const serialNo = (verifiedPage - 1) * pageSize + index + 1;
 
               return (
                 <tr 
@@ -928,7 +938,11 @@ export default function ExcelTable({
                   id={`row-${emp.id}`}
                   className={`h-9 border-b border-slate-100 text-xs transition-colors align-middle text-center ${hasErrors ? 'bg-rose-55' : 'odd:bg-white even:bg-slate-50/30 hover:bg-blue-50/45 hover:odd:bg-blue-50/45'}`}
                 >
-                  <td className="sticky left-0 bg-sky-50 text-slate-800 text-center align-middle border-r border-slate-200 sticky-left-col z-5 px-1 pr-1.5 h-full">
+                  <td className="sticky left-0 bg-slate-50 text-slate-500 font-mono font-bold text-center align-middle border-r border-slate-200 sticky-left-col z-5 px-1">
+                    {serialNo}
+                  </td>
+
+                  <td className="sticky left-16 bg-sky-50 text-slate-800 text-center align-middle border-r border-slate-200 sticky-left-col z-5 px-1 pr-1.5 h-full">
                     <div className="flex items-center justify-between gap-1">
                       <CellInput 
                         type="text" 
@@ -960,7 +974,7 @@ export default function ExcelTable({
                     </div>
                   </td>
 
-                  <td className="sticky left-24 bg-sky-50 text-slate-800 text-left align-middle border-r border-slate-200 sticky-left-col z-5 px-1 pr-2">
+                  <td className="sticky left-40 bg-sky-50 text-slate-800 text-left align-middle border-r border-slate-200 sticky-left-col z-5 px-1 pr-2">
                     <CellInput 
                       type="text" 
                       value={emp.name} 
@@ -1188,7 +1202,7 @@ export default function ExcelTable({
             {/* Zero state display */}
             {totalItems === 0 && (
               <tr>
-                <td colSpan={21} className="h-44 text-center text-slate-400 text-xs">
+                <td colSpan={22} className="h-44 text-center text-slate-400 text-xs">
                   <div className="flex flex-col items-center justify-center space-y-2">
                     <AlertTriangle size={24} className="text-slate-300" />
                     <span>No employee records found matching current query or search criteria.</span>
@@ -1213,9 +1227,10 @@ export default function ExcelTable({
                 <td className="sticky left-0 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold select-none h-full text-slate-200">
                   SUMS:
                 </td>
-                <td className="sticky left-24 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold text-slate-2002">
+                <td className="sticky left-16 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold text-slate-200 font-mono text-[10px] select-none uppercase">
                   {totalItems} rows
                 </td>
+                <td className="sticky left-40 bg-slate-900 border-r border-slate-700 z-15 h-full"></td>
                 <td className="bg-slate-800 border-r border-slate-700"></td>
                 <td className="bg-slate-800 border-r border-slate-700"></td>
                 <td className="bg-slate-800 border-r border-slate-700"></td>
