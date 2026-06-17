@@ -831,6 +831,24 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     sundayPaid: 'Not Paid'
   },
   {
+    id: '68',
+    name: 'Ram Dayal',
+    monthlySalary: 20000,
+    workingDays: 0,
+    workingHours: 0,
+    fullDaysAbsent: 0,
+    absentHours: 0,
+    absentMinutes: 0,
+    role: 'Loom Operator',
+    designation: 'Loom Operator',
+    department: 'Loom',
+    shiftTime: '8:00-20:00',
+    phone: '',
+    address: '',
+    salaryType: 'fixed',
+    sundayPaid: 'Not Paid'
+  },
+  {
     id: '69',
     name: 'Ravinder Paswal',
     monthlySalary: 0,
@@ -1058,17 +1076,19 @@ export const getWorkMinutes = (punches: string[]): number => {
 
     if (isNaN(h) || isNaN(m)) return;
 
-    const isCheckIn = type.startsWith('IN') || type.startsWith('ARR');
-    const isCheckOut = type.startsWith('OUT');
+    const isCheckIn = type.startsWith('IN') || type.startsWith('ARR') || type.includes('IN') || type.includes('ARR');
+    const isCheckOut = type.startsWith('OUT') || type.includes('OUT') || type.includes('DEP') || type.includes('EXIT');
 
     if (isCheckIn) {
       activeInTime = { h, m };
     } else if (isCheckOut && activeInTime) {
       const startMin = activeInTime.h * 60 + activeInTime.m;
       const endMin = h * 60 + m;
-      if (endMin > startMin) {
-        totalMinutes += (endMin - startMin);
+      let diff = endMin - startMin;
+      if (diff < 0) {
+        diff += 1440; // overnight crossing midnight support
       }
+      totalMinutes += diff;
       activeInTime = null;
     }
   });
@@ -1097,4 +1117,55 @@ export const isEmployeePresent = (punchesList: string[]): boolean => {
     return false;
   }
   return true;
+};
+
+export const getNextDateStr = (dateStr: string): string => {
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  const date = new Date(Date.UTC(year, month, day));
+  date.setUTCDate(date.getUTCDate() + 1);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+};
+
+export const getAdjustedPunches = (
+  empId: string,
+  empShift: 'DAY' | 'NIGHT' | string | undefined,
+  dateStr: string,
+  allPunchLogs: Record<string, Record<string, string[]>>
+): string[] => {
+  const empPunches = allPunchLogs[empId] || {};
+  if (empShift === 'NIGHT') {
+    const todayPunches = empPunches[dateStr] || [];
+    const cleanToday = todayPunches.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+    
+    const nextDateStr = getNextDateStr(dateStr);
+    const nextDayPunches = empPunches[nextDateStr] || [];
+    const cleanNextDay = nextDayPunches.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+    
+    const inPunches = cleanToday.filter(p => {
+      const uc = p.toUpperCase();
+      return uc.includes('IN') || uc.includes('ARR');
+    });
+    let outPunches = cleanToday.filter(p => {
+      const uc = p.toUpperCase();
+      return uc.includes('OUT') || uc.includes('DEP') || uc.includes('EXIT');
+    });
+    if (outPunches.length === 0) {
+      outPunches = cleanNextDay.filter(p => {
+        const uc = p.toUpperCase();
+        return uc.includes('OUT') || uc.includes('DEP') || uc.includes('EXIT');
+      });
+    }
+    
+    inPunches.sort((a, b) => a.localeCompare(b));
+    outPunches.sort((a, b) => a.localeCompare(b));
+    
+    return [...inPunches, ...outPunches];
+  } else {
+    const raw = empPunches[dateStr] || [];
+    return raw.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+  }
 };

@@ -40,7 +40,7 @@ service cloud.firestore {
       return data.id is string && data.id.size() <= 64
         && data.employeeId is string && data.employeeId.size() <= 64
         && data.date is string && data.date.size() <= 64
-        && data.punches is list && data.punches.size() <= 10;
+        && data.punches is list && data.punches.size() <= 30;
     }
 
     function isValidGatePass(data) {
@@ -95,14 +95,14 @@ service cloud.firestore {
     }
 
     function isValidCanteenFoodBill(data) {
-      return data.id is string && data.id.size() <= 128
-        && data.challanNo is string && data.challanNo.size() <= 128
-        && data.issuedBy is string && data.issuedBy.size() <= 200
-        && data.mealType is string && (data.mealType == 'Lunch' || data.mealType == 'Dinner')
-        && data.noOfMeals is number && data.noOfMeals >= 0
-        && data.amount is number && data.amount >= 0
-        && data.date is string && data.date.size() <= 64
-        && data.monthYear is string && data.monthYear.size() <= 32
+      return data.id is string
+        && data.challanNo is string
+        && data.issuedBy is string
+        && data.mealType is string
+        && data.noOfMeals is number
+        && (!('amount' in data) || data.amount is number || data.amount == null)
+        && data.date is string
+        && data.monthYear is string
         && (!('remarks' in data) || data.remarks is string);
     }
 
@@ -133,6 +133,11 @@ service cloud.firestore {
         allow read, list: if true;
         allow create, update, delete: if isValidId(employeeId) && isValidId(yearMonth);
       }
+    }
+
+    match /recycle_bin/{employeeId} {
+      allow read, list: if true;
+      allow create, update, delete: if isValidId(employeeId);
     }
 
     match /{path=**}/punches/{date} {

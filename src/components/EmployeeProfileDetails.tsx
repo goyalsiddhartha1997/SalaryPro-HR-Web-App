@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { ComputedEmployee, Employee } from '../types';
-import { isEmployeePresent, getWorkMinutes } from '../data';
+import { isEmployeePresent, getWorkMinutes, getAdjustedPunches, getNextDateStr } from '../data';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, collectionGroup, query, where, getDocs } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { 
@@ -78,8 +78,8 @@ const calculateBreakTime = (punches: string[]): { hours: number; minutes: number
 
     if (isNaN(h) || isNaN(m)) return;
 
-    const isCheckIn = type.startsWith('IN') || type.startsWith('ARR');
-    const isCheckOut = type.startsWith('OUT');
+    const isCheckIn = type.startsWith('IN') || type.startsWith('ARR') || type.includes('IN') || type.includes('ARR');
+    const isCheckOut = type.startsWith('OUT') || type.includes('OUT') || type.includes('DEP') || type.includes('EXIT');
 
     if (isCheckOut) {
       activeOutTime = { h, m };
@@ -203,7 +203,23 @@ export default function EmployeeProfileDetails({
   const [punchLogs, setPunchLogs] = useState<Record<string, { id: string; employeeId: string; date: string; punches: string[] }>>({});
 
   // Real-time tracking of all uploaded logs in entire application to find unique dates dynamically
-  const [allUploadedDates, setAllUploadedDates] = useState<string[]>([]);
+  const allUploadedDates = useMemo(() => {
+    const dates = new Set<string>();
+    Object.values(allPunchLogs || {}).forEach(empPunches => {
+      Object.entries(empPunches || {}).forEach(([dateStr, punches]) => {
+        if (punches && punches.length > 0) {
+          const hasInOrArr = punches.some(p => {
+            const uc = p.toUpperCase();
+            return uc.includes('IN') || uc.includes('ARR');
+          });
+          if (hasInOrArr) {
+            dates.add(dateStr);
+          }
+        }
+      });
+    });
+    return Array.from(dates).sort();
+  }, [allPunchLogs]);
 
   // Synchronous punch logs mapping from the preloaded allPunchLogs prop
   useEffect(() => {
@@ -274,20 +290,7 @@ export default function EmployeeProfileDetails({
     fetchCalendarMonthPunches();
   }, [employee.id, calendarMonth, calendarYear, setAllPunchLogs]);
 
-  // Synchronous tracking of all unique uploaded log dates dynamically across the organization
-  useEffect(() => {
-    const datesSet = new Set<string>();
-    Object.values(allPunchLogs).forEach((empPunches: any) => {
-      if (empPunches && typeof empPunches === 'object') {
-        Object.keys(empPunches).forEach(date => {
-          if (date && date.includes('-')) {
-            datesSet.add(date);
-          }
-        });
-      }
-    });
-    setAllUploadedDates(Array.from(datesSet));
-  }, [allPunchLogs]);
+
 
   // Real-time subscribed gate pass records for the selected employee
   const [employeeGatePasses, setEmployeeGatePasses] = useState<any[]>([]);
@@ -356,9 +359,20 @@ export default function EmployeeProfileDetails({
       const list: any[] = [];
       snapshot.forEach(docSnap => {
         const data = docSnap.data();
-        if (data.advancePayment && Number(data.advancePayment) > 0) {
+        if (data.advances && Array.isArray(data.advances) && data.advances.length > 0) {
+          data.advances.forEach((adv: any) => {
+            list.push({
+              id: `${docSnap.id}-${adv.id}`,
+              monthYear: docSnap.id,
+              amount: Number(adv.amount) || 0,
+              date: adv.date || '',
+              remarks: adv.remarks || ''
+            });
+          });
+        } else if (data.advancePayment && Number(data.advancePayment) > 0) {
           list.push({
             id: docSnap.id,
+            monthYear: docSnap.id,
             amount: Number(data.advancePayment) || 0,
             date: data.advanceDate || '',
             remarks: data.advanceRemarks || ''
@@ -386,7 +400,7 @@ export default function EmployeeProfileDetails({
 
   const filteredAdvanceHistory = useMemo(() => {
     const targetMonthYearStr = `${otFilterYear}-${String(otFilterMonth + 1).padStart(2, '0')}`;
-    return employeeAdvanceHistory.filter(adv => adv.id === targetMonthYearStr);
+    return employeeAdvanceHistory.filter(adv => adv.monthYear === targetMonthYearStr);
   }, [employeeAdvanceHistory, otFilterMonth, otFilterYear]);
 
   const totalOtHours = useMemo(() => {
@@ -542,6 +556,10 @@ export default function EmployeeProfileDetails({
 
   const totalMonthlyValue = baseSalary + allowanceTransport + allowanceMeal + allowanceInternet + benefitHealth + benefitLife + benefitDevice;
 
+  const getAdjustedPunchesForDate = (dateStr: string): string[] => {
+    return getAdjustedPunches(employee.id, employee.shift, dateStr, allPunchLogs);
+  };
+
   // Live dynamic absences count! Filter uploaded dates for current month/year and check if this employee has no punches
   const currentMonthStr = String(calendarMonth + 1).padStart(2, '0');
   const monthPrefix = `${calendarYear}-${currentMonthStr}-`;
@@ -550,11 +568,13 @@ export default function EmployeeProfileDetails({
   const isFutureMonth = (calendarYear > now.getFullYear()) || (calendarYear === now.getFullYear() && calendarMonth > now.getMonth());
   const isCurrentlyLedgerMonth = (calendarMonth + 1 === ledgerMonth && calendarYear === ledgerYear);
   
-  const uploadedDaysInThisMonth = allUploadedDates.filter(d => d.startsWith(monthPrefix));
+  // Real-time tracking of uploaded dates filtered for the selected month to determine active company work days
+  const uploadedDaysInThisMonth = useMemo(() => {
+    return allUploadedDates.filter(d => d.startsWith(monthPrefix));
+  }, [allUploadedDates, monthPrefix]);
   
   const uploadedFullAbsencesCount = uploadedDaysInThisMonth.filter(d => {
-    const dayPunchesRaw = punchLogs[d]?.punches || [];
-    const dayPunches = dayPunchesRaw.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+    const dayPunches = getAdjustedPunchesForDate(d);
     if (dayPunches.length === 0) {
       const dateObj = new Date(d);
       const isSunday = dateObj.getDay() === 0;
@@ -571,16 +591,14 @@ export default function EmployeeProfileDetails({
   }).length;
 
   const uploadedPartialDays = uploadedDaysInThisMonth.filter(d => {
-    const dayPunchesRaw = punchLogs[d]?.punches || [];
-    const dayPunches = dayPunchesRaw.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+    const dayPunches = getAdjustedPunchesForDate(d);
     if (dayPunches.length > 0) {
       const minutes = getWorkMinutes(dayPunches);
       return minutes < 360;
     }
     return false;
   }).map(d => {
-    const dayPunchesRaw = punchLogs[d]?.punches || [];
-    const dayPunches = dayPunchesRaw.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+    const dayPunches = getAdjustedPunchesForDate(d);
     return { date: d, minutes: getWorkMinutes(dayPunches) };
   });
 
@@ -613,8 +631,7 @@ export default function EmployeeProfileDetails({
   let liveSundayOTDays = 0;
   if (uploadedDaysInThisMonth.length > 0) {
     uploadedDaysInThisMonth.forEach(d => {
-      const dayPunchesRaw = punchLogs[d]?.punches || [];
-      const dayPunches = dayPunchesRaw.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+      const dayPunches = getAdjustedPunchesForDate(d);
       if (dayPunches.length > 0) {
         const dateObj = new Date(d);
         const isSunday = dateObj.getDay() === 0;
@@ -725,8 +742,7 @@ export default function EmployeeProfileDetails({
   // Generate calendar days
   const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
   const targetDate = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
-  const punchesListRaw = punchLogs[targetDate]?.punches || [];
-  const punchesList = punchesListRaw.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+  const punchesList = getAdjustedPunchesForDate(targetDate);
   const selectedDateBreakObj = calculateBreakTime(punchesList);
   const breakTimeMins = selectedDateBreakObj.hours * 60 + selectedDateBreakObj.minutes;
   const firstDayIndex = new Date(calendarYear, calendarMonth, 1).getDay(); // Sunday is 0
@@ -757,9 +773,8 @@ export default function EmployeeProfileDetails({
     
     // 1. If this month features ANY uploaded biometric logs, rely strictly and exclusively on those logs
     if (uploadedDaysInThisMonth.length > 0) {
-      if (allUploadedDates.includes(cellDateStr)) {
-        const dayPunchesRaw = punchLogs[cellDateStr]?.punches || [];
-        const dayPunches = dayPunchesRaw.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+      if (uploadedDaysInThisMonth.includes(cellDateStr)) {
+        const dayPunches = getAdjustedPunchesForDate(cellDateStr);
         const absent = !isEmployeePresent(dayPunches);
         if (absent) {
           const dateObj = new Date(cellDateStr);
@@ -792,9 +807,8 @@ export default function EmployeeProfileDetails({
     const cellDateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
 
     if (uploadedDaysInThisMonth.length > 0) {
-      if (allUploadedDates.includes(cellDateStr)) {
-        const dayPunchesRaw = punchLogs[cellDateStr]?.punches || [];
-        const dayPunches = dayPunchesRaw.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+      if (uploadedDaysInThisMonth.includes(cellDateStr)) {
+        const dayPunches = getAdjustedPunchesForDate(cellDateStr);
         // An odd number of logs or incomplete punches can visually count as special lates/exceptions
         return dayPunches.length > 0 && dayPunches.length % 2 !== 0;
       }
@@ -1086,7 +1100,7 @@ export default function EmployeeProfileDetails({
                                 ? isIN ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
                                 : isIN ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-rose-50 text-rose-700 border border-rose-100'
                            }`}>
-                             {isIN ? 'In' : 'Out'}
+                             {employee.shift === 'NIGHT' ? (isIN ? 'Arr Time' : 'Out 1') : (isIN ? 'In' : 'Out')}
                            </span>
                            {isAuto && (
                              <span className="bg-amber-600 text-white text-[7.5px] font-black px-1 rounded-sm uppercase tracking-wider font-mono">
@@ -1545,8 +1559,7 @@ export default function EmployeeProfileDetails({
             <div className="grid grid-cols-7 gap-y-1 gap-x-1 text-center text-xs">
               {calendarDays.map((slot, index) => {
                 const cellDateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(slot.day).padStart(2, '0')}`;
-                const dayPunchesRaw = punchLogs[cellDateStr]?.punches || [];
-                const dayPunches = dayPunchesRaw.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+                const dayPunches = getAdjustedPunchesForDate(cellDateStr);
                 const hasPunches = dayPunches.length > 0;
                 const workMinutes = getWorkMinutes(dayPunches);
 
@@ -1611,12 +1624,11 @@ export default function EmployeeProfileDetails({
             <div className="flex justify-between items-center select-none">
               <div className="flex items-center gap-1.5 text-teal-400 font-bold uppercase tracking-wider text-[9.5px]">
                 <Clock size={12} className="animate-pulse" />
-                <span>Log: {calendarYear}-{String(calendarMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}</span>
+                <span>Log: {calendarYear}-{String(calendarMonth + 1).padStart(2, '0')}-{String(selectedDay).padStart(2, '0')}</span>
               </div>
               {(() => {
                 const targetDate = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
-                const rawPunches = punchLogs[targetDate]?.punches || [];
-                const punchesList = rawPunches.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+                const punchesList = getAdjustedPunchesForDate(targetDate);
                 return punchesList.length > 0 && (
                   <span className="bg-teal-500/20 text-teal-300 font-mono text-[9px] px-1.5 py-0.5 rounded font-black uppercase">
                     {punchesList.length} logs
@@ -1627,8 +1639,7 @@ export default function EmployeeProfileDetails({
 
             {(() => {
               const targetDate = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
-              const rawPunches = punchLogs[targetDate]?.punches || [];
-              const punchesList = rawPunches.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+              const punchesList = getAdjustedPunchesForDate(targetDate);
               
               if (punchesList.length === 0) {
                 return (
@@ -1663,22 +1674,33 @@ export default function EmployeeProfileDetails({
                         <button 
                           type="button" 
                           onClick={async () => {
-                            const filtered = punchesList.filter((_, pIdx) => pIdx !== idx);
-                            const docRef = doc(db, 'employees', employee.id, 'punches', targetDate);
+                            const punchToDelete = punchesList[idx];
+                            const isOutPunch = punchToDelete.toUpperCase().includes('OUT') || punchToDelete.toUpperCase().includes('DEP') || punchToDelete.toUpperCase().includes('EXIT');
+                            
+                            let pDate = targetDate;
+                            if (employee.shift === 'NIGHT' && isOutPunch) {
+                              const dateObj = new Date(targetDate);
+                              dateObj.setUTCDate(dateObj.getUTCDate() + 1);
+                              pDate = `${dateObj.getUTCFullYear()}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(dateObj.getUTCDate()).padStart(2, '0')}`;
+                            }
+                            
+                            const rawPunches = punchLogs[pDate]?.punches || [];
+                            const filtered = rawPunches.filter(p => p !== punchToDelete);
+                            const docRef = doc(db, 'employees', employee.id, 'punches', pDate);
                             try {
                               if (filtered.length === 0) {
                                 await deleteDoc(docRef);
                               } else {
                                 await setDoc(docRef, {
-                                  id: targetDate,
+                                  id: pDate,
                                   employeeId: employee.id,
-                                  date: targetDate,
+                                  date: pDate,
                                   punches: filtered
                                 });
                               }
                               triggerAlert?.('success', 'Punch log updated successfully.');
                             } catch (error) {
-                              handleFirestoreError(error, OperationType.WRITE, `employees/${employee.id}/punches/${targetDate}`);
+                              handleFirestoreError(error, OperationType.WRITE, `employees/${employee.id}/punches/${pDate}`);
                               triggerAlert?.('warn', 'Offline mode: Changes saved in local Cache (Network fallback active).');
                             }
 
@@ -1686,12 +1708,12 @@ export default function EmployeeProfileDetails({
                             setPunchLogs(prev => {
                               const next = { ...prev };
                               if (filtered.length === 0) {
-                                delete next[targetDate];
+                                delete next[pDate];
                               } else {
-                                next[targetDate] = {
-                                  id: targetDate,
+                                next[pDate] = {
+                                  id: pDate,
                                   employeeId: employee.id,
-                                  date: targetDate,
+                                  date: pDate,
                                   punches: filtered
                                 };
                               }
@@ -1706,9 +1728,9 @@ export default function EmployeeProfileDetails({
                                   next[employee.id] = {};
                                 }
                                 if (filtered.length === 0) {
-                                  delete next[employee.id][targetDate];
+                                  delete next[employee.id][pDate];
                                 } else {
-                                  next[employee.id][targetDate] = filtered;
+                                  next[employee.id][pDate] = filtered;
                                 }
                                 localStorage.setItem('salarypro_all_punches_cache', JSON.stringify(next));
                                 return next;
@@ -1795,32 +1817,40 @@ export default function EmployeeProfileDetails({
                   type="button"
                   onClick={async () => {
                     const targetDate = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
-                    const currentPunches = punchLogs[targetDate]?.punches || [];
+                    
+                    let pDate = targetDate;
+                    if (employee.shift === 'NIGHT') {
+                      const dateObj = new Date(targetDate);
+                      dateObj.setUTCDate(dateObj.getUTCDate() + 1);
+                      pDate = `${dateObj.getUTCFullYear()}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(dateObj.getUTCDate()).padStart(2, '0')}`;
+                    }
+
+                    const currentPunches = punchLogs[pDate]?.punches || [];
                     const timeInput = document.getElementById('manual-profile-punch-time') as HTMLInputElement | null;
                     const val = timeInput?.value || '17:00';
                     const newLog = `${val} OUT`;
                     const updated = [...currentPunches, newLog].sort((a,b) => a.localeCompare(b));
-                    const docRef = doc(db, 'employees', employee.id, 'punches', targetDate);
+                    const docRef = doc(db, 'employees', employee.id, 'punches', pDate);
                     try {
                       await setDoc(docRef, {
-                        id: targetDate,
+                        id: pDate,
                         employeeId: employee.id,
-                        date: targetDate,
+                        date: pDate,
                         punches: updated
                       });
                       triggerAlert?.('success', 'Biometric punch log registered in Cloud Database.');
                     } catch (error) {
-                      handleFirestoreError(error, OperationType.WRITE, `employees/${employee.id}/punches/${targetDate}`);
+                      handleFirestoreError(error, OperationType.WRITE, `employees/${employee.id}/punches/${pDate}`);
                       triggerAlert?.('warn', 'Offline mode: Registered punch saved in local Cache (Network fallback active).');
                     }
 
                     // Update local state immediately (offline-first execution)
                     setPunchLogs(prev => {
                       const next = { ...prev };
-                      next[targetDate] = {
-                        id: targetDate,
+                      next[pDate] = {
+                        id: pDate,
                         employeeId: employee.id,
-                        date: targetDate,
+                        date: pDate,
                         punches: updated
                       };
                       return next;
@@ -1835,7 +1865,7 @@ export default function EmployeeProfileDetails({
                         }
                         next[employee.id] = {
                           ...next[employee.id],
-                          [targetDate]: updated
+                          [pDate]: updated
                         };
                         localStorage.setItem('salarypro_all_punches_cache', JSON.stringify(next));
                         return next;

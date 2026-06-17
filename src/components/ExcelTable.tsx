@@ -77,6 +77,7 @@ interface ExcelTableProps {
   setLedgerMonth?: (m: number) => void;
   ledgerYear?: number;
   setLedgerYear?: (y: number) => void;
+  onOpenRecycleBin?: () => void;
 }
 
 export default function ExcelTable({
@@ -94,7 +95,8 @@ export default function ExcelTable({
   ledgerMonth = 5,
   setLedgerMonth = () => {},
   ledgerYear = 2026,
-  setLedgerYear = () => {}
+  setLedgerYear = () => {},
+  onOpenRecycleBin
 }: ExcelTableProps) {
   // Search & Filter state
   const [filterOpts, setFilterOpts] = useState<FilterOptions>({
@@ -661,6 +663,19 @@ export default function ExcelTable({
             <Plus size={14} />
             Add Employee Card
           </button>
+
+          {/* Recycle Bin Button */}
+          {onOpenRecycleBin && (
+            <button 
+              id="btn-recycle-bin"
+              onClick={onOpenRecycleBin}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+              title="Open Recycle Bin (View and restore employees who have left the factory)"
+            >
+              <Trash2 size={14} className="text-rose-500" />
+              Recycle Bin
+            </button>
+          )}
 
           {/* Reset button */}
           <button 

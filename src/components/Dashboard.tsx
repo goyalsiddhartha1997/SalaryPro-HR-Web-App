@@ -171,15 +171,6 @@ export default function Dashboard({
     }).format(value);
   };
 
-  // SVG Chart variables
-  const maxBracketVal = Math.max(
-    stats.brackets.under25,
-    stats.brackets['25to50'],
-    stats.brackets['50to80'],
-    stats.brackets.above80,
-    1 // avoid division by zero
-  );
-
   const monthsList = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
@@ -343,78 +334,99 @@ export default function Dashboard({
       {/* Visual Charts & High-Risk Alert panels */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        {/* Chart Panel - Salary Bracket Distribution */}
-        <div id="panel-salary-distribution" className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm lg:col-span-7 flex flex-col justify-between">
+        {/* Balance Ledger Overview */}
+        <div id="panel-balance-ledger" className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm lg:col-span-7 flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
-                <Layers size={16} className="text-blue-600" />
-                Salary Cohorts (Headcount Breakdown)
+            <div className="flex items-center justify-between mb-1">
+              <h4 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5 font-bold">
+                <IndianRupee size={16} className="text-emerald-600" />
+                Advances & Balance Ledger Overview
               </h4>
-              <span className="text-xs px-2 py-0.5 bg-slate-100 rounded-full text-slate-600 font-medium">Auto-scaling</span>
+              <span className="text-xs px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full font-bold">Active Records</span>
             </div>
-            <p className="text-xs text-slate-500 mb-6 font-normal">
-              Visualizes how staff counts cluster into different gross base salary bands.
+            <p className="text-xs text-slate-500 mb-4 font-normal">
+              Tracking corporate advances and accumulated canteen/food tab balances for salary deduction.
             </p>
+
+            {/* Metrics Sub-Grid */}
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Outstanding Advances</span>
+                  <span className="text-lg font-black text-rose-600 font-mono mt-1 block">
+                    {formatINR(stats.totalAdvancePayment)}
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-500 font-medium block mt-1.5">
+                  {employees.filter(e => (e.advancePayment || 0) > 0).length} staff holding advances
+                </span>
+              </div>
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Food Canteen Tabs</span>
+                  <span className="text-lg font-black text-amber-600 font-mono mt-1 block">
+                    {formatINR(stats.totalFoodBalance)}
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-500 font-medium block mt-1.5">
+                  {employees.filter(e => (e.foodBalance || 0) > 0).length} active food tabs
+                </span>
+              </div>
+            </div>
+
+            {/* Proportion Bar */}
+            <div className="mb-5 bg-slate-50 p-3 rounded-xl border border-slate-100">
+              <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1.5">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"/>Advances ({((stats.totalAdvancePayment / (stats.totalAdvancePayment + stats.totalFoodBalance || 1)) * 100).toFixed(0)}%)</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block"/>Canteen Dues ({((stats.totalFoodBalance / (stats.totalAdvancePayment + stats.totalFoodBalance || 1)) * 100).toFixed(0)}%)</span>
+              </div>
+              <div className="w-full bg-slate-200/60 h-2.5 rounded-full overflow-hidden flex">
+                <div 
+                  className="bg-emerald-500 h-full transition-all duration-500" 
+                  style={{ width: `${(stats.totalAdvancePayment / (stats.totalAdvancePayment + stats.totalFoodBalance || 1)) * 100}%` }}
+                />
+                <div 
+                  className="bg-amber-500 h-full transition-all duration-500" 
+                  style={{ width: `${(stats.totalFoodBalance / (stats.totalAdvancePayment + stats.totalFoodBalance || 1)) * 105}%` }}
+                />
+              </div>
+            </div>
           </div>
 
-          {/* SVG Bar Chart */}
-          <div className="relative h-48 w-full mt-2">
-            <div className="absolute inset-0 flex flex-col justify-between text-[10px] text-slate-400 font-mono select-none">
-              <div className="border-b border-dashed border-slate-100 w-full pb-1">{(maxBracketVal).toFixed(0)}</div>
-              <div className="border-b border-dashed border-slate-100 w-full pb-1">{(maxBracketVal * 0.66).toFixed(0)}</div>
-              <div className="border-b border-dashed border-slate-100 w-full pb-1">{(maxBracketVal * 0.33).toFixed(0)}</div>
-              <div className="w-full pb-1">0</div>
+          {/* Top outstanding balances list */}
+          <div className="mt-2">
+            <div className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between select-none">
+              <span>Top Outstanding Accounts</span>
+              <span className="text-[10px] text-slate-400 font-normal">Ranked by combined liabilities</span>
             </div>
-
-            <div className="absolute inset-x-8 bottom-0 top-3 flex justify-around items-end">
-              {/* Bar 1 */}
-              <div className="flex flex-col items-center w-14 group">
-                <div className="text-xs font-semibold text-slate-700 mb-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white rounded px-1.5 py-0.5 absolute -translate-y-8 select-none z-10">
-                  {stats.brackets.under25} Staff
+            <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+              {employees
+                .filter(e => (e.advancePayment || 0) > 0 || (e.foodBalance || 0) > 0)
+                .map(e => ({
+                  ...e,
+                  totalDue: (e.advancePayment || 0) + (e.foodBalance || 0)
+                }))
+                .sort((a, b) => b.totalDue - a.totalDue)
+                .slice(0, 3)
+                .map(emp => (
+                  <div key={emp.id} className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-lg hover:bg-slate-100 transition-colors">
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono font-bold text-slate-500 bg-slate-200/60 px-1 py-0.5 rounded">{emp.id}</span>
+                        <p className="text-xs font-bold text-slate-800 truncate">{emp.name}</p>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-1 truncate">
+                        Adv: <span className="font-semibold text-slate-700">{formatINR(emp.advancePayment || 0)}</span> {emp.advanceRemarks ? `(${emp.advanceRemarks}) border` : ''} • Food: <span className="font-semibold text-slate-700">{formatINR(emp.foodBalance || 0)}</span> {emp.foodRemarks ? `(${emp.foodRemarks})` : ''}
+                      </p>
+                    </div>
+                    <span className="font-extrabold text-slate-700 font-mono text-xs shrink-0">{formatINR(emp.totalDue)}</span>
+                  </div>
+                ))}
+              {employees.filter(e => (e.advancePayment || 0) > 0 || (e.foodBalance || 0) > 0).length === 0 && (
+                <div className="py-6 flex flex-col items-center justify-center bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400 font-medium select-none">
+                  All employee ledgers are fully balanced!
                 </div>
-                <div 
-                  className="w-8 ml-0.5 rounded-t-sm bg-blue-500 hover:bg-blue-600 transition-all duration-500 cursor-pointer shadow-xs"
-                  style={{ height: `${(stats.brackets.under25 / maxBracketVal) * 100}%`, minHeight: '4px' }}
-                />
-                <span className="text-[10px] text-slate-500 font-medium text-center mt-2 whitespace-nowrap">&lt; 25K</span>
-              </div>
-
-              {/* Bar 2 */}
-              <div className="flex flex-col items-center w-14 group">
-                <div className="text-xs font-semibold text-slate-700 mb-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white rounded px-1.5 py-0.5 absolute -translate-y-8 select-none z-10">
-                  {stats.brackets['25to50']} Staff
-                </div>
-                <div 
-                  className="w-8 ml-0.5 rounded-t-sm bg-indigo-500 hover:bg-indigo-600 transition-all duration-500 cursor-pointer shadow-xs"
-                  style={{ height: `${(stats.brackets['25to50'] / maxBracketVal) * 100}%`, minHeight: '4px' }}
-                />
-                <span className="text-[10px] text-slate-500 font-medium text-center mt-2 whitespace-nowrap">25K - 50K</span>
-              </div>
-
-              {/* Bar 3 */}
-              <div className="flex flex-col items-center w-14 group">
-                <div className="text-xs font-semibold text-slate-700 mb-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white rounded px-1.5 py-0.5 absolute -translate-y-8 select-none z-10">
-                  {stats.brackets['50to80']} Staff
-                </div>
-                <div 
-                  className="w-8 ml-0.5 rounded-t-sm bg-violet-500 hover:bg-violet-600 transition-all duration-500 cursor-pointer shadow-xs"
-                  style={{ height: `${(stats.brackets['50to80'] / maxBracketVal) * 100}%`, minHeight: '4px' }}
-                />
-                <span className="text-[10px] text-slate-500 font-medium text-center mt-2 whitespace-nowrap">50K - 80K</span>
-              </div>
-
-              {/* Bar 4 */}
-              <div className="flex flex-col items-center w-14 group">
-                <div className="text-xs font-semibold text-slate-700 mb-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white rounded px-1.5 py-0.5 absolute -translate-y-8 select-none z-10">
-                  {stats.brackets.above80} Staff
-                </div>
-                <div 
-                  className="w-8 ml-0.5 rounded-t-sm bg-purple-500 hover:bg-purple-600 transition-all duration-500 cursor-pointer shadow-xs"
-                  style={{ height: `${(stats.brackets.above80 / maxBracketVal) * 100}%`, minHeight: '4px' }}
-                />
-                <span className="text-[10px] text-slate-500 font-medium text-center mt-2 whitespace-nowrap">80K+</span>
-              </div>
+              )}
             </div>
           </div>
         </div>

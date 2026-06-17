@@ -5,7 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { db } from '../firebase';
-import { doc, setDoc, collection, query, where, onSnapshot, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, query, where, onSnapshot, deleteDoc, getDoc } from 'firebase/firestore';
 import { Wallet, Calendar as CalendarIcon, Plus, Info, Landmark, History, Coins, Utensils, Coffee, Receipt, UserCheck, Edit, Trash2, Check, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Employee } from '../types';
 
@@ -13,7 +13,7 @@ export interface CanteenFoodBill {
   id: string;
   challanNo: string;
   issuedBy: string;
-  mealType: 'Lunch' | 'Dinner';
+  mealType: 'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea';
   noOfMeals: number;
   amount: number;
   date: string;
@@ -36,6 +36,7 @@ interface AdvancePaidProps {
     foodBalance?: number;
     foodRemarks?: string;
     foodDate?: string;
+    advances?: Array<{ id: string; amount: number; remarks: string; date: string }>;
   }>>;
   triggerAlert: (type: 'info' | 'success' | 'warn', msg: string) => void;
   viewOnly?: boolean;
@@ -76,8 +77,9 @@ export default function AdvancePaid({
   // --- STATE FOR FOOD BILL ---
   const [challanNo, setChallanNo] = useState<string>('');
   const [challanIssuedBy, setChallanIssuedBy] = useState<string>('');
-  const [mealType, setMealType] = useState<'Lunch' | 'Dinner'>('Lunch');
+  const [mealType, setMealType] = useState<'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea'>('Lunch');
   const [noOfMeals, setNoOfMeals] = useState<string>('');
+  const [foodAmount, setFoodAmount] = useState<string>('');
   const [foodRemarks, setFoodRemarks] = useState<string>('');
   const [selectedFoodDay, setSelectedFoodDay] = useState<number>(new Date().getDate());
   const [selectedFoodMonth, setSelectedFoodMonth] = useState<number>(ledgerMonth - 1); // 0-indexed for representation
@@ -91,6 +93,7 @@ export default function AdvancePaid({
 
   // --- STATE FOR EDITING & DELETIONS ---
   const [editingAdvance, setEditingAdvance] = useState<{
+    id?: string;
     employeeId: string;
     monthYear: string;
     amount: number;
@@ -104,6 +107,8 @@ export default function AdvancePaid({
     type: 'advance' | 'food';
     id: string; // employeeId for advance, billId for food
     monthYear: string;
+    advId?: string;
+    employeeId?: string;
   } | null>(null);
 
   // Ascending-ordered employees list (by numerical employee code)
@@ -160,6 +165,75 @@ export default function AdvancePaid({
   // Current year month string representation for ledger mapping (e.g. "2026-05")
   const formYearMonthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`;
   const foodFormYearMonthStr = `${selectedFoodYear}-${String(selectedFoodMonth + 1).padStart(2, '0')}`;
+
+  // Stable stringified list of active employee IDs to protect dependency array from reference noise
+  const activeEmployeeIdsString = React.useMemo(() => {
+    return employees
+      .filter(emp => emp.id && !emp.id.toUpperCase().startsWith('EMP_TEMP_'))
+      .map(emp => emp.id)
+      .sort()
+      .join(',');
+  }, [employees]);
+
+  // Dynamically load monthly payroll overrides when user selects different tracking period
+  React.useEffect(() => {
+    if (!formYearMonthStr || !setAllMonthlyOverrides) return;
+
+    const fetchSelectedMonthOverrides = async () => {
+      try {
+        const liveIds = activeEmployeeIdsString.split(',').filter(id => id.trim() !== '');
+        if (liveIds.length === 0) return;
+
+        const fetchedOverrides: Record<string, any> = {};
+
+        await Promise.all(liveIds.map(async (empId) => {
+          const docRef = doc(db, 'employees', empId, 'monthlyPayroll', formYearMonthStr);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            fetchedOverrides[empId] = docSnap.data();
+          }
+        }));
+
+        setAllMonthlyOverrides((prev: any) => {
+          const next = { ...prev };
+          liveIds.forEach((empId) => {
+            if (!next[empId]) {
+              next[empId] = {};
+            } else {
+              next[empId] = { ...next[empId] };
+            }
+            if (fetchedOverrides[empId]) {
+              next[empId][formYearMonthStr] = {
+                workingDays: fetchedOverrides[empId].workingDays !== undefined ? Number(fetchedOverrides[empId].workingDays) : undefined,
+                fullDaysAbsent: fetchedOverrides[empId].fullDaysAbsent !== undefined ? Number(fetchedOverrides[empId].fullDaysAbsent) : undefined,
+                advancePayment: fetchedOverrides[empId].advancePayment !== undefined ? Number(fetchedOverrides[empId].advancePayment) : undefined,
+                advanceRemarks: fetchedOverrides[empId].advanceRemarks !== undefined ? String(fetchedOverrides[empId].advanceRemarks) : undefined,
+                workingHours: fetchedOverrides[empId].workingHours !== undefined ? Number(fetchedOverrides[empId].workingHours) : undefined,
+                absentHours: fetchedOverrides[empId].absentHours !== undefined ? Number(fetchedOverrides[empId].absentHours) : undefined,
+                absentMinutes: fetchedOverrides[empId].absentMinutes !== undefined ? Number(fetchedOverrides[empId].absentMinutes) : undefined,
+                monthlySalary: fetchedOverrides[empId].monthlySalary !== undefined ? Number(fetchedOverrides[empId].monthlySalary) : undefined,
+                foodBalance: fetchedOverrides[empId].foodBalance !== undefined ? Number(fetchedOverrides[empId].foodBalance) : undefined,
+                foodRemarks: fetchedOverrides[empId].foodRemarks !== undefined ? String(fetchedOverrides[empId].foodRemarks) : undefined,
+                advanceDate: fetchedOverrides[empId].advanceDate !== undefined ? String(fetchedOverrides[empId].advanceDate) : undefined,
+                foodDate: fetchedOverrides[empId].foodDate !== undefined ? String(fetchedOverrides[empId].foodDate) : undefined,
+                advances: Array.isArray(fetchedOverrides[empId].advances) ? fetchedOverrides[empId].advances : undefined,
+              };
+            }
+          });
+          try {
+            localStorage.setItem('salarypro_monthly_overrides_cache', JSON.stringify(next));
+          } catch (storageErr) {
+            console.warn("Storage limits reached for overrides cache:", storageErr);
+          }
+          return next;
+        });
+      } catch (err) {
+        console.warn("Failed to fetch overrides for selected form month/year:", err);
+      }
+    };
+
+    fetchSelectedMonthOverrides();
+  }, [formYearMonthStr, activeEmployeeIdsString, setAllMonthlyOverrides]);
 
   // Ensure selected day is valid when month/year changes
   React.useEffect(() => {
@@ -230,45 +304,129 @@ export default function AdvancePaid({
 
     setIsSubmittingAdvance(true);
     try {
-      // Clean up previous month-year override if it shifted or employee shifted during Editing
+      const advanceDateStr = `${selectedDay} ${months[selectedMonth]} ${selectedYear}`;
+      
+      const existingOverride = allMonthlyOverrides[selectedEmpId]?.[formYearMonthStr] || {};
+      let currentAdvances = existingOverride.advances && Array.isArray(existingOverride.advances)
+        ? [...existingOverride.advances]
+        : [];
+
+      // PORT: If legacy single item exists but advances is empty, seed it first
+      if (currentAdvances.length === 0 && existingOverride.advancePayment && existingOverride.advancePayment > 0) {
+        currentAdvances.push({
+          id: 'legacy-' + Date.now(),
+          amount: existingOverride.advancePayment,
+          remarks: existingOverride.advanceRemarks || '',
+          date: existingOverride.advanceDate || `${selectedDay} ${months[selectedMonth]} ${selectedYear}`
+        });
+      }
+
       if (editingAdvance) {
+        const advId = editingAdvance.id || 'legacy';
         const oldEmpId = editingAdvance.employeeId;
         const oldMonthYearStr = editingAdvance.monthYear;
         const isDifferent = oldEmpId !== selectedEmpId || oldMonthYearStr !== formYearMonthStr;
 
         if (isDifferent) {
+          // 1. Remove from old context
+          const oldOverride = allMonthlyOverrides[oldEmpId]?.[oldMonthYearStr] || {};
+          let oldAdvances = oldOverride.advances && Array.isArray(oldOverride.advances)
+            ? [...oldOverride.advances]
+            : [];
+          
+          if (oldAdvances.length === 0 && oldOverride.advancePayment && oldOverride.advancePayment > 0) {
+            oldAdvances.push({
+              id: 'legacy-' + Date.now(),
+              amount: oldOverride.advancePayment,
+              remarks: oldOverride.advanceRemarks || '',
+              date: oldOverride.advanceDate || `${selectedDay} ${months[selectedMonth]} ${selectedYear}`
+            });
+          }
+
+          oldAdvances = oldAdvances.filter((a: any) => a.id !== advId);
+          const oldTotal = oldAdvances.reduce((sum: number, a: any) => sum + a.amount, 0);
+          const oldRemarks = oldAdvances.map((a: any) => a.remarks).filter(Boolean).join('; ');
+          const oldDate = oldAdvances.length > 0 ? (oldAdvances[oldAdvances.length - 1].date || '') : '';
+
           const oldRef = doc(db, 'employees', oldEmpId, 'monthlyPayroll', oldMonthYearStr);
           await setDoc(oldRef, {
-            advancePayment: 0,
-            advanceRemarks: '',
-            advanceDate: ''
+            advances: oldAdvances,
+            advancePayment: oldTotal,
+            advanceRemarks: oldRemarks,
+            advanceDate: oldDate
           }, { merge: true });
 
           if (setAllMonthlyOverrides) {
             setAllMonthlyOverrides((prev: any) => {
               const emp = prev[oldEmpId] || {};
-              const updatedMonth = { ...emp[oldMonthYearStr] };
-              delete updatedMonth.advancePayment;
-              delete updatedMonth.advanceRemarks;
-              delete updatedMonth.advanceDate;
               return {
                 ...prev,
                 [oldEmpId]: {
                   ...emp,
-                  [oldMonthYearStr]: updatedMonth
+                  [oldMonthYearStr]: {
+                    ...emp[oldMonthYearStr],
+                    advances: oldAdvances,
+                    advancePayment: oldTotal,
+                    advanceRemarks: oldRemarks,
+                    advanceDate: oldDate
+                  }
                 }
               };
             });
           }
+
+          // 2. Add to new context
+          const targetId = advId.startsWith('legacy') ? doc(collection(db, 'employees')).id : advId;
+          currentAdvances.push({
+            id: targetId,
+            amount: amountNum,
+            remarks: remarks.trim(),
+            date: advanceDateStr
+          });
+        } else {
+          // Same context edit
+          let updated = false;
+          currentAdvances = currentAdvances.map((adv: any) => {
+            if (adv.id === advId || (advId === 'legacy' && adv.id === undefined)) {
+              updated = true;
+              return {
+                ...adv,
+                amount: amountNum,
+                remarks: remarks.trim(),
+                date: advanceDateStr
+              };
+            }
+            return adv;
+          });
+
+          if (!updated) {
+            currentAdvances.push({
+              id: advId.startsWith('legacy') ? doc(collection(db, 'employees')).id : advId,
+              amount: amountNum,
+              remarks: remarks.trim(),
+              date: advanceDateStr
+            });
+          }
         }
+      } else {
+        // Completely new advance
+        const newId = doc(collection(db, 'employees')).id;
+        currentAdvances.push({
+          id: newId,
+          amount: amountNum,
+          remarks: remarks.trim(),
+          date: advanceDateStr
+        });
       }
 
-      // Save advance payment value under the selected employee's monthly payroll override
+      const totalAmount = currentAdvances.reduce((sum: number, a: any) => sum + a.amount, 0);
+      const combinedRemarks = currentAdvances.map((a: any) => a.remarks).filter(Boolean).join('; ');
+
       const overrideRef = doc(db, 'employees', selectedEmpId, 'monthlyPayroll', formYearMonthStr);
-      const advanceDateStr = `${selectedDay} ${months[selectedMonth]} ${selectedYear}`;
       await setDoc(overrideRef, { 
-        advancePayment: amountNum,
-        advanceRemarks: remarks.trim(),
+        advances: currentAdvances,
+        advancePayment: totalAmount,
+        advanceRemarks: combinedRemarks,
         advanceDate: advanceDateStr
       }, { merge: true });
 
@@ -281,8 +439,9 @@ export default function AdvancePaid({
               ...emp,
               [formYearMonthStr]: {
                 ...emp[formYearMonthStr],
-                advancePayment: amountNum,
-                advanceRemarks: remarks.trim(),
+                advances: currentAdvances,
+                advancePayment: totalAmount,
+                advanceRemarks: combinedRemarks,
                 advanceDate: advanceDateStr
               }
             }
@@ -332,7 +491,15 @@ export default function AdvancePaid({
       return;
     }
 
-    const calculatedAmount = mealsNum * 55;
+    let amtNum = parseFloat(foodAmount);
+    if (isNaN(amtNum)) {
+      amtNum = 0;
+    }
+    if (amtNum < 0) {
+      triggerAlert('warn', 'Please enter a valid positive amount.');
+      return;
+    }
+
     setIsSubmittingFood(true);
 
     try {
@@ -345,7 +512,7 @@ export default function AdvancePaid({
         issuedBy: challanIssuedBy.trim(),
         mealType,
         noOfMeals: mealsNum,
-        amount: calculatedAmount,
+        amount: amtNum,
         date: foodDateStr,
         monthYear: foodFormYearMonthStr,
         remarks: foodRemarks.trim()
@@ -353,7 +520,7 @@ export default function AdvancePaid({
 
       triggerAlert('success', editingFood
         ? `Successfully updated Canteen Food Bill (Challan No: ${challanNo.trim()}).`
-        : `Successfully registered Canteen Food Bill (Challan No: ${challanNo.trim()}, meals: ${mealsNum}) for ₹${calculatedAmount.toLocaleString('en-IN')}.`
+        : `Successfully registered Canteen Food Bill (Challan No: ${challanNo.trim()}, meals: ${mealsNum}) for ₹${amtNum.toLocaleString('en-IN')}.`
       );
 
       // Reset form fields
@@ -361,6 +528,7 @@ export default function AdvancePaid({
       setChallanIssuedBy('');
       setMealType('Lunch');
       setNoOfMeals('');
+      setFoodAmount('');
       setFoodRemarks('');
       setEditingFood(null);
     } catch (err: any) {
@@ -371,31 +539,59 @@ export default function AdvancePaid({
     }
   };
 
-  const handleDeleteAdvance = async (empId: string, mYearStr: string) => {
+  const handleDeleteAdvance = async (empId: string, mYearStr: string, advId?: string) => {
     if (viewOnly) {
       triggerAlert('info', 'Edit Access Denied. Only authorized administrators can delete transactions.');
       return;
     }
     try {
       const overrideRef = doc(db, 'employees', empId, 'monthlyPayroll', mYearStr);
+      
+      const existingOverride = allMonthlyOverrides[empId]?.[mYearStr] || {};
+      let currentAdvances = existingOverride.advances && Array.isArray(existingOverride.advances)
+        ? [...existingOverride.advances]
+        : [];
+
+      if (currentAdvances.length === 0 && existingOverride.advancePayment && existingOverride.advancePayment > 0) {
+        currentAdvances.push({
+          id: 'legacy-' + Date.now(),
+          amount: existingOverride.advancePayment,
+          remarks: existingOverride.advanceRemarks || '',
+          date: existingOverride.advanceDate || `${months[selectedMonth]} ${selectedYear}`
+        });
+      }
+
+      if (advId) {
+        currentAdvances = currentAdvances.filter((a: any) => a.id !== advId);
+      } else {
+        currentAdvances = [];
+      }
+
+      const totalAmount = currentAdvances.reduce((sum: number, a: any) => sum + a.amount, 0);
+      const combinedRemarks = currentAdvances.map((a: any) => a.remarks).filter(Boolean).join('; ');
+      const combinedDate = currentAdvances.length > 0 ? (currentAdvances[currentAdvances.length - 1].date || '') : '';
+
       await setDoc(overrideRef, {
-        advancePayment: 0,
-        advanceRemarks: '',
-        advanceDate: ''
+        advances: currentAdvances,
+        advancePayment: totalAmount,
+        advanceRemarks: combinedRemarks,
+        advanceDate: combinedDate
       }, { merge: true });
 
       if (setAllMonthlyOverrides) {
         setAllMonthlyOverrides((prev: any) => {
           const emp = prev[empId] || {};
-          const updatedMonth = { ...emp[mYearStr] };
-          delete updatedMonth.advancePayment;
-          delete updatedMonth.advanceRemarks;
-          delete updatedMonth.advanceDate;
           return {
             ...prev,
             [empId]: {
               ...emp,
-              [mYearStr]: updatedMonth
+              [mYearStr]: {
+                ...emp[mYearStr],
+                advances: currentAdvances,
+                advancePayment: totalAmount,
+                advanceRemarks: combinedRemarks,
+                advanceDate: combinedDate
+              }
             }
           };
         });
@@ -427,21 +623,36 @@ export default function AdvancePaid({
 
   // List of disbursals in the matching selected month-year for advances
   const recordedDisbursals = useMemo(() => {
-    const list: { employeeId: string; name: string; amount: number; monthYear: string; remarks?: string; date?: string }[] = [];
+    const list: { id: string; employeeId: string; name: string; amount: number; monthYear: string; remarks?: string; date?: string }[] = [];
     employees.forEach(emp => {
       // Filter out blanks
       if (!emp.id || emp.id.toUpperCase().startsWith('EMP_TEMP_')) return;
       
       const override = allMonthlyOverrides[emp.id]?.[formYearMonthStr];
-      if (override && override.advancePayment !== undefined && override.advancePayment > 0) {
-        list.push({
-          employeeId: emp.id,
-          name: emp.name || `Employee ${emp.id}`,
-          amount: override.advancePayment,
-          monthYear: formYearMonthStr,
-          remarks: override.advanceRemarks || '',
-          date: override.advanceDate || `${months[selectedMonth]} ${selectedYear}`
-        });
+      if (override) {
+        if (override.advances && Array.isArray(override.advances) && override.advances.length > 0) {
+          override.advances.forEach((adv: any) => {
+            list.push({
+              id: adv.id,
+              employeeId: emp.id,
+              name: emp.name || `Employee ${emp.id}`,
+              amount: adv.amount,
+              monthYear: formYearMonthStr,
+              remarks: adv.remarks || '',
+              date: adv.date || `${months[selectedMonth]} ${selectedYear}`
+            });
+          });
+        } else if (override.advancePayment !== undefined && override.advancePayment > 0) {
+          list.push({
+            id: 'legacy',
+            employeeId: emp.id,
+            name: emp.name || `Employee ${emp.id}`,
+            amount: override.advancePayment,
+            monthYear: formYearMonthStr,
+            remarks: override.advanceRemarks || '',
+            date: override.advanceDate || `${months[selectedMonth]} ${selectedYear}`
+          });
+        }
       }
     });
     return list;
@@ -891,12 +1102,12 @@ export default function AdvancePaid({
                           {formatINR(r.amount)}
                         </td>
                         <td className="py-2.5 text-right whitespace-nowrap pr-1.5">
-                          {deleteConfirm?.type === 'advance' && deleteConfirm?.employeeId === r.employeeId && deleteConfirm?.monthYear === r.monthYear ? (
+                          {deleteConfirm?.type === 'advance' && deleteConfirm?.id === r.employeeId && deleteConfirm?.monthYear === r.monthYear && deleteConfirm?.advId === r.id ? (
                             <div className="inline-flex items-center gap-1.5 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1 text-[10px]">
                               <span className="text-rose-700 font-extrabold uppercase text-[9px]">Delete?</span>
                               <button
                                 type="button"
-                                onClick={() => handleDeleteAdvance(r.employeeId, r.monthYear)}
+                                onClick={() => handleDeleteAdvance(r.employeeId, r.monthYear, r.id)}
                                 className="text-emerald-700 hover:text-emerald-900 font-black p-0.5"
                                 title="Yes, delete"
                               >
@@ -917,6 +1128,7 @@ export default function AdvancePaid({
                                 type="button"
                                 onClick={() => {
                                   setEditingAdvance({
+                                    id: r.id,
                                     employeeId: r.employeeId,
                                     monthYear: r.monthYear,
                                     amount: r.amount,
@@ -952,7 +1164,7 @@ export default function AdvancePaid({
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setDeleteConfirm({ type: 'advance', employeeId: r.employeeId, monthYear: r.monthYear })}
+                                onClick={() => setDeleteConfirm({ type: 'advance', id: r.employeeId, employeeId: r.employeeId, monthYear: r.monthYear, advId: r.id })}
                                 disabled={viewOnly}
                                 className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
                                 title="Delete record"
@@ -1027,25 +1239,27 @@ export default function AdvancePaid({
                 />
               </div>
 
-              {/* Meal Type & No of meals */}
-              <div className="grid grid-cols-2 gap-3.5">
+              {/* Meal Type, No of meals & Amount */}
+              <div className="grid grid-cols-3 gap-2.5">
                 <div>
                   <label className="block mb-1.5 text-[11px] font-black uppercase text-slate-400 tracking-wider">
                     Meal Type
                   </label>
                   <select
                     value={mealType}
-                    onChange={(e) => setMealType(e.target.value as 'Lunch' | 'Dinner')}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-xs font-bold text-slate-705 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                    onChange={(e) => setMealType(e.target.value as 'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea')}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-2 text-xs font-bold text-slate-705 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-orange-500 cursor-pointer"
                   >
                     <option value="Lunch">Lunch</option>
                     <option value="Dinner">Dinner</option>
+                    <option value="Morning Tea">Morning Tea</option>
+                    <option value="Evening Tea">Evening Tea</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block mb-1.5 text-[11px] font-black uppercase text-slate-400 tracking-wider">
-                    No. of Meals
+                    Meals
                   </label>
                   <input
                     type="number"
@@ -1054,26 +1268,25 @@ export default function AdvancePaid({
                     required
                     value={noOfMeals}
                     onChange={(e) => setNoOfMeals(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs font-mono font-bold text-slate-700 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-orange-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-2 text-xs font-mono font-bold text-slate-700 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-orange-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block mb-1.5 text-[11px] font-black uppercase text-slate-400 tracking-wider">
+                    Amount (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="e.g. 1100 (Optional)"
+                    value={foodAmount}
+                    onChange={(e) => setFoodAmount(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-2.5 text-xs font-mono font-bold text-slate-700 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-orange-500"
                   />
                 </div>
               </div>
 
-              {/* Live Calculator display */}
-              <div className="bg-orange-50/55 border border-orange-100 rounded-2xl p-3.5 flex justify-between items-center">
-                <div>
-                  <span className="text-[10px] uppercase font-black tracking-widest text-slate-400 block mb-0.5">Auto Calculated Cost</span>
-                  <span className="text-xs font-mono text-slate-500 font-extrabold tracking-tight">
-                    {Number(noOfMeals) || 0} meals × ₹55
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-xs text-slate-400 block font-bold uppercase text-[9px] tracking-wider mb-0.5">Amount Due</span>
-                  <span className="text-md font-mono font-black text-orange-600">
-                    {formatINR((Number(noOfMeals) || 0) * 55)}
-                  </span>
-                </div>
-              </div>
 
               {/* Day / Month / Year Dropdowns */}
               <div className="grid grid-cols-3 gap-2">
@@ -1141,6 +1354,7 @@ export default function AdvancePaid({
                       setChallanIssuedBy('');
                       setMealType('Lunch');
                       setNoOfMeals('');
+                      setFoodAmount('');
                       setFoodRemarks('');
                     }}
                     className="flex-1 py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-xs tracking-wider uppercase transition-all cursor-pointer"
@@ -1228,7 +1442,11 @@ export default function AdvancePaid({
                           <span className={`px-2.5 py-0.5 text-[9px] font-black rounded-lg uppercase tracking-wider ${
                             r.mealType === 'Lunch' 
                               ? 'bg-amber-100 text-amber-850'
-                              : 'bg-indigo-100 text-indigo-850'
+                              : r.mealType === 'Dinner'
+                              ? 'bg-indigo-100 text-indigo-850'
+                              : r.mealType === 'Morning Tea'
+                              ? 'bg-emerald-100 text-emerald-850'
+                              : 'bg-teal-100 text-teal-850'
                           }`}>
                             {r.mealType}
                           </span>
@@ -1269,6 +1487,7 @@ export default function AdvancePaid({
                                   setChallanIssuedBy(r.issuedBy);
                                   setMealType(r.mealType);
                                   setNoOfMeals(String(r.noOfMeals));
+                                  setFoodAmount(String(r.amount));
                                   setFoodRemarks(r.remarks || '');
                                   
                                   const parsed = parseDateString(r.date);

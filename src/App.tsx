@@ -86,7 +86,8 @@ import {
   Key,
   Mail,
   Lock,
-  RefreshCw
+  RefreshCw,
+  Trash2
 } from 'lucide-react';
 
 const calculateWorkingHours = (shiftStr?: string): number | undefined => {
@@ -171,7 +172,7 @@ export default function App() {
       console.warn("Could not parse cached employees roster:", e);
     }
     // Default fallback: Generate the standard baseline 160 rows
-    const defaultLive = INITIAL_EMPLOYEES.filter(emp => emp.id !== '68');
+    const defaultLive = INITIAL_EMPLOYEES;
     const merged: Employee[] = [...defaultLive];
     const takenIds = new Set(defaultLive.map(e => e.id.toLowerCase()));
     let currentNum = 46;
@@ -195,6 +196,9 @@ export default function App() {
   });
   const [undoStack, setUndoStack] = useState<Employee[][]>([]);
   const [cloudQuotaExceeded, setCloudQuotaExceeded] = useState(false);
+  const [cloudError, setCloudError] = useState<{ code?: string; message: string; name?: string } | null>(null);
+
+
 
   // Month / Year run state for the Ledger
   const [ledgerMonth, setLedgerMonth] = useState<number>(() => {
@@ -234,6 +238,9 @@ export default function App() {
     monthlySalary?: number;
     foodBalance?: number;
     foodRemarks?: string;
+    advanceDate?: string;
+    foodDate?: string;
+    advances?: Array<{ id: string; amount: number; remarks: string; date: string }>;
   }>>>(() => {
     try {
       const cached = localStorage.getItem('salarypro_monthly_overrides_cache');
@@ -252,7 +259,6 @@ export default function App() {
       // 1. Fetch live employees first
       const employeesSnapshot = await getDocs(collection(db, 'employees'));
       
-      let foundEmp68 = false;
       const firestoreEmployees: Employee[] = [];
       let isMigratedV2 = false;
 
@@ -260,8 +266,6 @@ export default function App() {
         employeesSnapshot.forEach((docSnap) => {
           if (docSnap.id === 'migration_v2_status') {
             isMigratedV2 = true;
-          } else if (docSnap.id === '68') {
-            foundEmp68 = true;
           } else {
             firestoreEmployees.push(docSnap.data() as Employee);
           }
@@ -312,14 +316,6 @@ export default function App() {
             firestoreEmployees.push(...healedEmployees);
           } catch (writeErr) {
             console.error("Failed to commit shift 001 healing batch to Firestore:", writeErr);
-          }
-        }
-
-        if (foundEmp68) {
-          try {
-            await deleteDoc(doc(db, 'employees', '68'));
-          } catch (err) {
-            console.error("Failed to delete Employee id 68:", err);
           }
         }
 
@@ -384,7 +380,7 @@ export default function App() {
                 updatedObj.salaryType = 'daily';
                 changed = true;
               }
-            } else {
+            } else if ((!emp.salaryType || emp.monthlySalary === 0) && (emp.name || '').trim() !== '') {
               // 2. Standard Rule: Fetch June 2026 override document
               const juneRef = doc(db, 'employees', emp.id, 'monthlyPayroll', '2026-06');
               const juneSnap = await getDoc(juneRef);
@@ -521,6 +517,7 @@ export default function App() {
               foodRemarks: data.foodRemarks !== undefined ? String(data.foodRemarks) : undefined,
               advanceDate: data.advanceDate !== undefined ? String(data.advanceDate) : undefined,
               foodDate: data.foodDate !== undefined ? String(data.foodDate) : undefined,
+              advances: Array.isArray(data.advances) ? data.advances : undefined,
             };
           }
         } catch (subErr) {
@@ -581,14 +578,22 @@ export default function App() {
         return next;
       });
 
+
+
       setSavedTime(new Date().toLocaleTimeString());
       setCloudQuotaExceeded(false);
+      setCloudError(null);
       if (!silent) {
         triggerAlert('success', 'Roster and focused timesheets successfully synced from Firestore.');
       }
     } catch (err: any) {
       console.warn("One-time cloud fetch failed, loaded from local cache state:", err);
       setCloudQuotaExceeded(true);
+      setCloudError({
+        code: err?.code,
+        message: err?.message || String(err),
+        name: err?.name
+      });
       if (!silent) {
         triggerAlert('info', 'Cloud Sync Offline (Using offline cached fallback backup).');
       }
@@ -802,6 +807,8 @@ export default function App() {
 
     return employees.map(emp => {
       const monthOverrides = allMonthlyOverrides[emp.id]?.[monthStr] || {};
+      const finalSalaryType = monthOverrides.salaryType !== undefined ? monthOverrides.salaryType : (emp.salaryType || 'fixed');
+      const finalMonthlySalary = monthOverrides.monthlySalary !== undefined ? Number(monthOverrides.monthlySalary) : (emp.monthlySalary || 0);
       
       const totalDaysInMonth = new Date(ledgerYear, ledgerMonth, 0).getDate();
       let calculatedWorkingDays = totalDaysInMonth;
@@ -813,9 +820,46 @@ export default function App() {
       if (activeDatesArr.length > 0) {
         // Count absent days from biometric punch logs
         const empPunches = allPunchLogs[emp.id] || {};
+
+        const getAdjustedPunches = (dateStr: string) => {
+          if (emp.shift === 'NIGHT') {
+            const todayPunches = empPunches[dateStr] || [];
+            const cleanToday = todayPunches.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+            
+            const dateObj = new Date(dateStr);
+            dateObj.setUTCDate(dateObj.getUTCDate() + 1);
+            const nextDateStr = `${dateObj.getUTCFullYear()}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(dateObj.getUTCDate()).padStart(2, '0')}`;
+            
+            const nextDayPunches = empPunches[nextDateStr] || [];
+            const cleanNextDay = nextDayPunches.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+            
+            const inPunches = cleanToday.filter(p => {
+              const uc = p.toUpperCase();
+              return uc.includes('IN') || uc.includes('ARR');
+            });
+            let outPunches = cleanToday.filter(p => {
+              const uc = p.toUpperCase();
+              return uc.includes('OUT') || uc.includes('DEP') || uc.includes('EXIT');
+            });
+            if (outPunches.length === 0) {
+              outPunches = cleanNextDay.filter(p => {
+                const uc = p.toUpperCase();
+                return uc.includes('OUT') || uc.includes('DEP') || uc.includes('EXIT');
+              });
+            }
+            
+            inPunches.sort((a, b) => a.localeCompare(b));
+            outPunches.sort((a, b) => a.localeCompare(b));
+            
+            return [...inPunches, ...outPunches];
+          } else {
+            const raw = empPunches[dateStr] || [];
+            return raw.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+          }
+        };
+
         activeDatesArr.forEach(date => {
-          const punches = empPunches[date] || [];
-          const clean = punches.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+          const clean = getAdjustedPunches(date);
           const hasPunches = clean.length > 0;
           if (hasPunches) {
             const minutes = getWorkMinutes(clean);
@@ -825,14 +869,14 @@ export default function App() {
 
             const dateObj = new Date(date);
             const isSunday = dateObj.getDay() === 0;
-            const isFixed = (emp.salaryType || 'fixed') === 'fixed';
+            const isFixed = finalSalaryType === 'fixed';
             if (isSunday && isFixed && emp.sundayPaid === 'Paid') {
               sundayOTDays++;
             }
           } else {
             const dateObj = new Date(date);
             const isSunday = dateObj.getDay() === 0;
-            const isFixed = (emp.salaryType || 'fixed') === 'fixed';
+            const isFixed = finalSalaryType === 'fixed';
             if (isSunday && isFixed) {
               if (emp.sundayPaid === 'Not Paid') {
                 calculatedAbsentDays++;
@@ -858,7 +902,6 @@ export default function App() {
 
       const finalAbsentHours = monthOverrides.absentHours !== undefined ? monthOverrides.absentHours : (emp.absentHours || 0);
       const finalAbsentMinutes = monthOverrides.absentMinutes !== undefined ? monthOverrides.absentMinutes : (emp.absentMinutes || 0);
-      const finalMonthlySalary = emp.monthlySalary || 0;
       const finalFoodBalance = monthOverrides.foodBalance !== undefined ? monthOverrides.foodBalance : (emp.foodBalance || 0);
       const finalFoodRemarks = monthOverrides.foodRemarks !== undefined ? monthOverrides.foodRemarks : (emp.foodRemarks || '');
       const finalAdvanceDate = monthOverrides.advanceDate !== undefined ? monthOverrides.advanceDate : emp.advanceDate;
@@ -868,6 +911,7 @@ export default function App() {
 
       return {
         ...emp,
+        salaryType: finalSalaryType,
         workingDays: finalWorkingDays,
         fullDaysAbsent: finalAbsentDays,
         advancePayment: finalAdvancePayment,
@@ -1207,8 +1251,9 @@ export default function App() {
     // Immediately update local state so UI updates instantly without awaiting Firestore roundtrip network latency
     setEmployees(prev => {
       const existsInState = prev.some(emp => emp.id === id);
+      let updatedList;
       if (existsInState) {
-        return prev.map(emp => {
+        updatedList = prev.map(emp => {
           if (emp.id === id) {
             return {
               ...emp,
@@ -1219,24 +1264,54 @@ export default function App() {
           return emp;
         });
       } else {
-        return [...prev, { ...targetEmployee, id: finalDocId }];
+        updatedList = [...prev, { ...targetEmployee, id: finalDocId }];
       }
+      try {
+        localStorage.setItem('salarypro_employees_cache', JSON.stringify(updatedList));
+      } catch (cacheErr) {
+        console.warn("Storage limits reached for employees cache during update:", cacheErr);
+      }
+      return updatedList;
     });
+
+    // Guard against overwriting basic salary to 0 if a valid salary exists in overrides
+    let finalSalaryForMaster = Number(targetEmployee.monthlySalary) || 0;
+    if (finalSalaryForMaster === 0) {
+      const monthStr = `${ledgerYear}-${String(ledgerMonth).padStart(2, '0')}`;
+      const activeOverride = allMonthlyOverrides[finalDocId]?.[monthStr]?.monthlySalary;
+      if (activeOverride && Number(activeOverride) > 0) {
+        finalSalaryForMaster = Number(activeOverride);
+      } else {
+        const empOverrides = allMonthlyOverrides[finalDocId] || {};
+        for (const mKey in empOverrides) {
+          const sal = empOverrides[mKey]?.monthlySalary;
+          if (sal && Number(sal) > 0) {
+            finalSalaryForMaster = Number(sal);
+            break;
+          }
+        }
+      }
+    }
 
     // Explicitly sanitize database types to match firestore.rules validation expectations
     const sanitized: any = {
       id: finalDocId,
       name: targetEmployee.name || "",
-      monthlySalary: Number(targetEmployee.monthlySalary) || 0,
+      monthlySalary: finalSalaryForMaster,
       workingDays: Number(targetEmployee.workingDays) || 0,
       workingHours: Number(targetEmployee.workingHours) || 0,
       fullDaysAbsent: Number(targetEmployee.fullDaysAbsent) || 0,
+      text: targetEmployee.fullDaysAbsent || 0,
       absentHours: Number(targetEmployee.absentHours) || 0,
       absentMinutes: Number(targetEmployee.absentMinutes) || 0,
     };
 
     if (targetEmployee.sundayPaid !== undefined) sanitized.sundayPaid = targetEmployee.sundayPaid;
-    if (targetEmployee.salaryType !== undefined) sanitized.salaryType = targetEmployee.salaryType;
+    if (targetEmployee.salaryType !== undefined) {
+      sanitized.salaryType = targetEmployee.salaryType;
+    } else {
+      sanitized.salaryType = finalSalaryForMaster <= 2000 ? 'daily' : 'fixed';
+    }
     if (targetEmployee.department !== undefined) sanitized.department = targetEmployee.department;
     if (targetEmployee.designation !== undefined) sanitized.designation = targetEmployee.designation;
     if (targetEmployee.role !== undefined) sanitized.role = targetEmployee.role;
@@ -1284,12 +1359,69 @@ export default function App() {
 
         await batch.commit();
 
+        // Migrate punches state in local memory
+        setAllPunchLogs(prev => {
+          const updated = { ...prev };
+          if (updated[id]) {
+            updated[finalDocId] = { ...updated[id] };
+            delete updated[id];
+          }
+          return updated;
+        });
+
+        // Migrate monthly overrides state in local memory
+        setAllMonthlyOverrides(prev => {
+          const updated = { ...prev };
+          if (updated[id]) {
+            updated[finalDocId] = { ...updated[id] };
+            delete updated[id];
+          }
+          return updated;
+        });
+
         if (selectedEmployeeId === id) {
           setSelectedEmployeeId(finalDocId);
         }
       } else {
         await setDoc(doc(db, 'employees', id), sanitized);
       }
+
+      if (updatedFields.monthlySalary !== undefined || updatedFields.salaryType !== undefined) {
+        const monthStr = `${ledgerYear}-${String(ledgerMonth).padStart(2, '0')}`;
+        const overrideRef = doc(db, 'employees', finalDocId, 'monthlyPayroll', monthStr);
+        const overrideData: any = {};
+        if (updatedFields.monthlySalary !== undefined) {
+          overrideData.monthlySalary = Number(updatedFields.monthlySalary);
+        }
+        if (updatedFields.salaryType !== undefined) {
+          overrideData.salaryType = updatedFields.salaryType;
+        }
+        try {
+          await setDoc(overrideRef, overrideData, { merge: true });
+          setAllMonthlyOverrides(p => {
+            const emp = p[finalDocId] || {};
+            const updatedOverrides = {
+              ...p,
+              [finalDocId]: {
+                ...emp,
+                [monthStr]: {
+                  ...emp[monthStr],
+                  ...overrideData
+                }
+              }
+            };
+            try {
+              localStorage.setItem('salarypro_monthly_overrides_cache', JSON.stringify(updatedOverrides));
+            } catch (storageErr) {
+              console.warn("Storage limits reached for overrides cache:", storageErr);
+            }
+            return updatedOverrides;
+          });
+        } catch (subErr) {
+          console.error("Failed simultaneously writing salary update to monthly override doc:", subErr);
+        }
+      }
+
       setSavedTime(new Date().toLocaleTimeString());
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `employees/${finalDocId}`);
@@ -1359,9 +1491,14 @@ export default function App() {
       await setDoc(doc(db, 'employees', nextId), newStaff);
       triggerAlert('success', `Roster slot ${nextId} created successfully (Cloud DB & Cache)!`);
       handleTransitionToProfile(nextId);
-    } catch (error) {
+    } catch (error: any) {
       console.warn("Firestore write limit reached. Saved locally in offline queue:", error);
       setCloudQuotaExceeded(true);
+      setCloudError({
+        code: error?.code,
+        message: error?.message || String(error),
+        name: error?.name
+      });
       triggerAlert('success', `Roster slot ${nextId} created locally (Offline Storage fallback)`);
       handleTransitionToProfile(nextId);
     }
@@ -1372,7 +1509,14 @@ export default function App() {
       triggerAlert('info', 'Edit Access Denied. Only the authorized administrator (sandydalhousie@gmail.com) can delete employees.');
       return;
     }
-    if (confirm(`Do you want to permanently delete Employee ${id} details?`)) {
+    
+    const empToDelete = employees.find(emp => emp.id === id);
+    if (!empToDelete || empToDelete.id.startsWith('EMP_TEMP_')) {
+      triggerAlert('warn', 'Selected row is an empty template and cannot be deleted.');
+      return;
+    }
+
+    if (confirm(`Are you sure you want to permanently delete Employee ${empToDelete.name || id}? This action is IRREVERSIBLE and cannot be undone.`)) {
       pushToUndoStack(employees);
 
       // Instantly update local state and save cache
@@ -1406,14 +1550,19 @@ export default function App() {
         return merged;
       });
 
-      const path = `employees/${id}`;
+      // Write to cloud database
       try {
         await deleteDoc(doc(db, 'employees', id));
-        triggerAlert('info', `Removed record ID ${id} (Cloud DB & Browser Cache synced).`);
-      } catch (error) {
-        console.warn("Firestore delete limit reached. Removed from local cache only:", error);
+        triggerAlert('success', `Permanently deleted Employee ${empToDelete.name || id}.`);
+      } catch (error: any) {
+        console.warn("Firestore error during permanent delete, updated local cache only:", error);
         setCloudQuotaExceeded(true);
-        triggerAlert('info', `Removed record ID ${id} locally (Switched to Offline fallback cache).`);
+        setCloudError({
+          code: error?.code,
+          message: error?.message || String(error),
+          name: error?.name
+        });
+        triggerAlert('success', `Deleted Employee ${empToDelete.name || id} offline.`);
       }
     }
   };
@@ -1429,7 +1578,7 @@ export default function App() {
       setIsSaving(true);
 
       // Generate the baseline array locally
-      const defaultLive = INITIAL_EMPLOYEES.filter(emp => emp.id !== '68');
+      const defaultLive = INITIAL_EMPLOYEES;
       const merged: Employee[] = [...defaultLive];
       const takenIds = new Set(defaultLive.map(e => e.id.toLowerCase()));
       let currentNum = 46;
@@ -1474,9 +1623,14 @@ export default function App() {
         setSavedTime('Cloud Reinitialized');
         setSelectedEmployeeId('55');
         triggerAlert('success', 'Roster state successfully re-established in Google Cloud Firestore!');
-      } catch (error) {
+      } catch (error: any) {
         console.warn("Firestore reset quota limit reached, reverted local state only:", error);
         setCloudQuotaExceeded(true);
+        setCloudError({
+          code: error?.code,
+          message: error?.message || String(error),
+          name: error?.name
+        });
         setSavedTime('Cached Offline Reset');
         setSelectedEmployeeId('55');
         triggerAlert('success', 'Roster state successfully re-established in Local Cache!');
@@ -1684,9 +1838,14 @@ export default function App() {
       });
       await batch.commit();
       triggerAlert('success', `Mass-updated settings constants for all staff to ${days} working days and ${hours} working hours per day.`);
-    } catch (error) {
+    } catch (error: any) {
       console.warn("Firestore bulk update quota limit reached, updated local state only:", error);
       setCloudQuotaExceeded(true);
+      setCloudError({
+        code: error?.code,
+        message: error?.message || String(error),
+        name: error?.name
+      });
       triggerAlert('success', `Mass-updated settings locally to ${days} working days and ${hours} working hours per day (Offline Cache)`);
     } finally {
       setIsSaving(false);
@@ -2482,19 +2641,63 @@ export default function App() {
 
         {/* Offline Support Notice banner when quota is reached */}
         {cloudQuotaExceeded && (
-          <div className="bg-amber-500 text-white px-6 py-2.5 flex justify-between items-center text-xs font-bold font-sans tracking-wide shadow-inner animate-fadeIn select-none shrink-0 border-b border-amber-600/20 print:hidden">
+          <div className="bg-amber-500 text-white px-6 py-2.5 flex justify-between items-center text-xs font-bold font-sans tracking-wide shadow-inner animate-fadeIn select-none shrink-0 border-b border-amber-600/20 print:hidden animate-fadeIn">
             <div className="flex items-center gap-2">
               <ShieldAlert size={16} className="text-white shrink-0 animate-pulse" />
               <span>
-                Seamless Offline Local-Cache Activated: Cloud Database Quota has been reached for today. <strong>All active changes, sheets edit, and operations are fully functional & securely saved to your browser cache!</strong>
+                {(() => {
+                  if (!cloudError) {
+                    return (
+                      <>
+                        Seamless Offline Local-Cache Activated: Cloud Database connection is offline. <strong>All active changes, sheets edit, and operations are fully functional & securely saved to your browser cache!</strong>
+                      </>
+                    );
+                  }
+
+                  const code = cloudError.code;
+                  const msg = cloudError.message || "";
+
+                  if (code === 'resource-exhausted' || msg.includes('quota') || msg.includes('Quota')) {
+                    return (
+                      <>
+                        Seamless Offline Local-Cache Activated: Cloud Database Quota has been reached for today. <strong>All active changes, sheets edit, and operations are fully functional & securely saved to your browser cache!</strong>
+                      </>
+                    );
+                  }
+
+                  if (code === 'permission-denied' || msg.includes('permission') || msg.includes('Permission')) {
+                    return (
+                      <>
+                        Database Access Permission Denied ({code || 'Security Rules'}): <strong>Please sign in with an authorized administrator account or verify Firestore rules. All operational changes are securely saved to your browser cache!</strong>
+                      </>
+                    );
+                  }
+
+                  if (code === 'unavailable' || msg.includes('offline') || msg.includes('network') || msg.includes('Network')) {
+                    return (
+                      <>
+                        Cloud Connection Offline: Database is currently unreachable or disconnected. <strong>All active edits are fully functional and securely saved to your browser cache!</strong>
+                      </>
+                    );
+                  }
+
+                  return (
+                    <>
+                      Cloud Sync Offline ({code || 'Error'}: {msg.substring(0, 80)}{msg.length > 80 ? '...' : ''}). <strong>All operational changes are fully functional & securely saved to your browser cache!</strong>
+                    </>
+                  );
+                })()}
               </span>
             </div>
             <button 
               onClick={() => {
                 setCloudQuotaExceeded(false);
+                setCloudError(null);
                 triggerManualSave();
+                fetchAllData(false); // Perform an actual retry connect to verify connection status
               }}
               className="px-3 py-1 bg-white/20 hover:bg-white/35 text-white text-[11px] font-black rounded-lg uppercase tracking-wider cursor-pointer"
+              title="Click to retry cloud synchronization and diagnostic check"
             >
               Test Connection
             </button>

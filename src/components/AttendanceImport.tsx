@@ -23,12 +23,14 @@ import {
   AlertTriangle,
   XCircle,
   Download,
-  UserPlus
+  UserPlus,
+  Sun,
+  Moon
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { doc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { isEmployeePresent } from '../data';
+import { isEmployeePresent, getAdjustedPunches, getNextDateStr } from '../data';
 
 // Helper to filter out empty, padding or 00:00 punches to determine true physical triggers count
 const getCleanPunches = (punchesList: string[]): string[] => {
@@ -605,8 +607,8 @@ const calculateDutyHours = (punches: string[]): { hours: number; minutes: number
 
     if (isNaN(h) || isNaN(m)) return;
 
-    const isCheckIn = type.startsWith('IN') || type.startsWith('ARR');
-    const isCheckOut = type.startsWith('OUT');
+    const isCheckIn = type.startsWith('IN') || type.startsWith('ARR') || type.includes('IN') || type.includes('ARR');
+    const isCheckOut = type.startsWith('OUT') || type.includes('OUT') || type.includes('DEP') || type.includes('EXIT');
 
     if (isCheckIn) {
       activeInTime = { h, m };
@@ -658,8 +660,8 @@ const calculateBreakTime = (punches: string[]): { hours: number; minutes: number
 
     if (isNaN(h) || isNaN(m)) return;
 
-    const isCheckIn = type.startsWith('IN') || type.startsWith('ARR');
-    const isCheckOut = type.startsWith('OUT');
+    const isCheckIn = type.startsWith('IN') || type.startsWith('ARR') || type.includes('IN') || type.includes('ARR');
+    const isCheckOut = type.startsWith('OUT') || type.includes('OUT') || type.includes('DEP') || type.includes('EXIT');
 
     if (isCheckOut) {
       // Exited OUT: record the break start
@@ -1225,9 +1227,9 @@ export default function AttendanceImport({
     const tempShifts: Record<string, string> = {};
 
     activeEmployees.forEach((emp) => {
-      const empPunches = allPunchLogs[emp.id] || {};
-      tempPunches[emp.id] = empPunches[historyDate] || [];
-      tempShifts[emp.id] = 'Day Shift';
+      const empShift = emp.shift || 'DAY';
+      tempPunches[emp.id] = getAdjustedPunches(emp.id, empShift, historyDate, allPunchLogs);
+      tempShifts[emp.id] = empShift === 'NIGHT' ? 'Night Shift' : 'Day Shift';
     });
 
     setDatePunches(tempPunches);
@@ -1241,7 +1243,9 @@ export default function AttendanceImport({
       title: "Smart Sync Biometric Logs (In-Out & New Entrants Auto-Registration)",
       steps: [
         "Export the transaction log report / Punch Log list from your devices (XLSX, XLS, CSV, TXT supported).",
-        "Settings Rule: Rows 1-8 are skipped, Row 9 contains the column headers, and Row 10 onwards contains the record data.",
+        importShift === 'Night Shift'
+          ? "Settings Rule: Rows 1-10 are skipped, Row 11 contains the column headers, and Row 12 onwards contains the record data."
+          : "Settings Rule: Rows 1-8 are skipped, Row 9 contains the column headers, and Row 10 onwards contains the record data.",
         "New Employee ID Auto-Registration: If an unknown employee ID is found, the system automatically registers them and records their punches!",
         "Supports multi-punch sequences beautifully (up to 8 logs: IN, OUT, Lunch, breaks, etc)."
       ]
@@ -1296,8 +1300,8 @@ export default function AttendanceImport({
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
           
-          // Retrieve raw rows
-          const allRowsRaw: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+          // Retrieve raw rows (raw: false converts Excel date/time formatted cells into their text display values)
+          const allRowsRaw: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "", raw: false });
           const allRows = allRowsRaw.map(row => 
             row.map(cell => {
               if (cell === null || cell === undefined) return "";
@@ -1378,21 +1382,27 @@ export default function AttendanceImport({
   };
 
   // Process rows with standard logic: Row 9 is index 8 (headers), Row 10 onwards is index 9 onwards (data)
+  // Or if Night Shift: Row 11 is index 10 (headers), Row 12 onwards is index 11 onwards (data)
   const processRawRows = (allRows: string[][]) => {
     try {
-      if (allRows.length < 9) {
-        triggerAlert('info', 'The uploaded file does not contain at least 9 rows for header configuration.');
+      const isNight = importShift === 'Night Shift';
+      const minRows = isNight ? 11 : 9;
+      if (allRows.length < minRows) {
+        triggerAlert('info', `The uploaded file does not contain at least ${minRows} rows for header configuration.`);
         return;
       }
 
-      // ROW 9 contains the headers (index 8)
-      const headerRow = allRows[8];
+      // Headers index: Row 11 is index 10 (Night Shift), Row 9 is index 8 (Day Shift)
+      const headerIndex = isNight ? 10 : 8;
+      const dataStartIndex = isNight ? 11 : 9;
+
+      const headerRow = allRows[headerIndex];
       const headers = headerRow.map(h => (h || '').trim().replace(/^["']|["']$/g, ''));
       setRawHeaders(headers);
 
-      // ROW 10 onwards contains data (index 9 onwards)
+      // Data rows starting index
       const rows: Record<string, string>[] = [];
-      for (let i = 9; i < allRows.length; i++) {
+      for (let i = dataStartIndex; i < allRows.length; i++) {
         const rowData = allRows[i];
         if (!rowData || rowData.length === 0) continue;
         
@@ -1452,81 +1462,64 @@ export default function AttendanceImport({
         sundayPaid: '',
       };
 
-      // By default, if the file has at least 7 columns, map the 7th column (index 6) to Arr Time
-      if (headers.length >= 7) {
-        initialMappings.arrTime = "6";
-      }
-
-      headers.forEach((h, idx) => {
-        const low = h.toLowerCase().trim();
-        const strIdx = String(idx);
-        if (low === 'emp.code' || low === 'emp code' || h === 'Emp.Code' || low === 'emp_co' || low === 'emp id' || low === 'employee id' || low === 'staff id' || low === 'staff no' || low === 'pin') {
-          initialMappings.id = strIdx;
-        } else if (low === 'name' || h === 'Name' || low === 'employee name' || low === 'staff name' || low === 'emp name') {
-          initialMappings.name = strIdx;
-        } else if (low === 'department' || low === 'dept' || low === 'dep' || h === 'Department') {
-          initialMappings.department = strIdx;
-        } else if (low === 'designation' || low === 'desg' || low === 'design' || h === 'Designation') {
-          initialMappings.designation = strIdx;
-        } else if (low === 'role' || low === 'job' || h === 'Role') {
-          initialMappings.role = strIdx;
-        } else if (low === 'shift' || low === 'shift time' || low === 'shifttime' || h === 'Shift') {
-          initialMappings.shiftTime = strIdx;
-        } else if (low === 'gender' || low === 'sex' || h === 'Gender') {
-          initialMappings.gender = strIdx;
-        } else if (low === 'phone' || low === 'mobile' || low === 'contact' || low === 'phone no' || low === 'phone_no' || h === 'Phone') {
-          initialMappings.phone = strIdx;
-        } else if (low === 'address' || low === 'addr' || h === 'Address') {
-          initialMappings.address = strIdx;
-        } else if (low === 'salary type' || low === 'salary_type' || low === 'salarytype' || low === 'type') {
-          initialMappings.salaryType = strIdx;
-        } else if (low === 'sunday paid' || low === 'sunday_paid' || low === 'sundaypaid' || low === 'sunday') {
-          initialMappings.sundayPaid = strIdx;
-        } else if (low === 'arr.time' || low === 'arrtime' || low === 'arr time' || low === 'in1' || low === 'in 1') {
-          initialMappings.arrTime = strIdx;
-        } else if (low === 'out1' || low === 'out 1') {
-          initialMappings.out1 = strIdx;
-        } else if (low === 'in2' || low === 'in 2') {
-          initialMappings.in2 = strIdx;
-        } else if (low === 'out2' || low === 'out 2') {
-          initialMappings.out2 = strIdx;
-        } else if (low === 'in3' || low === 'in 3') {
-          initialMappings.in3 = strIdx;
-        } else if (low === 'out3' || low === 'out 3') {
-          initialMappings.out3 = strIdx;
-        } else if (low === 'in4' || low === 'in 4') {
-          initialMappings.in4 = strIdx;
-        } else if (low === 'out4' || low === 'out 4') {
-          initialMappings.out4 = strIdx;
-        } else if (low === 'in5' || low === 'in 5') {
-          initialMappings.in5 = strIdx;
-        } else if (low === 'out5' || low === 'out 5') {
-          initialMappings.out5 = strIdx;
-        } else if (low === 'in6' || low === 'in 6') {
-          initialMappings.in6 = strIdx;
-        } else if (low === 'out6' || low === 'out 6') {
-          initialMappings.out6 = strIdx;
-        } else if (low.includes('id') || low.includes('enroll') || low.includes('no.') || low.includes('emp_id') || low.includes('code')) {
-          if (!initialMappings.id) initialMappings.id = strIdx;
-        } else if (low.includes('salary') || low.includes('wage')) {
-          initialMappings.monthlySalary = strIdx;
-        }
-      });
-
-      // Special mapping check for multi-punches based on whether our file has Out1, In2 etc.
-      const hasMultiPunches = headers.some(h => {
-        const low = h.toLowerCase().trim();
-        return low === 'out1' || low === 'in2' || low === 'out2' || low === 'arr.time' || low === 'arr time';
-      }) || (headers.length >= 7);
-
-      if (hasMultiPunches) {
-        setRowLayout('multiple');
+      if (isNight) {
+        // Night Shift mappings guessing
         headers.forEach((h, idx) => {
           const low = h.toLowerCase().trim();
           const strIdx = String(idx);
-          if (low === 'arr.time' || low === 'arrtime' || low === 'arr time' || low === 'in1' || low === 'in 1') {
+          if (low === 'emp.code' || low === 'emp code' || h === 'Emp.Code' || low === 'emp_co' || low === 'emp id' || low === 'employee id' || low === 'staff id' || low === 'staff no' || low === 'pin' || low.includes('code') || low.includes('id')) {
+            initialMappings.id = strIdx;
+          } else if (low === 'name' || h === 'Name' || low === 'employee name' || low === 'staff name' || low === 'emp name') {
+            initialMappings.name = strIdx;
+          } else if (low === 'arr.time' || low === 'arrtime' || low === 'arr time' || low === 'in1' || low === 'in 1' || low === 'in' || low.includes('arr')) {
             initialMappings.arrTime = strIdx;
-          } else if (low === 'out1' || low === 'out 1') {
+          } else if (
+            low === 'dept.time' || low === 'dept time' || low === 'dept.' || low === 'dept_time' || 
+            low === 'exit' || low === 'exit time' || low === 'exittime' || 
+            low === 'out' || low === 'out.time' || low === 'out1' || low === 'out 1' || low === 'out-1' ||
+            low.includes('exit') || low.includes('dept') || low.includes('out1') || low.includes('out 1') ||
+            low === 'departure' || low === 'dep' || low === 'dep.time'
+          ) {
+            initialMappings.out1 = strIdx;
+          }
+        });
+      } else {
+        // Day Shift mappings guessing
+        if (headers.length >= 7) {
+          initialMappings.arrTime = "6";
+        }
+
+        headers.forEach((h, idx) => {
+          const low = h.toLowerCase().trim();
+          const strIdx = String(idx);
+          if (low.includes('w.hrs') || low.includes('working hours') || low.includes('whrs') || low.includes('working_hours') || low.includes('w. hrs') || low === 'w.hrs') {
+            return;
+          }
+          if (low === 'emp.code' || low === 'emp code' || h === 'Emp.Code' || low === 'emp_co' || low === 'emp id' || low === 'employee id' || low === 'staff id' || low === 'staff no' || low === 'pin') {
+            initialMappings.id = strIdx;
+          } else if (low === 'name' || h === 'Name' || low === 'employee name' || low === 'staff name' || low === 'emp name') {
+            initialMappings.name = strIdx;
+          } else if (low === 'department' || low === 'dept' || low === 'dep' || h === 'Department') {
+            initialMappings.department = strIdx;
+          } else if (low === 'designation' || low === 'desg' || low === 'design' || h === 'Designation') {
+            initialMappings.designation = strIdx;
+          } else if (low === 'role' || low === 'job' || h === 'Role') {
+            initialMappings.role = strIdx;
+          } else if (low === 'shift' || low === 'shift time' || low === 'shifttime' || h === 'Shift') {
+            initialMappings.shiftTime = strIdx;
+          } else if (low === 'gender' || low === 'sex' || h === 'Gender') {
+            initialMappings.gender = strIdx;
+          } else if (low === 'phone' || low === 'mobile' || low === 'contact' || low === 'phone no' || low === 'phone_no' || h === 'Phone') {
+            initialMappings.phone = strIdx;
+          } else if (low === 'address' || low === 'addr' || h === 'Address') {
+            initialMappings.address = strIdx;
+          } else if (low === 'salary type' || low === 'salary_type' || low === 'salarytype' || low === 'type') {
+            initialMappings.salaryType = strIdx;
+          } else if (low === 'sunday paid' || low === 'sunday_paid' || low === 'sundaypaid' || low === 'sunday') {
+            initialMappings.sundayPaid = strIdx;
+          } else if (low === 'arr.time' || low === 'arrtime' || low === 'arr time' || low === 'in1' || low === 'in 1') {
+            initialMappings.arrTime = strIdx;
+          } else if (low === 'out1' || low === 'out 1' || low.includes('out1') || low.includes('out 1') || low.startsWith('out1') || low.startsWith('out 1') || low === 'out-1') {
             initialMappings.out1 = strIdx;
           } else if (low === 'in2' || low === 'in 2') {
             initialMappings.in2 = strIdx;
@@ -1548,15 +1541,73 @@ export default function AttendanceImport({
             initialMappings.in6 = strIdx;
           } else if (low === 'out6' || low === 'out 6') {
             initialMappings.out6 = strIdx;
+          } else if (low.includes('id') || low.includes('enroll') || low.includes('no.') || low.includes('emp_id') || low.includes('code')) {
+            if (!initialMappings.id) initialMappings.id = strIdx;
+          } else if (low.includes('salary') || low.includes('wage')) {
+            initialMappings.monthlySalary = strIdx;
           }
         });
+      }
+
+      // Special mapping check for multi-punches based on whether our file has Out1, In2 etc.
+      const hasMultiPunches = isNight || headers.some(h => {
+        const low = h.toLowerCase().trim();
+        return low === 'out1' || low === 'in2' || low === 'out2' || low === 'arr.time' || low === 'arr time';
+      }) || (headers.length >= 7);
+
+      if (hasMultiPunches) {
+        setRowLayout('multiple');
+        if (isNight) {
+          headers.forEach((h, idx) => {
+            const low = h.toLowerCase().trim();
+            const strIdx = String(idx);
+            if (low === 'arr.time' || low === 'arrtime' || low === 'arr time' || low === 'in1' || low === 'in 1') {
+              initialMappings.arrTime = strIdx;
+            } else if (low === 'dept.time' || low === 'depttime' || low === 'dept time' || low === 'out1' || low === 'out 1' || low === 'dept.' || low === 'dept_time') {
+              initialMappings.out1 = strIdx;
+            }
+          });
+        } else {
+          headers.forEach((h, idx) => {
+            const low = h.toLowerCase().trim();
+            const strIdx = String(idx);
+            if (low.includes('w.hrs') || low.includes('working hours') || low.includes('whrs') || low.includes('working_hours') || low.includes('w. hrs') || low === 'w.hrs') {
+              return;
+            }
+            if (low === 'arr.time' || low === 'arrtime' || low === 'arr time' || low === 'in1' || low === 'in 1') {
+              initialMappings.arrTime = strIdx;
+            } else if (low === 'out1' || low === 'out 1' || low.includes('out1') || low.includes('out 1') || low.startsWith('out1') || low.startsWith('out 1') || low === 'out-1') {
+              initialMappings.out1 = strIdx;
+            } else if (low === 'in2' || low === 'in 2') {
+              initialMappings.in2 = strIdx;
+            } else if (low === 'out2' || low === 'out 2') {
+              initialMappings.out2 = strIdx;
+            } else if (low === 'in3' || low === 'in 3') {
+              initialMappings.in3 = strIdx;
+            } else if (low === 'out3' || low === 'out 3') {
+              initialMappings.out3 = strIdx;
+            } else if (low === 'in4' || low === 'in 4') {
+              initialMappings.in4 = strIdx;
+            } else if (low === 'out4' || low === 'out 4') {
+              initialMappings.out4 = strIdx;
+            } else if (low === 'in5' || low === 'in 5') {
+              initialMappings.in5 = strIdx;
+            } else if (low === 'out5' || low === 'out 5') {
+              initialMappings.out5 = strIdx;
+            } else if (low === 'in6' || low === 'in 6') {
+              initialMappings.in6 = strIdx;
+            } else if (low === 'out6' || low === 'out 6') {
+              initialMappings.out6 = strIdx;
+            }
+          });
+        }
       } else {
         setRowLayout('single');
       }
 
       setMappings(initialMappings);
       setStep(2);
-      triggerAlert('success', `Workbook read successfully! Found ${rows.length} transactions starting from Row 10. Columns parsed from Row 9.`);
+      triggerAlert('success', `Workbook read successfully! Found ${rows.length} transactions starting from Row ${isNight ? 12 : 10}. Columns parsed from Row ${isNight ? 11 : 9}.`);
     } catch (err) {
       console.error(err);
       triggerAlert('info', 'Failed to parse the uploaded file or extract headers.');
@@ -1602,6 +1653,14 @@ export default function AttendanceImport({
   const parseTimeToHM = (timeStr: string): string => {
     if (!timeStr) return '';
     const trimmed = timeStr.trim();
+    
+    // Handle Excel time fraction (a decimal number between 0 and 1, e.g. "0.279166666666667" for 06:42)
+    if (!isNaN(Number(trimmed)) && Number(trimmed) > 0 && Number(trimmed) < 1) {
+      const totalMinutes = Math.round(Number(trimmed) * 1440);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
     
     // Extract HH:MM from timestamp like "2026-05-25 08:34:25"
     if (trimmed.includes(' ') && (trimmed.includes(':') || trimmed.includes('-'))) {
@@ -1986,8 +2045,8 @@ export default function AttendanceImport({
 
           const fieldsToUpdate: Partial<Employee> = {
             id: row.id,
-            name: row.name,
-            monthlySalary: Number(row.monthlySalary),
+            name: existing && (existing.name || '').trim() !== '' ? existing.name : row.name,
+            monthlySalary: Number(row.monthlySalary) || (existing ? existing.monthlySalary : 20000),
             workingDays: existing ? (existing.workingDays !== undefined ? existing.workingDays : 26) : 26,
             workingHours: existing ? (existing.workingHours !== undefined ? existing.workingHours : 8) : 8,
             fullDaysAbsent: existing ? (existing.fullDaysAbsent !== undefined ? existing.fullDaysAbsent : 0) : 0,
@@ -2062,13 +2121,21 @@ export default function AttendanceImport({
         } else {
           failCount++;
           const targetRow = previewData[idx];
-          console.error(`Import sync failed for employeeId ${targetRow?.id || targetRow?.employeeId}:`, res.reason);
+          console.error(`Import sync failed for employeeId ${targetRow?.employeeId || targetRow?.id}:`, res.reason);
         }
       });
 
       if (importMode === 'attendance') {
         const importedEmployeeIds = new Set(previewData.map(row => row.employeeId));
-        const absentEmployeesToDelete = activeEmployees.filter(emp => !importedEmployeeIds.has(emp.id));
+        const absentEmployeesToDelete = activeEmployees.filter(emp => {
+          if (importedEmployeeIds.has(emp.id)) {
+            return false;
+          }
+          // Only delete absent employees who belong to the shift currently being imported
+          const employeeIsNight = emp.shift === 'NIGHT';
+          const uploadIsNight = importShift === 'Night Shift';
+          return employeeIsNight === uploadIsNight;
+        });
         if (absentEmployeesToDelete.length > 0) {
           const deleteResults = await Promise.allSettled(
             absentEmployeesToDelete.map(async (emp) => {
@@ -2454,16 +2521,17 @@ export default function AttendanceImport({
       const calculateEmpAbsentDays = () => {
         if (hasCalculatedAbsentDays) return empAbsentDays;
         let count = 0;
+        
+        const empShift = emp.shift || 'DAY';
         if (companyActiveDates.length > 0) {
-          const empPunches = allPunchLogs[emp.id] || {};
           companyActiveDates.forEach(date => {
-            const punches = empPunches[date] || [];
-            const clean = punches.filter(p => !p.startsWith('00:00') && p.trim() !== '');
-            if (!isEmployeePresent(clean)) {
+            const punches = getAdjustedPunches(emp.id, empShift, date, allPunchLogs);
+            if (!isEmployeePresent(punches)) {
               count++;
             }
           });
         }
+        
         empAbsentDays = count;
         hasCalculatedAbsentDays = true;
         return count;
@@ -3012,16 +3080,17 @@ export default function AttendanceImport({
                                   {(() => {
                                     const monthStr = `${absentYear}-${String(absentMonth).padStart(2, '0')}`;
                                     let empAbsentDays = 0;
+                                    
+                                    const empShift = emp.shift || 'DAY';
                                     if (companyActiveDates.length > 0) {
-                                      const empPunches = allPunchLogs[emp.id] || {};
                                       companyActiveDates.forEach(date => {
-                                        const punches = empPunches[date] || [];
-                                        const clean = punches.filter(p => !p.startsWith('00:00') && p.trim() !== '');
-                                        if (!isEmployeePresent(clean)) {
+                                        const punches = getAdjustedPunches(emp.id, empShift, date, allPunchLogs);
+                                        if (!isEmployeePresent(punches)) {
                                           empAbsentDays++;
                                         }
                                       });
                                     }
+
                                     const monthLabel = [
                                       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
                                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
@@ -3149,6 +3218,46 @@ export default function AttendanceImport({
           {step === 1 && (
             <div className="space-y-4 font-sans">
               
+              {/* Shift Selection Segment Control */}
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 select-none">
+                <div>
+                  <span className="text-[10px] uppercase font-black tracking-widest text-slate-400 block mb-0.5 font-mono">Choose Import Shift</span>
+                  <span className="text-xs text-slate-600 font-medium font-sans">Select Day or Night Shift to apply dedicated format parsing.</span>
+                </div>
+                <div className="flex bg-slate-100 rounded-xl p-1 border border-slate-200 w-full sm:w-auto self-stretch sm:self-auto shrink-0 font-sans">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportShift('Day Shift');
+                      setRulesActiveTab('Day Shift');
+                    }}
+                    className={`flex-1 sm:flex-initial px-4 py-2 text-center text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      importShift === 'Day Shift'
+                        ? 'bg-white text-teal-700 shadow-xs border border-slate-200'
+                        : 'text-slate-400 hover:text-slate-700'
+                    }`}
+                  >
+                    <Sun size={14} />
+                    <span>Day Shift</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportShift('Night Shift');
+                      setRulesActiveTab('Night Shift');
+                    }}
+                    className={`flex-1 sm:flex-initial px-4 py-2 text-center text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      importShift === 'Night Shift'
+                        ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
+                        : 'text-slate-400 hover:text-slate-700'
+                    }`}
+                  >
+                    <Moon size={14} />
+                    <span>Night Shift</span>
+                  </button>
+                </div>
+              </div>
+
               <div
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}
@@ -3451,28 +3560,6 @@ export default function AttendanceImport({
                   </div>
                 )}
 
-                {/* Shift Selection (Attendance only) */}
-                {importMode === 'attendance' && (
-                  <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/20">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
-                      Assigned Shift <span className="text-rose-500">*</span>
-                    </label>
-                    <select
-                      value={importShift}
-                      onChange={(e) => {
-                        const sVal = e.target.value as 'Day Shift' | 'Night Shift';
-                        setImportShift(sVal);
-                        setRulesActiveTab(sVal);
-                      }}
-                      className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-teal-500 text-slate-800 cursor-pointer"
-                    >
-                      <option value="Day Shift">Day Shift</option>
-                      <option value="Night Shift">Night Shift</option>
-                    </select>
-                    <p className="text-[9px] text-slate-400 font-sans">Choose active shift (Day Shift or Night Shift) for import.</p>
-                  </div>
-                )}
-
                 {/* Layout-specific Columns: Single punch time */}
                 {importMode === 'attendance' && rowLayout === 'single' && (
                   <>
@@ -3512,13 +3599,15 @@ export default function AttendanceImport({
                   </>
                 )}
 
-                {/* Layout-specific Columns: Multiple punches columns */}
+                {/* Layout-specific Columns: Multiple punches columns                 {/* Layout-specific Columns: Multiple punches columns */}
                 {importMode === 'attendance' && rowLayout === 'multiple' && (
                   <>
                     {/* 1. Arr Time */}
                     <div className="p-4 rounded-2xl border border-teal-200 bg-teal-500/5 space-y-2 relative">
-                      <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-teal-100 text-teal-800 tracking-wider">7th Column Default</div>
-                      <label className="text-[10px] font-black text-teal-850 uppercase tracking-wider block font-mono">
+                      {importShift !== 'Night Shift' && (
+                        <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-teal-100 text-teal-800 tracking-wider">7th Column Default</div>
+                      )}
+                      <label className="text-[10px] font-black text-teal-855 uppercase tracking-wider block font-mono">
                         1. Arr Time (In1) <span className="text-rose-500">*</span>
                       </label>
                       <select
@@ -3531,12 +3620,12 @@ export default function AttendanceImport({
                           <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
                         ))}
                       </select>
-                      <p className="text-[8.5px] text-slate-450">Primary arrival punch time. Maps below ROW 8 column 7.</p>
+                      <p className="text-[8.5px] text-slate-450">Primary arrival punch time.</p>
                     </div>
 
                     {/* 2. Out1 */}
                     <div className="p-4 rounded-2xl border border-teal-150 space-y-2 bg-teal-50/10">
-                      <label className="text-[10px] font-black text-teal-850 uppercase tracking-wider block font-mono">
+                      <label className="text-[10px] font-black text-teal-855 uppercase tracking-wider block font-mono font-mono">
                         2. Out1 (Time)
                       </label>
                       <select
@@ -3552,174 +3641,194 @@ export default function AttendanceImport({
                     </div>
 
                     {/* 3. In2 */}
-                    <div className="p-4 rounded-2xl border border-slate-150 space-y-2 bg-slate-50/25">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
-                        3. In2 (Time)
-                      </label>
-                      <select
-                        value={mappings.in2}
-                        onChange={(e) => setMappings({ ...mappings, in2: e.target.value })}
-                        className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-semibold"
-                      >
-                        <option value="">-- Skip Col --</option>
-                        {rawHeaders.map((h, idx) => (
-                          <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {importShift !== 'Night Shift' && (
+                      <div className="p-4 rounded-2xl border border-slate-150 space-y-2 bg-slate-50/25">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
+                          3. In2 (Time)
+                        </label>
+                        <select
+                          value={mappings.in2}
+                          onChange={(e) => setMappings({ ...mappings, in2: e.target.value })}
+                          className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-semibold"
+                        >
+                          <option value="">-- Skip Col --</option>
+                          {rawHeaders.map((h, idx) => (
+                            <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* 4. Out2 */}
-                    <div className="p-4 rounded-2xl border border-slate-150 space-y-2 bg-slate-50/25">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
-                        4. Out2 (Time)
-                      </label>
-                      <select
-                        value={mappings.out2}
-                        onChange={(e) => setMappings({ ...mappings, out2: e.target.value })}
-                        className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-semibold"
-                      >
-                        <option value="">-- Skip Col --</option>
-                        {rawHeaders.map((h, idx) => (
-                          <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {importShift !== 'Night Shift' && (
+                      <div className="p-4 rounded-2xl border border-slate-150 space-y-2 bg-slate-50/25">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono font-mono">
+                          4. Out2 (Time)
+                        </label>
+                        <select
+                          value={mappings.out2}
+                          onChange={(e) => setMappings({ ...mappings, out2: e.target.value })}
+                          className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-semibold"
+                        >
+                          <option value="">-- Skip Col --</option>
+                          {rawHeaders.map((h, idx) => (
+                            <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* 5. In3 */}
-                    <div className="p-4 rounded-2xl border border-slate-150 space-y-2 bg-slate-50/25">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
-                        5. In3 (Time)
-                      </label>
-                      <select
-                        value={mappings.in3}
-                        onChange={(e) => setMappings({ ...mappings, in3: e.target.value })}
-                        className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-semibold"
-                      >
-                        <option value="">-- Skip Col --</option>
-                        {rawHeaders.map((h, idx) => (
-                          <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {importShift !== 'Night Shift' && (
+                      <div className="p-4 rounded-2xl border border-slate-150 space-y-2 bg-slate-50/25">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
+                          5. In3 (Time)
+                        </label>
+                        <select
+                          value={mappings.in3}
+                          onChange={(e) => setMappings({ ...mappings, in3: e.target.value })}
+                          className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-semibold"
+                        >
+                          <option value="">-- Skip Col --</option>
+                          {rawHeaders.map((h, idx) => (
+                            <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* 6. Out3 */}
-                    <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
-                        6. Out3 (Time)
-                      </label>
-                      <select
-                        value={mappings.out3}
-                        onChange={(e) => setMappings({ ...mappings, out3: e.target.value })}
-                        className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
-                      >
-                        <option value="">-- Skip Col --</option>
-                        {rawHeaders.map((h, idx) => (
-                          <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {importShift !== 'Night Shift' && (
+                      <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
+                          6. Out3 (Time)
+                        </label>
+                        <select
+                          value={mappings.out3}
+                          onChange={(e) => setMappings({ ...mappings, out3: e.target.value })}
+                          className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
+                        >
+                          <option value="">-- Skip Col --</option>
+                          {rawHeaders.map((h, idx) => (
+                            <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* 7. In4 */}
-                    <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
-                        7. In4 (Time)
-                      </label>
-                      <select
-                        value={mappings.in4}
-                        onChange={(e) => setMappings({ ...mappings, in4: e.target.value })}
-                        className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
-                      >
-                        <option value="">-- Skip Col --</option>
-                        {rawHeaders.map((h, idx) => (
-                          <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {importShift !== 'Night Shift' && (
+                      <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
+                          7. In4 (Time)
+                        </label>
+                        <select
+                          value={mappings.in4}
+                          onChange={(e) => setMappings({ ...mappings, in4: e.target.value })}
+                          className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
+                        >
+                          <option value="">-- Skip Col --</option>
+                          {rawHeaders.map((h, idx) => (
+                            <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* 8. Out4 */}
-                    <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
-                        8. Out4 (Time)
-                      </label>
-                      <select
-                        value={mappings.out4}
-                        onChange={(e) => setMappings({ ...mappings, out4: e.target.value })}
-                        className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
-                      >
-                        <option value="">-- Skip Col --</option>
-                        {rawHeaders.map((h, idx) => (
-                          <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {importShift !== 'Night Shift' && (
+                      <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
+                          8. Out4 (Time)
+                        </label>
+                        <select
+                          value={mappings.out4}
+                          onChange={(e) => setMappings({ ...mappings, out4: e.target.value })}
+                          className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
+                        >
+                          <option value="">-- Skip Col --</option>
+                          {rawHeaders.map((h, idx) => (
+                            <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* 9. In5 */}
-                    <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
-                        9. In5 (Time)
-                      </label>
-                      <select
-                        value={mappings.in5}
-                        onChange={(e) => setMappings({ ...mappings, in5: e.target.value })}
-                        className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
-                      >
-                        <option value="">-- Skip Col --</option>
-                        {rawHeaders.map((h, idx) => (
-                          <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {importShift !== 'Night Shift' && (
+                      <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
+                          9. In5 (Time)
+                        </label>
+                        <select
+                          value={mappings.in5}
+                          onChange={(e) => setMappings({ ...mappings, in5: e.target.value })}
+                          className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
+                        >
+                          <option value="">-- Skip Col --</option>
+                          {rawHeaders.map((h, idx) => (
+                            <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* 10. Out5 */}
-                    <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
-                        10. Out5 (Time)
-                      </label>
-                      <select
-                        value={mappings.out5}
-                        onChange={(e) => setMappings({ ...mappings, out5: e.target.value })}
-                        className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
-                      >
-                        <option value="">-- Skip Col --</option>
-                        {rawHeaders.map((h, idx) => (
-                          <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {importShift !== 'Night Shift' && (
+                      <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
+                          10. Out5 (Time)
+                        </label>
+                        <select
+                          value={mappings.out5}
+                          onChange={(e) => setMappings({ ...mappings, out5: e.target.value })}
+                          className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
+                        >
+                          <option value="">-- Skip Col --</option>
+                          {rawHeaders.map((h, idx) => (
+                            <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* 11. In6 */}
-                    <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
-                        11. In6 (Time)
-                      </label>
-                      <select
-                        value={mappings.in6}
-                        onChange={(e) => setMappings({ ...mappings, in6: e.target.value })}
-                        className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
-                      >
-                        <option value="">-- Skip Col --</option>
-                        {rawHeaders.map((h, idx) => (
-                          <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {importShift !== 'Night Shift' && (
+                      <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
+                          11. In6 (Time)
+                        </label>
+                        <select
+                          value={mappings.in6}
+                          onChange={(e) => setMappings({ ...mappings, in6: e.target.value })}
+                          className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
+                        >
+                          <option value="">-- Skip Col --</option>
+                          {rawHeaders.map((h, idx) => (
+                            <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* 12. Out6 */}
-                    <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono">
-                        12. Out6 (Time)
-                      </label>
-                      <select
-                        value={mappings.out6}
-                        onChange={(e) => setMappings({ ...mappings, out6: e.target.value })}
-                        className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
-                      >
-                        <option value="">-- Skip Col --</option>
-                        {rawHeaders.map((h, idx) => (
-                          <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {importShift !== 'Night Shift' && (
+                      <div className="p-4 rounded-2xl border border-slate-100 space-y-2 bg-slate-50/25 font-mono">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block font-mono font-mono">
+                          12. Out6 (Time)
+                        </label>
+                        <select
+                          value={mappings.out6}
+                          onChange={(e) => setMappings({ ...mappings, out6: e.target.value })}
+                          className="w-full bg-white border border-slate-250 text-slate-800 rounded-xl p-2 text-xs font-semibold"
+                        >
+                          <option value="">-- Skip Col --</option>
+                          {rawHeaders.map((h, idx) => (
+                            <option key={idx} value={String(idx)}>{h ? `${idx + 1}. ${h}` : `(Empty Column ${idx + 1})`}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </>
                 )}
 
