@@ -737,11 +737,21 @@ export default function AttendanceImport({
   const [rawHeaders, setRawHeaders] = useState<string[]>([]);
   const [parsedRows, setParsedRows] = useState<Record<string, string>[]>([]);
   const [importMode, setImportMode] = useState<'roster' | 'attendance'>('attendance');
-  const [importDate, setImportDate] = useState<string>('2026-05-25');
+  const [importDate, setImportDate] = useState<string>(() => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  });
   
   // Fit filtering by absent days
-  const [absentMonth, setAbsentMonth] = useState<number>(5); // Default to May
-  const [absentYear, setAbsentYear] = useState<number>(2026); // Default to 2026
+  const [absentMonth, setAbsentMonth] = useState<number>(() => {
+    return new Date().getMonth() + 1; // Default to current month
+  });
+  const [absentYear, setAbsentYear] = useState<number>(() => {
+    return new Date().getFullYear(); // Default to current year
+  });
   const [absentDaysMin, setAbsentDaysMin] = useState<string>(''); // Default empty (disabled)
   const [absentDaysMax, setAbsentDaysMax] = useState<string>(''); // Default empty (disabled)
 
@@ -791,10 +801,11 @@ export default function AttendanceImport({
   // Sub-tabs Selection: 'view' for the Searchable Attendance Finder and 'upload' for CSV Importer
   const [activeSubTab, setActiveSubTab] = useState<'view' | 'upload'>('view');
   const [historyDate, setHistoryDate] = useState<string>(() => {
-    if (ledgerYear && ledgerMonth) {
-      return `${ledgerYear}-${String(ledgerMonth).padStart(2, '0')}-01`;
-    }
-    return '2026-05-25';
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
   });
 
   const [exportFromDate, setExportFromDate] = useState<string>(() => {

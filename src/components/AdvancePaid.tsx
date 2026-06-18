@@ -6,7 +6,7 @@
 import React, { useState, useMemo } from 'react';
 import { db } from '../firebase';
 import { doc, setDoc, collection, query, where, onSnapshot, deleteDoc, getDoc } from 'firebase/firestore';
-import { Wallet, Calendar as CalendarIcon, Plus, Info, Landmark, History, Coins, Utensils, Coffee, Receipt, UserCheck, Edit, Trash2, Check, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Wallet, Calendar as CalendarIcon, Plus, Info, Landmark, History, Coins, Utensils, Coffee, Receipt, UserCheck, Edit, Trash2, Check, X, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react';
 import { Employee } from '../types';
 
 export interface CanteenFoodBill {
@@ -110,6 +110,25 @@ export default function AdvancePaid({
     advId?: string;
     employeeId?: string;
   } | null>(null);
+
+  // --- STATE FOR DISBURSALS LOGS FILTERS (Advances Paid) ---
+  const [advSearchQuery, setAdvSearchQuery] = useState<string>('');
+  const [advFilterDay, setAdvFilterDay] = useState<number>(-1); // -1 is All
+  const [advFilterMonth, setAdvFilterMonth] = useState<number>(selectedMonth); // Default to selectedMonth
+
+  // --- STATE FOR FOOD BILLS LOGS FILTERS ---
+  const [foodSearchQuery, setFoodSearchQuery] = useState<string>('');
+  const [foodFilterDay, setFoodFilterDay] = useState<number>(-1); // -1 is All
+  const [foodFilterMonth, setFoodFilterMonth] = useState<number>(selectedFoodMonth); // Default to selectedFoodMonth
+
+  // Keep filters in sync with selected months
+  React.useEffect(() => {
+    setAdvFilterMonth(selectedMonth);
+  }, [selectedMonth]);
+
+  React.useEffect(() => {
+    setFoodFilterMonth(selectedFoodMonth);
+  }, [selectedFoodMonth]);
 
   // Ascending-ordered employees list (by numerical employee code)
   const sortedEmployees = useMemo(() => {
@@ -475,13 +494,8 @@ export default function AdvancePaid({
       return;
     }
 
-    if (!challanNo.trim()) {
-      triggerAlert('warn', 'Please enter a valid Challan Number.');
-      return;
-    }
-
     if (!challanIssuedBy.trim()) {
-      triggerAlert('warn', 'Please specify who issued the Challan.');
+      triggerAlert('warn', 'Please specify who logged the food bill.');
       return;
     }
 
@@ -519,8 +533,8 @@ export default function AdvancePaid({
       });
 
       triggerAlert('success', editingFood
-        ? `Successfully updated Canteen Food Bill (Challan No: ${challanNo.trim()}).`
-        : `Successfully registered Canteen Food Bill (Challan No: ${challanNo.trim()}, meals: ${mealsNum}) for ₹${amtNum.toLocaleString('en-IN')}.`
+        ? `Successfully updated Canteen Food Bill.`
+        : `Successfully registered Canteen Food Bill (meals: ${mealsNum}) for ₹${amtNum.toLocaleString('en-IN')}.`
       );
 
       // Reset form fields
@@ -702,6 +716,60 @@ export default function AdvancePaid({
       return foodSortDirection === 'asc' ? comp : -comp;
     });
   }, [canteenFoodBills, foodSortDirection]);
+
+  // --- FILTERED DISBURSALS ---
+  const filteredRecordedDisbursals = useMemo(() => {
+    return sortedRecordedDisbursals.filter(r => {
+      // 1. Day filter
+      if (advFilterDay !== -1) {
+        const parsed = parseDateString(r.date || '');
+        if (parsed) {
+          if (parsed.d !== advFilterDay) return false;
+        } else {
+          return false;
+        }
+      }
+
+      // 2. Search Query (name / employeeId / remarks)
+      const qVal = advSearchQuery.trim().toLowerCase();
+      if (qVal) {
+        const matches = 
+          r.name.toLowerCase().includes(qVal) || 
+          r.employeeId.toLowerCase().includes(qVal) ||
+          (r.remarks && r.remarks.toLowerCase().includes(qVal));
+        if (!matches) return false;
+      }
+
+      return true;
+    });
+  }, [sortedRecordedDisbursals, advFilterDay, advSearchQuery]);
+
+  // --- FILTERED CANTEEN FOOD BILLS ---
+  const filteredRecordedFoodBills = useMemo(() => {
+    return recordedFoodBills.filter(r => {
+      // 1. Day filter
+      if (foodFilterDay !== -1) {
+        const parsed = parseDateString(r.date || '');
+        if (parsed) {
+          if (parsed.d !== foodFilterDay) return false;
+        } else {
+          return false;
+        }
+      }
+
+      // 2. Search Query (issuedBy / mealType / remarks)
+      const qVal = foodSearchQuery.trim().toLowerCase();
+      if (qVal) {
+        const matches = 
+          r.issuedBy.toLowerCase().includes(qVal) || 
+          r.mealType.toLowerCase().includes(qVal) ||
+          (r.remarks && r.remarks.toLowerCase().includes(qVal));
+        if (!matches) return false;
+      }
+
+      return true;
+    });
+  }, [recordedFoodBills, foodFilterDay, foodSearchQuery]);
 
   // Format currency
   const formatINR = (val: number) => {
@@ -1013,16 +1081,80 @@ export default function AdvancePaid({
 
           {/* Advances Ledger List */}
           <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-sm flex flex-col min-h-[220px]">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4 select-none">
               <div className="flex items-center gap-2">
                 <History className="text-slate-550" size={17} />
                 <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
-                  Recorded Advances for {months[selectedMonth]} {selectedYear}
+                  Recorded Advances for {selectedMonth === -1 ? 'All Months' : months[selectedMonth]} {selectedYear}
                 </h4>
               </div>
               <span className="text-[10px] font-black text-slate-400 uppercase font-mono bg-slate-100 px-2.5 py-0.5 rounded-lg">
-                {recordedDisbursals.length} logged
+                {filteredRecordedDisbursals.length} logged
               </span>
+            </div>
+
+            {/* Day, Month, Search filters similar to Overtime Logs */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 text-xs mb-4">
+              
+              {/* Employee Name fuzzy query search */}
+              <div className="md:col-span-6 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+                <input
+                  type="text"
+                  placeholder="Search name, code, remarks..."
+                  value={advSearchQuery}
+                  onChange={(e) => setAdvSearchQuery(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 pl-8 pr-4.5 text-[11px] font-bold text-slate-755 placeholder-slate-400 focus:bg-white focus:outline-hidden font-sans"
+                />
+                {advSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setAdvSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-650"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              {/* Day filter dropdown */}
+              <div className="md:col-span-3">
+                <select
+                  value={advFilterDay}
+                  onChange={(e) => setAdvFilterDay(Number(e.target.value))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 px-2 text-[11px] font-bold text-slate-700 focus:bg-white focus:outline-hidden cursor-pointer font-sans"
+                >
+                  <option value={-1}>All Days</option>
+                  {Array.from({ length: 31 }, (_, i) => (
+                    <option key={i + 1} value={i + 1}>
+                      Day {i + 1}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Month filter dropdown */}
+              <div className="md:col-span-3">
+                <select
+                  value={advFilterMonth}
+                  onChange={(e) => {
+                    const mVal = Number(e.target.value);
+                    setAdvFilterMonth(mVal);
+                    if (mVal !== -1) {
+                      setSelectedMonth(mVal);
+                    }
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 px-2 text-[11px] font-bold text-slate-700 focus:bg-white focus:outline-hidden cursor-pointer font-sans"
+                >
+                  <option value={-1}>All Months</option>
+                  {months.map((m, idx) => (
+                    <option key={idx} value={idx}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
             </div>
 
             {recordedDisbursals.length === 0 ? (
@@ -1031,11 +1163,17 @@ export default function AdvancePaid({
                 <p className="text-xs font-bold uppercase">No Advances Disbursed</p>
                 <p className="text-[10px] text-slate-400 mt-1 uppercase leading-snug">Submit the Left form to add a payroll entry for this month-year</p>
               </div>
+            ) : filteredRecordedDisbursals.length === 0 ? (
+              <div className="flex-grow flex flex-col items-center justify-center text-center py-10 text-slate-400">
+                <Search size={36} className="text-slate-200 stroke-1 mb-2" />
+                <p className="text-xs font-bold uppercase">No matching advances found</p>
+                <p className="text-[10px] text-slate-400 mt-1 uppercase leading-snug">Try resetting your filters or typing another query</p>
+              </div>
             ) : (
               <div className="overflow-x-auto text-[11px]">
                 <div className="mb-3 bg-emerald-50/70 border border-emerald-100 rounded-2xl p-3 px-4 flex justify-between items-center text-xs select-none">
                   <span className="font-extrabold text-slate-500 uppercase tracking-wider text-[10px]">Total Monthly Advances</span>
-                  <span className="font-mono font-black text-emerald-600 text-sm">{formatINR(recordedDisbursals.reduce((sum, r) => sum + r.amount, 0))}</span>
+                  <span className="font-mono font-black text-emerald-600 text-sm">{formatINR(filteredRecordedDisbursals.reduce((sum, r) => sum + r.amount, 0))}</span>
                 </div>
 
                 <table className="w-full text-left border-collapse select-text">
@@ -1064,7 +1202,7 @@ export default function AdvancePaid({
                       </th>
                       <th className="py-2 pr-2">Employee Name</th>
                       <th 
-                        className="py-2 pr-1 cursor-pointer hover:text-slate-700 transition-colors"
+                        className="py-2 pr-1 cursor-pointer hover:text-slate-705 transition-colors"
                         onClick={() => {
                           if (sortField === 'date') {
                             setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
@@ -1089,8 +1227,8 @@ export default function AdvancePaid({
                       <th className="py-2 text-right pr-2">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
-                    {sortedRecordedDisbursals.map((r, idx) => (
+                  <tbody className="divide-y divide-slate-100 font-medium font-sans">
+                    {filteredRecordedDisbursals.map((r, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                         <td className="py-2.5 font-mono font-black text-slate-600">{r.employeeId}</td>
                         <td className="py-2.5 font-extrabold text-slate-800">{r.name}</td>
@@ -1209,25 +1347,10 @@ export default function AdvancePaid({
             </div>
 
             <form onSubmit={handleFoodSubmit} className="space-y-4">
-              {/* Challan Number Input */}
+              {/* Logged By Input */}
               <div>
                 <label className="block mb-1.5 text-[11.5px] font-black uppercase text-slate-400 tracking-wider">
-                  Challan No
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. CH-2591"
-                  required
-                  value={challanNo}
-                  onChange={(e) => setChallanNo(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs font-bold text-slate-700 placeholder-slate-400 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-orange-500"
-                />
-              </div>
-
-              {/* Challan Issued By Input */}
-              <div>
-                <label className="block mb-1.5 text-[11.5px] font-black uppercase text-slate-400 tracking-wider">
-                  Challan Issued By
+                  Logged By
                 </label>
                 <input
                   type="text"
@@ -1381,16 +1504,80 @@ export default function AdvancePaid({
             </form>
           </div>
           <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-sm flex flex-col min-h-[220px]">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4 select-none">
               <div className="flex items-center gap-2">
                 <Receipt className="text-slate-550" size={17} />
                 <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
-                  Logged Food Challan Register for {months[selectedFoodMonth]} {selectedFoodYear}
+                  Logged Food Bills For {foodFilterMonth === -1 ? 'All Months' : months[foodFilterMonth]} {selectedFoodYear}
                 </h4>
               </div>
               <span className="text-[10px] font-black text-slate-400 uppercase font-mono bg-slate-100 px-2.5 py-0.5 rounded-lg">
-                {recordedFoodBills.length} logged
+                {filteredRecordedFoodBills.length} logged
               </span>
+            </div>
+
+            {/* Day, Month, Search filters similar to Overtime Logs */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 text-xs mb-4">
+              
+              {/* Logged By / Meal Type query search */}
+              <div className="md:col-span-6 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+                <input
+                  type="text"
+                  placeholder="Search logged by, remarks..."
+                  value={foodSearchQuery}
+                  onChange={(e) => setFoodSearchQuery(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 pl-8 pr-4.5 text-[11px] font-bold text-slate-755 placeholder-slate-400 focus:bg-white focus:outline-hidden font-sans"
+                />
+                {foodSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setFoodSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-650"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              {/* Day filter dropdown */}
+              <div className="md:col-span-3">
+                <select
+                  value={foodFilterDay}
+                  onChange={(e) => setFoodFilterDay(Number(e.target.value))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 px-2 text-[11px] font-bold text-slate-700 focus:bg-white focus:outline-hidden cursor-pointer font-sans"
+                >
+                  <option value={-1}>All Days</option>
+                  {Array.from({ length: 31 }, (_, i) => (
+                    <option key={i + 1} value={i + 1}>
+                      Day {i + 1}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Month filter dropdown */}
+              <div className="md:col-span-3">
+                <select
+                  value={foodFilterMonth}
+                  onChange={(e) => {
+                    const mVal = Number(e.target.value);
+                    setFoodFilterMonth(mVal);
+                    if (mVal !== -1) {
+                      setSelectedFoodMonth(mVal);
+                    }
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 px-2 text-[11px] font-bold text-slate-700 focus:bg-white focus:outline-hidden cursor-pointer font-sans"
+                >
+                  <option value={-1}>All Months</option>
+                  {months.map((m, idx) => (
+                    <option key={idx} value={idx}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
             </div>
 
             {recordedFoodBills.length === 0 ? (
@@ -1399,18 +1586,24 @@ export default function AdvancePaid({
                 <p className="text-xs font-bold uppercase">No Canteen Challans Logged</p>
                 <p className="text-[10px] text-slate-400 mt-1 uppercase leading-snug">Submit the Left form to log canteen challans on this month-year</p>
               </div>
+            ) : filteredRecordedFoodBills.length === 0 ? (
+              <div className="flex-grow flex flex-col items-center justify-center text-center py-10 text-slate-400">
+                <Search size={36} className="text-slate-200 stroke-1 mb-2" />
+                <p className="text-xs font-bold uppercase">No matching food bills found</p>
+                <p className="text-[10px] text-slate-400 mt-1 uppercase leading-snug">Try resetting your filters or typing another query</p>
+              </div>
             ) : (
               <div className="overflow-x-auto text-[11px]">
                 <div className="mb-3 bg-orange-50/70 border border-orange-100 rounded-2xl p-3 px-4 flex justify-between items-center text-xs select-none">
                   <span className="font-extrabold text-slate-500 uppercase tracking-wider text-[10px]">Total Monthly Food Bills</span>
-                  <span className="font-mono font-black text-orange-600 text-sm">{formatINR(recordedFoodBills.reduce((sum, r) => sum + r.amount, 0))}</span>
+                  <span className="font-mono font-black text-orange-600 text-sm">{formatINR(filteredRecordedFoodBills.reduce((sum, r) => sum + r.amount, 0))}</span>
                 </div>
 
                 <table className="w-full text-left border-collapse select-text">
                   <thead>
-                    <tr className="border-b border-slate-150 text-[9px] font-black tracking-wider text-slate-400 uppercase select-none">
-                      <th className="py-2 pr-2">Challan No</th>
-                      <th className="py-2 pr-2">Issued By</th>
+                     <tr className="border-b border-slate-150 text-[9px] font-black tracking-wider text-slate-400 uppercase select-none">
+                      <th className="py-2 pr-2">Logged By</th>
+                      <th className="py-2 pr-2 text-center" style={{ width: '45px' }}>Icon</th>
                       <th className="py-2 pr-2">Meal Type</th>
                       <th className="py-2 pr-2">Meals Count</th>
                       <th 
@@ -1434,11 +1627,23 @@ export default function AdvancePaid({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium text-slate-750">
-                    {recordedFoodBills.map((r, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="py-2.5 font-mono font-black text-rose-600 font-bold">{r.challanNo}</td>
-                        <td className="py-2.5 font-extrabold text-slate-800">{r.issuedBy}</td>
-                        <td className="py-2.5">
+                    {filteredRecordedFoodBills.map((r, idx) => {
+                      const isTeaStr = r.mealType === 'Morning Tea' || r.mealType === 'Evening Tea';
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="py-2.5 font-extrabold text-slate-800">{r.issuedBy}</td>
+                          <td className="py-2.5 text-center">
+                            {isTeaStr ? (
+                              <div className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-50 text-amber-600" title="Tea">
+                                <Coffee size={13} className="stroke-[2.5]" />
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-50 text-rose-600" title="Food">
+                                <Utensils size={13} className="stroke-[2.5]" />
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2.5">
                           <span className={`px-2.5 py-0.5 text-[9px] font-black rounded-lg uppercase tracking-wider ${
                             r.mealType === 'Lunch' 
                               ? 'bg-amber-100 text-amber-850'
@@ -1524,7 +1729,8 @@ export default function AdvancePaid({
                           )}
                         </td>
                       </tr>
-                    ))}
+                    );
+                  })}
                   </tbody>
                 </table>
               </div>

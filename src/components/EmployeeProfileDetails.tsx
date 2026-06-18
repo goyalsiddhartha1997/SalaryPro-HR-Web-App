@@ -122,6 +122,36 @@ const calculateGatePassMinutes = (outTime: string, inTime: string): number => {
   return 0;
 };
 
+// Helper calculating single gate pass minutes duration, considering Shift end-time if No Return
+const getGatePassMinutesWithShift = (gp: any, shiftTimeStr: string | undefined): number => {
+  if (!gp.outTime) return 0;
+  
+  const inTimeStr = gp.inTime || '';
+  const isNoReturn = inTimeStr.trim().toLowerCase() === 'no-return' || inTimeStr.trim().toLowerCase() === 'no return';
+  
+  if (isNoReturn) {
+    const shiftTime = shiftTimeStr || '08:00 - 17:00';
+    const parts = shiftTime.split('-');
+    if (parts.length < 2) return 0;
+    const endTimeStr = parts[1].trim();
+    
+    const [endH, endM] = endTimeStr.split(':').map(Number);
+    const [outH, outM] = gp.outTime.split(':').map(Number);
+    
+    if (isNaN(endH) || isNaN(endM) || isNaN(outH) || isNaN(outM)) return 0;
+    
+    const endTotal = endH * 60 + endM;
+    const outTotal = outH * 60 + outM;
+    
+    if (endTotal > outTotal) {
+      return endTotal - outTotal;
+    }
+    return 0;
+  }
+  
+  return calculateGatePassMinutes(gp.outTime, gp.inTime);
+};
+
 // Helper calculating overtime logs duration
 const calculateHoursWorked = (arr: string, out: string) => {
   if (!arr || !out) return 0;
@@ -697,7 +727,7 @@ export default function EmployeeProfileDetails({
   const { totalGateMinutes, totalGateHoursAndMinsString, totalGatePassCount } = useMemo(() => {
     let totalMins = 0;
     monthlyGatePasses.forEach(gp => {
-      totalMins += calculateGatePassMinutes(gp.outTime, gp.inTime);
+      totalMins += getGatePassMinutesWithShift(gp, employee.shiftTime);
     });
     const h = Math.floor(totalMins / 60);
     const m = totalMins % 60;
@@ -713,7 +743,7 @@ export default function EmployeeProfileDetails({
       totalGateHoursAndMinsString: totalMins > 0 ? timeStr : '0 min',
       totalGatePassCount: monthlyGatePasses.length
     };
-  }, [monthlyGatePasses]);
+  }, [monthlyGatePasses, employee.shiftTime]);
 
   // Month navigation names
   const monthNames = [
@@ -1914,7 +1944,7 @@ export default function EmployeeProfileDetails({
                 {monthlyGatePasses.map((gp, idx) => {
                   const outFormatted = gp.outTime;
                   const inFormatted = gp.inTime;
-                  const durMin = gp.outTime && gp.inTime ? calculateGatePassMinutes(gp.outTime, gp.inTime) : 0;
+                  const durMin = getGatePassMinutesWithShift(gp, employee.shiftTime);
                   const durH = Math.floor(durMin / 60);
                   const durM = durMin % 60;
                   const durationStr = durMin > 0 ? `${durH > 0 ? `${durH}h ` : ''}${durM}m` : '0m';

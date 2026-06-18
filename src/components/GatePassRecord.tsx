@@ -6,7 +6,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { db } from '../firebase';
 import { doc, setDoc, deleteDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
-import { Clock, Calendar as CalendarIcon, Plus, Info, History, Trash2, ClipboardList, Timer, Search, UserCheck, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Clock, Calendar as CalendarIcon, Plus, Info, History, Trash2, ClipboardList, Timer, Search, UserCheck, ArrowUpDown, ArrowUp, ArrowDown, X } from 'lucide-react';
 import { Employee } from '../types';
 
 interface GatePass {
@@ -51,8 +51,10 @@ export default function GatePassRecord({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // --- STATE FOR FILTER ---
+  const [filterDay, setFilterDay] = useState<number>(-1); // -1 is All
   const [filterMonth, setFilterMonth] = useState<number>(-1); // Default to -1 (All Months)
   const [filterYear, setFilterYear] = useState<number>(ledgerYear);
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // --- STATE FOR SEARCHING ---
   const [empSearch, setEmpSearch] = useState<string>('');
@@ -154,13 +156,24 @@ export default function GatePassRecord({
       if (dateParts.length === 3) {
         const yr = parseInt(dateParts[0], 10);
         const mo = parseInt(dateParts[1], 10) - 1; // 0-indexed
+        const dy = parseInt(dateParts[2], 10);
+        
         const matchesYear = yr === filterYear;
         const matchesMonth = filterMonth === -1 || mo === filterMonth;
-        return matchesYear && matchesMonth;
+        const matchesDay = filterDay === -1 || dy === filterDay;
+
+        // Name or ID searchQuery check
+        const queryVal = searchQuery.trim().toLowerCase();
+        const matchesSearch = !queryVal || 
+          gp.employeeName.toLowerCase().includes(queryVal) || 
+          gp.employeeId.toLowerCase().includes(queryVal) ||
+          (gp.remarks && gp.remarks.toLowerCase().includes(queryVal));
+
+        return matchesYear && matchesMonth && matchesDay && matchesSearch;
       }
       return false;
     });
-  }, [allGatePasses, filterMonth, filterYear]);
+  }, [allGatePasses, filterMonth, filterYear, filterDay, searchQuery]);
 
   // Sort filtered Gate Pass entries based on active sort parameters
   const sortedRecordedPasses = useMemo(() => {
@@ -612,6 +625,64 @@ export default function GatePassRecord({
               <span className="text-[10px] font-black text-slate-400 uppercase font-mono bg-slate-100 px-2.5 py-0.5 rounded-lg shrink-0">
                 {filteredrecordedPasses.length} logged
               </span>
+            </div>
+
+            {/* Day, Month, Year search and filter metrics */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 text-xs mb-4">
+              
+              {/* Employee / Remarks fuzzy query search */}
+              <div className="md:col-span-6 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+                <input
+                  type="text"
+                  placeholder="Search name, code, remarks..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 pl-8 pr-4.5 text-[11px] font-bold text-slate-750 placeholder-slate-400 focus:bg-white focus:outline-none font-sans"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-650"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              {/* Specific Day filter dropdown */}
+              <div className="md:col-span-3">
+                <select
+                  value={filterDay}
+                  onChange={(e) => setFilterDay(Number(e.target.value))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 px-2 text-[11px] font-bold text-slate-700 focus:bg-white focus:outline-none cursor-pointer font-sans"
+                >
+                  <option value={-1}>All Days</option>
+                  {Array.from({ length: 31 }, (_, i) => (
+                    <option key={i + 1} value={i + 1}>
+                      Day {i + 1}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Specific Month filter dropdown */}
+              <div className="md:col-span-3">
+                <select
+                  value={filterMonth}
+                  onChange={(e) => setFilterMonth(Number(e.target.value))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 px-2 text-[11px] font-bold text-slate-700 focus:bg-white focus:outline-none cursor-pointer font-sans"
+                >
+                  <option value={-1}>All Months</option>
+                  {months.map((m, idx) => (
+                    <option key={idx} value={idx}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
             </div>
 
             {loadingPasses ? (

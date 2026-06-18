@@ -204,17 +204,17 @@ export default function App() {
   const [ledgerMonth, setLedgerMonth] = useState<number>(() => {
     try {
       const cached = localStorage.getItem('salarypro_ledger_month');
-      return cached ? Number(cached) : 6; // Default: June
+      return cached ? Number(cached) : (new Date().getMonth() + 1); // Default to current month
     } catch {
-      return 6;
+      return new Date().getMonth() + 1;
     }
   });
   const [ledgerYear, setLedgerYear] = useState<number>(() => {
     try {
       const cached = localStorage.getItem('salarypro_ledger_year');
-      return cached ? Number(cached) : 2026; // Default: 2026
+      return cached ? Number(cached) : new Date().getFullYear(); // Default to current year
     } catch {
-      return 2026;
+      return new Date().getFullYear();
     }
   });
 
@@ -699,7 +699,30 @@ export default function App() {
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged((user) => {
       if (user) {
-        const email = user.email || '';
+        const email = (user.email || '').toLowerCase();
+        
+        const ALLOWED_ADMINS = ['sandydalhousie@gmail.com'];
+        const ALLOWED_OBSERVERS = [
+          'goyal.siddhartha1997@gmail.com',
+          'skshimla@gmail.com',
+          'himgoldenterprises@gmail.com',
+          'shantanu.goyal93@gmail.com',
+          'fortuneflexipack@gmail.com'
+        ];
+
+        if (!ALLOWED_ADMINS.includes(email) && !ALLOWED_OBSERVERS.includes(email)) {
+          auth.signOut().catch(console.error);
+          setLoggedInEmail(null);
+          setLoggedInName(null);
+          setLoggedInPhoto(null);
+          localStorage.removeItem('salarypro_logged_in_email');
+          localStorage.removeItem('salarypro_logged_in_name');
+          localStorage.removeItem('salarypro_logged_in_photo');
+          setOtpError(`Google Account (${email}) is not authorized. Please log in with an authorized account.`);
+          setAuthLoading(false);
+          return;
+        }
+
         const name = user.displayName || user.email?.split('@')[0] || 'User';
         const photo = user.photoURL || '';
         setLoggedInEmail(email);
@@ -709,12 +732,15 @@ export default function App() {
         localStorage.setItem('salarypro_logged_in_name', name);
         localStorage.setItem('salarypro_logged_in_photo', photo);
       } else {
-        setLoggedInEmail(null);
-        setLoggedInName(null);
-        setLoggedInPhoto(null);
-        localStorage.removeItem('salarypro_logged_in_email');
-        localStorage.removeItem('salarypro_logged_in_name');
-        localStorage.removeItem('salarypro_logged_in_photo');
+        const cachedEmail = localStorage.getItem('salarypro_logged_in_email') || '';
+        if (cachedEmail.toLowerCase() !== 'hr@fortuneflexipack.com') {
+          setLoggedInEmail(null);
+          setLoggedInName(null);
+          setLoggedInPhoto(null);
+          localStorage.removeItem('salarypro_logged_in_email');
+          localStorage.removeItem('salarypro_logged_in_name');
+          localStorage.removeItem('salarypro_logged_in_photo');
+        }
       }
       setAuthLoading(false);
     });
@@ -1901,7 +1927,30 @@ export default function App() {
       try {
         const result = await signInWithPopup(auth, googleProvider);
         if (result && result.user) {
-          const email = result.user.email || '';
+          const email = (result.user.email || '').toLowerCase();
+          
+          const ALLOWED_ADMINS = ['sandydalhousie@gmail.com'];
+          const ALLOWED_OBSERVERS = [
+            'goyal.siddhartha1997@gmail.com',
+            'skshimla@gmail.com',
+            'himgoldenterprises@gmail.com',
+            'shantanu.goyal93@gmail.com',
+            'fortuneflexipack@gmail.com'
+          ];
+
+          if (!ALLOWED_ADMINS.includes(email) && !ALLOWED_OBSERVERS.includes(email)) {
+            await auth.signOut();
+            setLoggedInEmail(null);
+            setLoggedInName(null);
+            setLoggedInPhoto(null);
+            localStorage.removeItem('salarypro_logged_in_email');
+            localStorage.removeItem('salarypro_logged_in_name');
+            localStorage.removeItem('salarypro_logged_in_photo');
+            setOtpError(`Google Account (${email}) is not authorized. Please log in with an authorized account.`);
+            setAuthLoading(false);
+            return;
+          }
+
           const name = result.user.displayName || email.split('@')[0] || 'User';
           const photo = result.user.photoURL || '';
           setLoggedInEmail(email);
@@ -1939,140 +1988,29 @@ export default function App() {
         return;
       }
 
-      // Fast-track Laxman Verma custom login
-      if (trimmedEmail === 'laxmanverma@fortuneflexipack.com') {
-        if (trimmedPassword === 'Paonta@2025') {
-          const email = 'laxmanverma@fortuneflexipack.com';
-          const name = 'Laxman Verma';
-          setLoggedInEmail(email);
-          setLoggedInName(name);
-          setLoggedInPhoto('');
-          localStorage.setItem('salarypro_logged_in_email', email);
-          localStorage.setItem('salarypro_logged_in_name', name);
-          localStorage.setItem('salarypro_logged_in_photo', '');
-          triggerAlert('success', `Logged in successfully! Welcome Read-Only Admin (${email})`);
-          setAuthLoading(false);
-          return;
-        } else {
-          setOtpError('Incorrect password. Please verify and try again.');
-          setAuthLoading(false);
-          return;
-        }
-      }
-
-      try {
-        if (isSignUpMode) {
-          // --- REGISTER ACCOUNT ---
-          try {
-            const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
-            if (userCredential && userCredential.user) {
-              const email = userCredential.user.email || trimmedEmail;
-              await updateProfile(userCredential.user, { displayName: email.split('@')[0] });
-              const name = email.split('@')[0] || 'User';
-              
-              // Register securely in Firestore
-              await setDoc(doc(db, 'custom_users', email), {
-                email,
-                role: email === 'sandydalhousie@gmail.com' ? 'admin' : 'observer',
-                createdAt: new Date().toISOString()
-              }, { merge: true });
-
-              setLoggedInEmail(email);
-              setLoggedInName(name);
-              setLoggedInPhoto('');
-              localStorage.setItem('salarypro_logged_in_email', email);
-              localStorage.setItem('salarypro_logged_in_name', name);
-              localStorage.setItem('salarypro_logged_in_photo', '');
-              triggerAlert('success', `Account successfully registered! Signed in as ${email === 'sandydalhousie@gmail.com' ? 'Admin (' + email + ')' : 'Observer (' + email + ')'}`);
-            }
-          } catch (createErr: any) {
-            console.warn("Firebase Auth Create failed, trying Firestore Fallback Mode:", createErr);
-            
-            // FALLBACK TO FIRESTORE DIRECT:
-            const userRef = doc(db, 'custom_users', trimmedEmail);
-            const userSnap = await getDoc(userRef);
-            if (userSnap.exists()) {
-              throw new Error('This email is already registered. Try logging in instead.');
-            }
-
-            // Create new document in custom_users fallback
-            await setDoc(userRef, {
-              email: trimmedEmail,
-              password: trimmedPassword, // Stored safely for custom observer sandbox login
-              role: trimmedEmail === 'sandydalhousie@gmail.com' ? 'admin' : 'observer',
-              createdAt: new Date().toISOString()
-            });
-
-            const email = trimmedEmail;
-            const name = email.split('@')[0] || 'User';
-
-            setLoggedInEmail(email);
-            setLoggedInName(name);
-            setLoggedInPhoto('');
-            localStorage.setItem('salarypro_logged_in_email', email);
-            localStorage.setItem('salarypro_logged_in_name', name);
-            localStorage.setItem('salarypro_logged_in_photo', '');
-            triggerAlert('success', `Registered & logged in successfully! Welcome ${email === 'sandydalhousie@gmail.com' ? 'Admin' : 'Observer'} (${email})`);
-          }
-        } else {
-          // --- SIGN IN TO EXISTING ACCOUNT ---
-          try {
-            const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
-            if (userCredential && userCredential.user) {
-              const email = userCredential.user.email || trimmedEmail;
-              const name = userCredential.user.displayName || email.split('@')[0] || 'User';
-              setLoggedInEmail(email);
-              setLoggedInName(name);
-              setLoggedInPhoto('');
-              localStorage.setItem('salarypro_logged_in_email', email);
-              localStorage.setItem('salarypro_logged_in_name', name);
-              localStorage.setItem('salarypro_logged_in_photo', '');
-              triggerAlert('success', `Logged in successfully! Welcome ${email === 'sandydalhousie@gmail.com' ? 'Admin (' + email + ')' : 'Observer (' + email + ')'}`);
-            }
-          } catch (signInErr: any) {
-            console.warn("Firebase Auth Sign-in failed, checking Firestore Fallback Mode:", signInErr);
-
-            // FALLBACK TO FIRESTORE:
-            const userRef = doc(db, 'custom_users', trimmedEmail);
-            const userSnap = await getDoc(userRef);
-            if (userSnap.exists()) {
-              const userData = userSnap.data();
-              if (userData.password === trimmedPassword) {
-                const email = userData.email;
-                const name = email.split('@')[0] || 'User';
-
-                setLoggedInEmail(email);
-                setLoggedInName(name);
-                setLoggedInPhoto('');
-                localStorage.setItem('salarypro_logged_in_email', email);
-                localStorage.setItem('salarypro_logged_in_name', name);
-                localStorage.setItem('salarypro_logged_in_photo', '');
-                triggerAlert('success', `Logged in via Secure Fallback! Welcome ${email === 'sandydalhousie@gmail.com' ? 'Admin' : 'Observer'} (${email})`);
-                setAuthLoading(false);
-                return;
-              } else {
-                setOtpError('Incorrect password. Please verify and try again.');
-                setAuthLoading(false);
-                return;
-              }
-            }
-
-            // Parse Firebase error
-            let errMsg = signInErr.message || 'Check your credentials.';
-            if (signInErr.code === 'auth/wrong-password' || signInErr.code === 'auth/user-not-found') {
-              errMsg = 'Invalid email address or check password.';
-            } else if (signInErr.code === 'auth/invalid-credential') {
-              errMsg = 'Incorrect password or account credentials.';
-            }
-            setOtpError(`Authentication failed: ${errMsg}`);
-          }
-        }
-      } catch (err: any) {
-        console.error("Custom authentication process error:", err);
-        setOtpError(err.message || 'An error occurred during authentication.');
-      } finally {
+      // ONLY allow hr@fortuneflexipack.com for Custom Email sign-in
+      if (trimmedEmail !== 'hr@fortuneflexipack.com') {
+        setOtpError('Unauthorized email. Only hr@fortuneflexipack.com is permitted to login.');
         setAuthLoading(false);
+        return;
       }
+
+      if (trimmedPassword !== 'Paonta@2025') {
+        setOtpError('Incorrect password. Please verify and try again.');
+        setAuthLoading(false);
+        return;
+      }
+
+      const email = 'hr@fortuneflexipack.com';
+      const name = 'HR Fortuneflexipack';
+      setLoggedInEmail(email);
+      setLoggedInName(name);
+      setLoggedInPhoto('');
+      localStorage.setItem('salarypro_logged_in_email', email);
+      localStorage.setItem('salarypro_logged_in_name', name);
+      localStorage.setItem('salarypro_logged_in_photo', '');
+      triggerAlert('success', `Logged in successfully! Welcome Observer (${email})`);
+      setAuthLoading(false);
     };
 
     return (
