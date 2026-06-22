@@ -13,7 +13,7 @@ export interface CanteenFoodBill {
   id: string;
   challanNo: string;
   issuedBy: string;
-  mealType: 'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea';
+  mealType: 'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea' | 'Snacks' | 'Night Tea';
   noOfMeals: number;
   amount: number;
   date: string;
@@ -77,7 +77,7 @@ export default function AdvancePaid({
   // --- STATE FOR FOOD BILL ---
   const [challanNo, setChallanNo] = useState<string>('');
   const [challanIssuedBy, setChallanIssuedBy] = useState<string>('');
-  const [mealType, setMealType] = useState<'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea'>('Lunch');
+  const [mealType, setMealType] = useState<'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea' | 'Snacks' | 'Night Tea'>('Lunch');
   const [noOfMeals, setNoOfMeals] = useState<string>('');
   const [foodAmount, setFoodAmount] = useState<string>('');
   const [foodRemarks, setFoodRemarks] = useState<string>('');
@@ -1370,13 +1370,15 @@ export default function AdvancePaid({
                   </label>
                   <select
                     value={mealType}
-                    onChange={(e) => setMealType(e.target.value as 'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea')}
+                    onChange={(e) => setMealType(e.target.value as 'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea' | 'Snacks' | 'Night Tea')}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-2 text-xs font-bold text-slate-705 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-orange-500 cursor-pointer"
                   >
                     <option value="Lunch">Lunch</option>
                     <option value="Dinner">Dinner</option>
                     <option value="Morning Tea">Morning Tea</option>
                     <option value="Evening Tea">Evening Tea</option>
+                    <option value="Snacks">Snacks</option>
+                    <option value="Night Tea">Night Tea</option>
                   </select>
                 </div>
 
@@ -1628,7 +1630,7 @@ export default function AdvancePaid({
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium text-slate-750">
                     {filteredRecordedFoodBills.map((r, idx) => {
-                      const isTeaStr = r.mealType === 'Morning Tea' || r.mealType === 'Evening Tea';
+                      const isTeaStr = r.mealType === 'Morning Tea' || r.mealType === 'Evening Tea' || r.mealType === 'Night Tea';
                       return (
                         <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                           <td className="py-2.5 font-extrabold text-slate-800">{r.issuedBy}</td>
@@ -1651,7 +1653,11 @@ export default function AdvancePaid({
                               ? 'bg-indigo-100 text-indigo-850'
                               : r.mealType === 'Morning Tea'
                               ? 'bg-emerald-100 text-emerald-850'
-                              : 'bg-teal-100 text-teal-850'
+                              : r.mealType === 'Evening Tea'
+                              ? 'bg-teal-100 text-teal-850'
+                              : r.mealType === 'Snacks'
+                              ? 'bg-orange-100 text-orange-850'
+                              : 'bg-purple-100 text-purple-850'
                           }`}>
                             {r.mealType}
                           </span>

@@ -27,7 +27,7 @@ import {
   Sun,
   Moon
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { doc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { isEmployeePresent, getAdjustedPunches, getNextDateStr } from '../data';
@@ -2442,6 +2442,236 @@ export default function AttendanceImport({
     triggerAlert('success', `Exported worksheet with date-wise punch logs for ${targetEmp.name}`);
   };
 
+  const handleExportPresentAbsentReport = () => {
+    if (!absentMonth || !absentYear) {
+      alert("Please select a Month and Year.");
+      return;
+    }
+
+    const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthYearText = `${shortMonths[absentMonth - 1]}-${String(absentYear).slice(-2)}`;
+    
+    // Calculate total number of days in the selected month
+    const daysInMonth = new Date(absentYear, absentMonth, 0).getDate();
+
+    const titleRow = [monthYearText];
+    const headerRow = ['Emp Code', 'Emp Name', 'Department', 'Designation', 'Total Days Present', 'Total Days Absent'];
+    for (let d = 1; d <= daysInMonth; d++) {
+      headerRow.push(String(d));
+    }
+
+    const rows: any[][] = [
+      titleRow,
+      headerRow
+    ];
+
+    // Map companyActiveDates for checking if date has logs in the system
+    const monthStr = `${absentYear}-${String(absentMonth).padStart(2, '0')}`;
+    const monthlyActiveDatesSet = new Set<string>();
+    Object.keys(allPunchLogs).forEach(empId => {
+      const datesObj = allPunchLogs[empId] || {};
+      Object.keys(datesObj).forEach(dateStr => {
+        if (dateStr.startsWith(monthStr)) {
+          const punches = datesObj[dateStr] || [];
+          if (punches.length > 0) {
+            monthlyActiveDatesSet.add(dateStr);
+          }
+        }
+      });
+    });
+    const monthlyActiveDates = Array.from(monthlyActiveDatesSet);
+
+    // Calculate maxDayWithLogs for checking up to that date only
+    let maxDayWithLogs = 0;
+    monthlyActiveDates.forEach(dateStr => {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const d = parseInt(parts[2], 10);
+        if (!isNaN(d) && d > maxDayWithLogs) {
+          maxDayWithLogs = d;
+        }
+      }
+    });
+
+    // Sort employees numerically by ID for a professional, ordered spreadsheet
+    const sortedEmployees = [...activeEmployees].sort((a, b) => {
+      const idA = parseInt(a.id, 10);
+      const idB = parseInt(b.id, 10);
+      if (isNaN(idA) || isNaN(idB)) {
+        return a.id.localeCompare(b.id);
+      }
+      return idA - idB;
+    });
+
+    sortedEmployees.forEach((emp) => {
+      const empCode = emp.id;
+      const empName = emp.name || '';
+      const dept = emp.department || 'Unassigned';
+      const designation = emp.designation || '-';
+
+      let totalPresent = 0;
+      let totalAbsent = 0;
+      const datePAValues: string[] = [];
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${absentYear}-${String(absentMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        
+        if (d <= maxDayWithLogs) {
+          const empPunches = allPunchLogs[emp.id] || {};
+          const punches = empPunches[dateStr] || [];
+          const isPresent = isEmployeePresent(punches);
+          if (isPresent) {
+            datePAValues.push('P');
+            totalPresent++;
+          } else {
+            datePAValues.push('A');
+            totalAbsent++;
+          }
+        } else {
+          // No logs are imported/recorded beyond maxDayWithLogs for this month
+          datePAValues.push('');
+        }
+      }
+
+      const empRow = [
+        empCode,
+        empName,
+        dept,
+        designation,
+        totalPresent,
+        totalAbsent,
+        ...datePAValues
+      ];
+
+      rows.push(empRow);
+    });
+
+    // Create workbook and worksheet
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet(rows);
+
+    // Utility to convert column index to A1 notation column letter (handles columns A to ZZ)
+    const getCellRef = (c: number, r: number): string => {
+      let colName = '';
+      let temp = c;
+      while (temp >= 0) {
+        colName = String.fromCharCode((temp % 26) + 65) + colName;
+        temp = Math.floor(temp / 26) - 1;
+      }
+      return `${colName}${r + 1}`;
+    };
+
+    // Coloring Styles for Present, Absent, Short Hours, Headers, Central text
+    const presentStyle = {
+      fill: { fgColor: { rgb: "C6EFCE" } },
+      font: { color: { rgb: "006100" }, bold: true, name: "Calibri", sz: 10 },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const absentStyle = {
+      fill: { fgColor: { rgb: "FFC7CE" } },
+      font: { color: { rgb: "9C0006" }, bold: true, name: "Calibri", sz: 10 },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const shortHoursStyle = {
+      fill: { fgColor: { rgb: "FFEB9C" } },
+      font: { color: { rgb: "9C6500" }, bold: true, name: "Calibri", sz: 10 },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const headerStyle = {
+      fill: { fgColor: { rgb: "F2F2F2" } },
+      font: { bold: true, name: "Calibri", sz: 10, color: { rgb: "000000" } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const titleStyle = {
+      font: { bold: true, name: "Calibri", sz: 12, color: { rgb: "1F497D" } },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+
+    const summaryCountStyle = {
+      font: { bold: true, name: "Calibri", sz: 10, color: { rgb: "1F497D" } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const infoStyle = {
+      font: { name: "Calibri", sz: 10 },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+
+    const normalCenterStyle = {
+      font: { name: "Calibri", sz: 10 },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    for (let r = 0; r < rows.length; r++) {
+      const rowData = rows[r];
+      for (let c = 0; c < rowData.length; c++) {
+        const cellRef = getCellRef(c, r);
+        if (!worksheet[cellRef]) continue;
+
+        if (r === 0) {
+          worksheet[cellRef].s = titleStyle;
+        } else if (r === 1) {
+          worksheet[cellRef].s = headerStyle;
+        } else {
+          // Employee rows (r >= 2)
+          if (c < 4) {
+            worksheet[cellRef].s = infoStyle;
+          } else if (c === 4 || c === 5) {
+            worksheet[cellRef].s = summaryCountStyle;
+          } else {
+            const val = worksheet[cellRef].v;
+            if (val === 'P') {
+              const d = c - 5; // Column 6 is day 1, so c = 6 -> d = 1
+              const emp = sortedEmployees[r - 2];
+              const dateStr = `${absentYear}-${String(absentMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+              const empPunches = allPunchLogs[emp.id] || {};
+              const punches = empPunches[dateStr] || [];
+              const workObj = calculateDutyHours(punches);
+              const totalHours = workObj.hours + (workObj.minutes / 60);
+
+              if (totalHours < 6) {
+                worksheet[cellRef].s = shortHoursStyle;
+              } else {
+                worksheet[cellRef].s = presentStyle;
+              }
+            } else if (val === 'A') {
+              worksheet[cellRef].s = absentStyle;
+            } else {
+              worksheet[cellRef].s = normalCenterStyle;
+            }
+          }
+        }
+      }
+    }
+
+    // Auto Column Widths
+    const colWidths = [
+      { wch: 10 }, // Emp Code
+      { wch: 22 }, // Emp Name
+      { wch: 15 }, // Department
+      { wch: 18 }, // Designation
+      { wch: 18 }, // Total Days Present
+      { wch: 18 }, // Total Days Absent
+    ];
+    for (let d = 1; d <= daysInMonth; d++) {
+      colWidths.push({ wch: 5 });
+    }
+    worksheet['!cols'] = colWidths;
+
+    // Freeze details and metrics cols: left 6 cols frozen, upper 2 rows frozen.
+    worksheet['!views'] = [
+      { state: 'frozen', ySplit: 2, xSplit: 6, topLeftCell: 'G3', activePane: 'bottomRight' }
+    ];
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, `Attendance P-A`);
+    XLSX.writeFile(workbook, `Monthly_Attendance_PA_${monthYearText}.xlsx`);
+    triggerAlert('success', `Exported Monthly Present-Absent attendance ledger for ${monthYearText} run`);
+  };
+
   const handleExportClick = () => {
     if (exportEmployeeId) {
       handleExportSingleEmployeeAttendance(exportEmployeeId);
@@ -2845,6 +3075,71 @@ export default function AttendanceImport({
               >
                 <Download size={14} />
                 Export Range Logs (.xlsx)
+              </button>
+            </div>
+          </div>
+
+          {/* ==================== MONTHLY ATTENDANCE PRESENT-ABSENT LEDGER EXPORTER ==================== */}
+          <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-5 select-none">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shrink-0 animate-pulse">
+                <Calendar size={18} className="text-indigo-600" />
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-black text-indigo-700 uppercase tracking-widest block font-mono">Monthly Present-Absent Sheet Exporter</span>
+                <p className="text-xs text-slate-500">
+                  Select a Month and Year to compile a single-worksheet monthly attendance ledger (showing **P** for Present, **A** for Absent) for all active employees.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-400">Select Month:</span>
+                <select
+                  value={absentMonth}
+                  onChange={(e) => setAbsentMonth(Number(e.target.value))}
+                  className="bg-slate-50 border border-slate-150 rounded-xl py-1.5 px-3 text-xs font-bold text-slate-700 cursor-pointer focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                >
+                  {[
+                    { v: 1, l: 'January' },
+                    { v: 2, l: 'February' },
+                    { v: 3, l: 'March' },
+                    { v: 4, l: 'April' },
+                    { v: 5, l: 'May' },
+                    { v: 6, l: 'June' },
+                    { v: 7, l: 'July' },
+                    { v: 8, l: 'August' },
+                    { v: 9, l: 'September' },
+                    { v: 10, l: 'October' },
+                    { v: 11, l: 'November' },
+                    { v: 12, l: 'December' },
+                  ].map(m => (
+                    <option key={m.v} value={m.v}>{m.l}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-400">Select Year:</span>
+                <select
+                  value={absentYear}
+                  onChange={(e) => setAbsentYear(Number(e.target.value))}
+                  className="bg-slate-50 border border-slate-150 rounded-xl py-1.5 px-3 text-xs font-bold text-slate-700 cursor-pointer focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                >
+                  {[2024, 2025, 2026, 2027, 2028].map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleExportPresentAbsentReport}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black px-4.5 py-2.5 rounded-xl shadow-xs hover:shadow-md transition-all duration-200 cursor-pointer flex items-center gap-2"
+              >
+                <Download size={14} />
+                Export Monthly P-A Attendance (.xlsx)
               </button>
             </div>
           </div>
