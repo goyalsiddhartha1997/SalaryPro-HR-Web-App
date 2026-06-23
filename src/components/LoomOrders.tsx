@@ -93,6 +93,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   
   // --- DELETE CONFIRMATION ---
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteConfirmSubIdx, setDeleteConfirmSubIdx] = useState<number | null>(null);
 
   // Stream active loom orders from Firestore
   useEffect(() => {
@@ -723,12 +724,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-zinc-950 text-zinc-200 border-b border-zinc-800">
-                    <th className="py-3.5 px-4 text-[10px] font-black uppercase tracking-wider w-[160px]">Order No / ID</th>
-                    <th className="py-3.5 px-3 text-[10px] font-black uppercase tracking-wider text-center w-[120px]">Total Specs</th>
-                    <th className="py-3.5 px-3 text-[10px] font-black uppercase tracking-wider text-right whitespace-nowrap w-[130px]">Tonnage Target</th>
-                    <th className="py-3.5 px-3 text-[10px] font-black uppercase tracking-wider w-[130px]">Completion Progress</th>
-                    <th className="py-3.5 px-3 text-[10px] font-black uppercase tracking-wider text-center w-[90px]">Status</th>
-                    <th className="py-3.5 px-4 text-[10px] font-black uppercase tracking-wider text-right w-[140px]">Actions</th>
+                    <th className="py-3.5 px-4 text-[10.5px] font-black uppercase tracking-wider">Order No / ID</th>
+                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-center w-[95px]">Total Specs</th>
+                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-right whitespace-nowrap w-[125px]">Tonnage Target</th>
+                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider w-[125px]">Completion Progress</th>
+                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-center w-[85px]">Status</th>
+                    <th className="py-3.5 px-4 text-[10.5px] font-black uppercase tracking-wider text-right w-[125px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200">
@@ -785,11 +786,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           {/* Parent Code Badge & Date in wide formatted column */}
                           <td className="py-3.5 px-4 whitespace-nowrap">
                             <div className="flex flex-col items-start">
-                              <span className="inline-block bg-zinc-900 border border-zinc-800 text-amber-400 text-[10.5px] font-black font-mono px-2.5 py-1 rounded-lg shadow-3xs uppercase tracking-wide">
+                              <span className="inline-block bg-zinc-900 border border-zinc-800 text-amber-400 text-xs md:text-[13px] font-black font-mono px-3 py-1.5 rounded-lg shadow-3xs uppercase tracking-wide">
                                 {order.orderNo}
                               </span>
-                              <div className="flex items-center gap-1 mt-1 text-[9px] text-zinc-500 font-bold">
-                                <CalendarIcon size={10} className="text-zinc-400 shrink-0" />
+                              <div className="flex items-center gap-1.5 mt-1.5 text-[10px] md:text-[11.5px] text-zinc-500 font-bold">
+                                <CalendarIcon size={11} className="text-zinc-400 shrink-0" />
                                 <span>{displayDate}</span>
                               </div>
                             </div>
@@ -797,17 +798,17 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
                           {/* Total specs logged */}
                           <td className="py-3.5 px-3 text-center">
-                            <span className="inline-flex items-center justify-center bg-amber-50 text-amber-900 border border-amber-200 text-[11px] font-black font-mono rounded-lg px-3 py-1 min-w-[36px]" title={qualitiesStr}>
+                            <span className="inline-flex items-center justify-center bg-amber-50 text-amber-900 border border-amber-200 text-xs md:text-[13px] font-black font-mono rounded-lg px-3.5 py-1.5 min-w-[38px]" title={qualitiesStr}>
                               {order.rows.length}
                             </span>
                           </td>
 
                           {/* Summed Completed out of Aggregate target volume */}
                           <td className="py-3.5 px-3 text-right whitespace-nowrap">
-                            <span className="text-[11.5px] font-black text-zinc-900 font-mono block whitespace-nowrap">
+                            <span className="text-[12.5px] md:text-[14px] font-black text-zinc-900 font-mono block whitespace-nowrap">
                               {totalCompleted.toFixed(2)} / {totalTarget.toFixed(2)}
                             </span>
-                            <span className="text-[9px] text-zinc-400 block font-sans font-black uppercase tracking-wider whitespace-nowrap">
+                            <span className="text-[9.5px] text-zinc-400 block font-sans font-black uppercase tracking-wider whitespace-nowrap mt-0.5">
                               Tons Logged
                             </span>
                           </td>
@@ -815,10 +816,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           {/* Progress bar visual indicator */}
                           <td className="py-3.5 px-3">
                             <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-black text-zinc-700 font-mono min-w-[28px]">
+                              <span className="text-[11px] md:text-[12.5px] font-black text-zinc-700 font-mono min-w-[32px]">
                                 {completionPercent.toFixed(0)}%
                               </span>
-                              <div className="w-16 sm:w-20 bg-zinc-150 rounded-full h-1.5 overflow-hidden border border-zinc-200">
+                              <div className="w-12 sm:w-16 bg-zinc-150 rounded-full h-1.5 overflow-hidden border border-zinc-200 shrink-0">
                                 <div 
                                   className={`h-full rounded-full transition-all duration-500 ${
                                     completionPercent >= 100 ? 'bg-emerald-500' :
@@ -833,7 +834,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
                           {/* Status Badge */}
                           <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                            <span className={`inline-block text-[8px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full ${statusStyles[order.status] || 'bg-zinc-100'}`}>
+                            <span className={`inline-block text-[9.5px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-full ${statusStyles[order.status] || 'bg-zinc-100'}`}>
                               {order.status}
                             </span>
                           </td>
@@ -846,7 +847,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                   setActiveModalOrderId(order.id);
                                   setEditingRowIndex(null);
                                 }}
-                                className="bg-zinc-900 hover:bg-zinc-850 text-amber-400 hover:text-amber-300 border border-zinc-800 text-[10px] font-black uppercase tracking-wider py-1.5 px-3.5 rounded-xl transition-all flex items-center gap-1 shadow-3xs"
+                                className="bg-zinc-900 hover:bg-zinc-850 text-amber-400 hover:text-amber-300 border border-zinc-800 text-[10.5px] font-black uppercase tracking-wider py-1.5 px-3 rounded-xl transition-all flex items-center gap-1 shadow-3xs"
                                 title="Open Sub-Orders Management Ledger Modal"
                               >
                                 Manage <ExternalLink size={11} className="stroke-[2.5]" />
@@ -856,7 +857,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 rounded-xl p-0.5 animate-fadeIn">
                                   <button
                                     onClick={() => handleDeleteOrder(order.id, order.orderNo)}
-                                    className="bg-rose-500 hover:bg-rose-600 text-white font-black text-[8.5px] px-2.5 py-1 rounded-lg uppercase tracking-wider transition-colors"
+                                    className="bg-rose-500 hover:bg-rose-600 text-white font-black text-[9px] px-2.5 py-1 rounded-lg uppercase tracking-wider transition-colors"
                                   >
                                     Delete
                                   </button>
@@ -873,7 +874,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                   className="bg-zinc-50 hover:bg-rose-50 text-zinc-400 hover:text-rose-600 p-2 rounded-xl border border-zinc-200 hover:border-rose-150 transition-colors"
                                   title="Delete entire order"
                                 >
-                                  <Trash2 size={12} />
+                                  <Trash2 size={13} />
                                 </button>
                               )}
                             </div>
@@ -901,6 +902,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           onClick={() => {
             setActiveModalOrderId(null);
             setEditingRowIndex(null);
+            setDeleteConfirmSubIdx(null);
           }}
         >
           <div 
@@ -987,6 +989,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   onClick={() => {
                     setActiveModalOrderId(null);
                     setEditingRowIndex(null);
+                    setDeleteConfirmSubIdx(null);
                   }}
                   className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 transition-all flex items-center justify-center"
                   title="Close Registry Modal"
@@ -1281,22 +1284,55 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               </td>
 
                               <td className="py-3 px-3 text-right">
-                                <div className="flex items-center justify-end gap-1">
-                                  <button
-                                    onClick={() => handleStartInlineEdit(originalIndex, row)}
-                                    className="p-1 rounded bg-zinc-100 border border-zinc-250 text-zinc-500 hover:text-amber-600 hover:border-amber-300 hover:bg-amber-50/30 transition-colors"
-                                    title="Edit Specification Row"
-                                  >
-                                    <Edit size={12} />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteSubOrder(originalIndex, modalOrder)}
-                                    className="p-1 rounded bg-zinc-100 border border-zinc-250 text-zinc-400 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50/30 transition-colors"
-                                    title="Delete Specification Row"
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
-                                </div>
+                                {deleteConfirmSubIdx === originalIndex ? (
+                                  <div className="flex items-center justify-end gap-1.5 animate-fade-in">
+                                    <span className="text-[10px] font-black text-rose-600 uppercase tracking-wider mr-1">
+                                      Delete?
+                                    </span>
+                                    <button
+                                      onClick={() => {
+                                        handleDeleteSubOrder(originalIndex, modalOrder);
+                                        setDeleteConfirmSubIdx(null);
+                                      }}
+                                      className="px-2 py-1 text-[10px] font-black bg-rose-600 hover:bg-rose-700 text-white rounded-md uppercase tracking-wider transition-all shadow-xs flex items-center gap-0.5"
+                                      title="Yes, delete this row"
+                                    >
+                                      ✅ Yes
+                                    </button>
+                                    <button
+                                      onClick={() => setDeleteConfirmSubIdx(null)}
+                                      className="px-2 py-1 text-[10px] font-black bg-zinc-200 hover:bg-zinc-300 text-zinc-800 rounded-md uppercase tracking-wider transition-all flex items-center gap-0.5"
+                                      title="No, cancel deletion"
+                                    >
+                                      ❌ No
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-end gap-3">
+                                    <button
+                                      onClick={() => {
+                                        setDeleteConfirmSubIdx(null);
+                                        handleStartInlineEdit(originalIndex, row);
+                                      }}
+                                      className="p-1.5 rounded bg-amber-50 border border-amber-200 text-amber-600 hover:bg-amber-100/50 hover:text-amber-700 hover:border-amber-300 transition-colors shadow-2xs flex items-center gap-1 font-bold text-xs"
+                                      title="Edit Specification Row"
+                                    >
+                                      <span className="text-sm">✏️</span>
+                                      <Edit size={14} className="stroke-[2.5]" />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setEditingRowIndex(null);
+                                        setDeleteConfirmSubIdx(originalIndex);
+                                      }}
+                                      className="p-1.5 rounded bg-rose-50 border border-rose-200 text-rose-500 hover:bg-rose-100/50 hover:text-rose-600 hover:border-rose-300 transition-colors shadow-2xs flex items-center gap-1 font-bold text-xs"
+                                      title="Delete Specification Row"
+                                    >
+                                      <span className="text-sm">🗑️</span>
+                                      <Trash2 size={14} className="stroke-[2.5]" />
+                                    </button>
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           );
