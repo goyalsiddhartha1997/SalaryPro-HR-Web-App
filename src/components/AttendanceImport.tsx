@@ -2526,8 +2526,8 @@ export default function AttendanceImport({
         const dateStr = `${absentYear}-${String(absentMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         
         if (d <= maxDayWithLogs) {
-          const empPunches = allPunchLogs[emp.id] || {};
-          const punches = empPunches[dateStr] || [];
+          const empShift = emp.shift || 'DAY';
+          const punches = getAdjustedPunches(emp.id, empShift, dateStr, allPunchLogs);
           const isPresent = isEmployeePresent(punches);
           if (isPresent) {
             datePAValues.push('P');
@@ -2637,8 +2637,8 @@ export default function AttendanceImport({
               const d = c - 5; // Column 6 is day 1, so c = 6 -> d = 1
               const emp = sortedEmployees[r - 2];
               const dateStr = `${absentYear}-${String(absentMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-              const empPunches = allPunchLogs[emp.id] || {};
-              const punches = empPunches[dateStr] || [];
+              const empShift = emp.shift || 'DAY';
+              const punches = getAdjustedPunches(emp.id, empShift, dateStr, allPunchLogs);
               const workObj = calculateDutyHours(punches);
               const totalHours = workObj.hours + (workObj.minutes / 60);
 

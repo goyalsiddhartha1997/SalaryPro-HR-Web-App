@@ -2363,7 +2363,7 @@ export default function App() {
               }`}
             >
               <Layers size={16} className={activeTab === 'looms' ? 'text-indigo-500 font-extrabold' : ''} />
-              <span>PP Loom Orders</span>
+              <span>PP Fabric Orders</span>
             </button>
 
             {/* Payroll Ledger Link (Our powerful Spreadsheet table!) */}
@@ -2436,7 +2436,7 @@ export default function App() {
                   {activeTab === 'advance' && 'Advances & Food Bill'}
                   {activeTab === 'gatepass' && 'Gate Pass Employee Record'}
                   {activeTab === 'overtime' && 'Employee Overtime Logs'}
-                  {activeTab === 'looms' && 'PP Fabric Loom Orders'}
+                  {activeTab === 'looms' && 'PP Fabric Orders'}
                   {activeTab === 'calendar' && 'Search EMP'}
                   {activeTab === 'attendance' && 'Attendance Logs'}
                   {activeTab === 'performance' && 'Evaluation Overviews'}
