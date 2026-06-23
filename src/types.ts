@@ -87,6 +87,9 @@ export interface LoomOrderRow {
   denier: number;
   fabricWeight: number; // FABRIC WEIGHT PER METER
   totalQuantity: number; // TOTAL QUANTITY TO MAKE (IN TON)
+  remarks?: string;
+  productionCompleted?: number;
+  status?: 'Pending' | 'Production' | 'Completed';
 }
 
 export interface LoomOrder {

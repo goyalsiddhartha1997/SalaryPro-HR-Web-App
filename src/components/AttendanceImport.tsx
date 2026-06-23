@@ -2371,11 +2371,19 @@ export default function AttendanceImport({
 
     const workbook = XLSX.utils.book_new();
     const sheetData: any[] = [];
+    let totalPresentDays = 0;
+    let totalAbsentDays = 0;
 
     dateRangeList.forEach((dateStr) => {
       const empPunches = allPunchLogs[targetEmp.id] || {};
       const punches = empPunches[dateStr] || [];
       const isPresent = isEmployeePresent(punches);
+
+      if (isPresent) {
+        totalPresentDays++;
+      } else {
+        totalAbsentDays++;
+      }
 
       const workObj = calculateDutyHours(punches);
       const workFormatted = isPresent ? (`${workObj.hours}h ${workObj.minutes}m`) : '-';
@@ -2408,14 +2416,15 @@ export default function AttendanceImport({
     const worksheetHeader = [
       [`Attendance Report: ${targetEmp.name} (Code: ${targetEmp.id})`],
       [`Period: ${exportFromDate} to ${exportToDate}`],
+      [`Total Present Days: ${totalPresentDays}`, `Total Absent Days: ${totalAbsentDays}`],
       []
     ];
     
     const worksheet = XLSX.utils.aoa_to_sheet(worksheetHeader);
-    XLSX.utils.sheet_add_json(worksheet, sheetData, { origin: "A4" });
+    XLSX.utils.sheet_add_json(worksheet, sheetData, { origin: "A5" });
 
     worksheet['!views'] = [
-      { state: 'frozen', ySplit: 4, topLeftCell: 'A5', activePane: 'bottomLeft' }
+      { state: 'frozen', ySplit: 5, topLeftCell: 'A6', activePane: 'bottomLeft' }
     ];
 
     let sheetName = `${targetEmp.name}`.trim();

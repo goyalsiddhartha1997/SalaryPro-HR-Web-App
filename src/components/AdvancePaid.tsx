@@ -13,7 +13,7 @@ export interface CanteenFoodBill {
   id: string;
   challanNo: string;
   issuedBy: string;
-  mealType: 'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea' | 'Snacks' | 'Night Tea';
+  mealType: 'Breakfast' | 'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea' | 'Snacks' | 'Night Tea';
   noOfMeals: number;
   amount: number;
   date: string;
@@ -77,7 +77,7 @@ export default function AdvancePaid({
   // --- STATE FOR FOOD BILL ---
   const [challanNo, setChallanNo] = useState<string>('');
   const [challanIssuedBy, setChallanIssuedBy] = useState<string>('');
-  const [mealType, setMealType] = useState<'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea' | 'Snacks' | 'Night Tea'>('Lunch');
+  const [mealType, setMealType] = useState<'Breakfast' | 'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea' | 'Snacks' | 'Night Tea'>('Lunch');
   const [noOfMeals, setNoOfMeals] = useState<string>('');
   const [foodAmount, setFoodAmount] = useState<string>('');
   const [foodRemarks, setFoodRemarks] = useState<string>('');
@@ -1370,9 +1370,10 @@ export default function AdvancePaid({
                   </label>
                   <select
                     value={mealType}
-                    onChange={(e) => setMealType(e.target.value as 'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea' | 'Snacks' | 'Night Tea')}
+                    onChange={(e) => setMealType(e.target.value as 'Breakfast' | 'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea' | 'Snacks' | 'Night Tea')}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-2 text-xs font-bold text-slate-705 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-orange-500 cursor-pointer"
                   >
+                    <option value="Breakfast">Breakfast</option>
                     <option value="Lunch">Lunch</option>
                     <option value="Dinner">Dinner</option>
                     <option value="Morning Tea">Morning Tea</option>
@@ -1647,7 +1648,9 @@ export default function AdvancePaid({
                           </td>
                           <td className="py-2.5">
                           <span className={`px-2.5 py-0.5 text-[9px] font-black rounded-lg uppercase tracking-wider ${
-                            r.mealType === 'Lunch' 
+                            r.mealType === 'Breakfast'
+                              ? 'bg-rose-100 text-rose-850'
+                              : r.mealType === 'Lunch' 
                               ? 'bg-amber-100 text-amber-850'
                               : r.mealType === 'Dinner'
                               ? 'bg-indigo-100 text-indigo-850'

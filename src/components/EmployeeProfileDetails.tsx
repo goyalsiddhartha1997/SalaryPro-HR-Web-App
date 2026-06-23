@@ -771,6 +771,7 @@ export default function EmployeeProfileDetails({
 
   // Generate calendar days
   const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+  const presentDaysCount = Math.max(0, elapsedDays - absencesCount);
   const targetDate = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
   const punchesList = getAdjustedPunchesForDate(targetDate);
   const selectedDateBreakObj = calculateBreakTime(punchesList);
@@ -1057,9 +1058,9 @@ export default function EmployeeProfileDetails({
           {/* Leaves Circular Stats Row */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             
-            {/* Statistic 1 - Monthly Absences */}
+            {/* Statistic 1 - Monthly Absent Days */}
             <div className="bg-white border border-slate-150 p-4 rounded-3xl flex flex-col items-center relative shadow-sm hover:shadow-md transition-shadow">
-              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Monthly Absences</span>
+              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Monthly Absent Days</span>
               {/* circular metric */}
               <div className="relative w-20 h-20 mt-3 flex items-center justify-center">
                 <svg className="w-full h-full transform -rotate-90">
@@ -1078,24 +1079,22 @@ export default function EmployeeProfileDetails({
               </div>
             </div>
 
-            {/* Statistic 4 - Break Time */}
+            {/* Statistic 4 - Monthly Present Days */}
             <div className="bg-white border border-slate-150 p-4 rounded-3xl flex flex-col items-center relative shadow-sm hover:shadow-md transition-shadow">
-              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">
-                Break Time ({selectedDay} {monthNames[calendarMonth].substring(0, 3)})
-              </span>
+              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Monthly Present Days</span>
               <div className="relative w-20 h-20 mt-3 flex items-center justify-center">
                 <svg className="w-full h-full transform -rotate-90">
                   <circle cx="40" cy="40" r="30" stroke="#f1f5f9" strokeWidth="6" fill="transparent" />
                   <circle 
-                    cx="40" cy="40" r="30" stroke="#0ea5e9" strokeWidth="6" fill="transparent" 
+                    cx="40" cy="40" r="30" stroke="#10b981" strokeWidth="6" fill="transparent" 
                     strokeDasharray={`${2 * Math.PI * 30}`}
-                    strokeDashoffset={`${2 * Math.PI * 30 * (1 - (breakTimeMins > 0 ? Math.min(1, breakTimeMins / 90) : 0))}`}
+                    strokeDashoffset={`${2 * Math.PI * 30 * (1 - (elapsedDays > 0 ? presentDaysCount / elapsedDays : 0))}`}
                     strokeLinecap="round"
                   />
                 </svg>
                 <div className="absolute flex flex-col items-center">
-                  <span className="text-sm font-black text-slate-800 leading-none">{selectedDateBreakObj.formatted}</span>
-                  <span className="text-[8px] font-bold text-slate-405 uppercase mt-0.5">Limit 90m</span>
+                  <span className="text-sm font-black text-emerald-600">{presentDaysCount}/{elapsedDays}</span>
+                  <span className="text-[8px] font-bold text-slate-400 uppercase">Days</span>
                 </div>
               </div>
             </div>
@@ -1224,7 +1223,8 @@ export default function EmployeeProfileDetails({
                     <div className="flex justify-between items-center border-t border-slate-100/70 pt-2.5">
                       <div>
                         <span className="text-xs font-semibold text-slate-500 block">Overtime (OT) Amount</span>
-                        <span className="text-[10px] text-emerald-600 font-bold ml-0">{calendarMonthlyOtHours.toFixed(1)} Hours Worked</span>
+                        <span className="text-[10px] text-emerald-600 font-bold ml-0 block">{calendarMonthlyOtHours.toFixed(1)} Hours Worked</span>
+                        <span className="text-[10px] text-emerald-600 font-bold ml-0 block">{calendarMonthlyOtLogs.length} Overtime Shifts Worked</span>
                       </div>
                       <span className="text-xs font-bold text-emerald-600 font-mono" title={`${calendarMonthlyOtLogs.length} OT shift(s) × ${formatINR(dynamicDailyRate)} / shift`}>
                         + {formatINR(calendarMonthlyOtAmount)}

@@ -41,7 +41,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   
   // Multiple specification rows matching columns: SIZE, QUALITY, GSM, DENIER, FABRIC WEIGHT PER METER, TOTAL QUANTITY TO MAKE (IN TON)
   const [specRows, setSpecRows] = useState<LoomOrderRow[]>([
-    { size: '', quality: '', gsm: 0, denier: 0, fabricWeight: 0, totalQuantity: 0 }
+    { size: '', quality: '', gsm: 0, denier: 0, fabricWeight: 0, totalQuantity: 0, remarks: '', productionCompleted: 0, status: 'Pending' }
   ]);
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -88,7 +88,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const handleAddSpecRow = () => {
     setSpecRows((prev) => [
       ...prev,
-      { size: '', quality: '', gsm: 0, denier: 0, fabricWeight: 0, totalQuantity: 0 }
+      { size: '', quality: '', gsm: 0, denier: 0, fabricWeight: 0, totalQuantity: 0, remarks: '', productionCompleted: 0, status: 'Pending' }
     ]);
   };
 
@@ -105,7 +105,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const handleSpecRowChange = (index: number, field: keyof LoomOrderRow, value: any) => {
     setSpecRows((prev) => {
       const updated = [...prev];
-      if (field === 'gsm' || field === 'denier' || field === 'fabricWeight' || field === 'totalQuantity') {
+      if (field === 'gsm' || field === 'denier' || field === 'fabricWeight' || field === 'totalQuantity' || field === 'productionCompleted') {
         const val = parseFloat(value);
         updated[index] = {
           ...updated[index],
@@ -195,7 +195,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     const today = new Date();
     setOrderDate(today.toISOString().split('T')[0]);
     setStatus('Pending');
-    setSpecRows([{ size: '', quality: '', gsm: 0, denier: 0, fabricWeight: 0, totalQuantity: 0 }]);
+    setSpecRows([{ size: '', quality: '', gsm: 0, denier: 0, fabricWeight: 0, totalQuantity: 0, remarks: '', productionCompleted: 0, status: 'Pending' }]);
     setEditingOrderId(null);
   };
 
@@ -209,7 +209,17 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     setOrderNo(order.orderNo);
     setOrderDate(order.date);
     setStatus(order.status);
-    setSpecRows(order.rows.map(row => ({ ...row }))); // clone rows
+    setSpecRows(order.rows.map(row => ({
+      size: row.size || '',
+      quality: row.quality || '',
+      gsm: row.gsm || 0,
+      denier: row.denier || 0,
+      fabricWeight: row.fabricWeight || 0,
+      totalQuantity: row.totalQuantity || 0,
+      remarks: row.remarks || '',
+      productionCompleted: row.productionCompleted ?? 0,
+      status: row.status || 'Pending'
+    }))); // clone rows
     triggerAlert('info', `Order ${order.orderNo} is loaded into the form. You can adjust the parameters now.`);
   };
 
@@ -419,7 +429,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             value={row.size}
                             onChange={(e) => handleSpecRowChange(idx, 'size', e.target.value)}
                             placeholder="e.g. 24 inches / 60cm"
-                            className="w-full bg-white border border-slate-200 rounded-lg py-1 px-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                             required
                           />
                         </div>
@@ -431,7 +441,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             value={row.quality}
                             onChange={(e) => handleSpecRowChange(idx, 'quality', e.target.value)}
                             placeholder="e.g. Milky White / Laminated"
-                            className="w-full bg-white border border-slate-200 rounded-lg py-1 px-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                             required
                           />
                         </div>
@@ -445,7 +455,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             onChange={(e) => handleSpecRowChange(idx, 'gsm', e.target.value)}
                             placeholder="e.g. 60.5"
                             min="0.01"
-                            className="w-full bg-white border border-slate-200 rounded-lg py-1 px-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                            className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
                             required
                           />
                         </div>
@@ -459,7 +469,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             onChange={(e) => handleSpecRowChange(idx, 'denier', e.target.value)}
                             placeholder="e.g. 750"
                             min="0.1"
-                            className="w-full bg-white border border-slate-200 rounded-lg py-1 px-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                            className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
                             required
                           />
                         </div>
@@ -473,7 +483,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             onChange={(e) => handleSpecRowChange(idx, 'fabricWeight', e.target.value)}
                             placeholder="e.g. 52.5"
                             min="0.01"
-                            className="w-full bg-white border border-slate-200 rounded-lg py-1 px-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                            className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
                             required
                           />
                         </div>
@@ -487,8 +497,44 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             onChange={(e) => handleSpecRowChange(idx, 'totalQuantity', e.target.value)}
                             placeholder="e.g. 2.45"
                             min="0.001"
-                            className="w-full bg-white border border-slate-200 rounded-lg py-1 px-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                            className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
                             required
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Prod. Completed (Tons)</label>
+                          <input
+                            type="number"
+                            step="any"
+                            value={row.productionCompleted ?? 0}
+                            onChange={(e) => handleSpecRowChange(idx, 'productionCompleted', e.target.value)}
+                            placeholder="e.g. 1.20"
+                            min="0"
+                            className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Item Status</label>
+                          <select
+                            value={row.status || 'Pending'}
+                            onChange={(e) => handleSpecRowChange(idx, 'status', e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                          >
+                            <option value="Pending">Pending</option>
+                            <option value="Production">In Production</option>
+                            <option value="Completed">Completed</option>
+                          </select>
+                        </div>
+
+                        <div className="col-span-2">
+                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Remarks</label>
+                          <textarea
+                            value={row.remarks || ''}
+                            onChange={(e) => handleSpecRowChange(idx, 'remarks', e.target.value)}
+                            placeholder="Enter any custom remarks, special roll requests, packing guidelines..."
+                            className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 min-h-[50px] resize-y"
                           />
                         </div>
 
@@ -721,24 +767,58 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             <th className="py-2.5 px-2 text-[8px] font-black text-slate-450 uppercase tracking-wider font-sans">Quality</th>
                             <th className="py-2.5 px-2 text-[8px] font-black text-slate-450 uppercase tracking-wider font-sans text-center">GSM</th>
                             <th className="py-2.5 px-2 text-[8px] font-black text-slate-450 uppercase tracking-wider font-sans text-center">Denier</th>
-                            <th className="py-2.5 px-2 text-[8px] font-black text-slate-450 uppercase tracking-wider font-sans text-right">Fabric Wt (g/m)</th>
-                            <th className="py-2.5 px-3 text-[8px] font-black text-slate-450 uppercase tracking-wider font-sans text-right">Tonnage</th>
+                            <th className="py-2.5 px-2 text-[8px] font-black text-slate-450 uppercase tracking-wider font-sans text-right">Fabric Wt</th>
+                            <th className="py-2.5 px-3 text-[8px] font-black text-slate-450 uppercase tracking-wider font-sans text-right">Tonnage Detail (T)</th>
+                            <th className="py-2.5 px-3 text-[8px] font-black text-slate-450 uppercase tracking-wider font-sans text-center">Item Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {order.rows.map((row, rIdx) => (
-                            <tr key={rIdx} className="hover:bg-slate-50/30 transition-all font-mono">
-                              <td className="py-2 px-3 text-[10px] text-slate-400 font-extrabold">{rIdx+1}</td>
-                              <td className="py-2 px-2 text-[10px] text-slate-700 font-black uppercase font-sans">{row.size}</td>
-                              <td className="py-2 px-2 text-[10px] text-slate-650 font-bold uppercase font-sans break-words max-w-[120px]" title={row.quality}>
-                                {row.quality}
-                              </td>
-                              <td className="py-2 px-2 text-[10px] text-slate-700 text-center">{row.gsm}</td>
-                              <td className="py-2 px-2 text-[10px] text-slate-700 text-center">{row.denier}</td>
-                              <td className="py-2 px-2 text-[10px] text-slate-700 text-right">{Number(row.fabricWeight.toFixed(4))} g</td>
-                              <td className="py-2 px-3 text-[10px] text-indigo-650 font-black text-right">{Number(row.totalQuantity.toFixed(4))} T</td>
-                            </tr>
-                          ))}
+                          {order.rows.map((row, rIdx) => {
+                            const showRemarks = !!row.remarks?.trim();
+                            return (
+                              <React.Fragment key={rIdx}>
+                                <tr className="hover:bg-slate-50/30 transition-all font-mono align-top">
+                                  <td className="py-2 px-3 text-[10px] text-slate-400 font-extrabold">{rIdx+1}</td>
+                                  <td className="py-2 px-2 text-[10px] text-slate-700 font-black uppercase font-sans">{row.size}</td>
+                                  <td className="py-2 px-2 text-[10px] text-slate-650 font-bold uppercase font-sans break-words max-w-[120px]" title={row.quality}>
+                                    {row.quality}
+                                  </td>
+                                  <td className="py-2 px-2 text-[10px] text-slate-700 text-center">{row.gsm}</td>
+                                  <td className="py-2 px-2 text-[10px] text-slate-700 text-center">{row.denier}</td>
+                                  <td className="py-2 px-2 text-[10px] text-slate-700 text-right">{Number(row.fabricWeight.toFixed(4))} g</td>
+                                  <td className="py-2 px-3 text-[10px] text-slate-700 text-right">
+                                    <div className="flex flex-col items-end gap-0.5 font-sans">
+                                      <span className="text-[10px] text-slate-500 whitespace-nowrap">Completed: <strong className="text-emerald-600 font-mono font-black">{row.productionCompleted ?? 0} T</strong></span>
+                                      <span className="text-[8px] text-slate-400 whitespace-nowrap">Target: <span className="font-mono">{row.totalQuantity} T</span></span>
+                                    </div>
+                                  </td>
+                                  <td className="py-2 px-3 text-[10px] text-center">
+                                    <span className={`inline-block px-2 py-0.5 rounded-full text-[8px] font-black tracking-wide uppercase ${
+                                      row.status === 'Completed' ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' :
+                                      row.status === 'Production' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                                      'bg-slate-100 text-slate-600 border border-slate-200'
+                                    }`}>
+                                      {row.status === 'Production' ? 'In Prod' : (row.status || 'Pending')}
+                                    </span>
+                                  </td>
+                                </tr>
+                                {showRemarks && (
+                                  <tr className="bg-amber-50/15">
+                                    <td colSpan={8} className="py-2 px-4 text-[10px] text-slate-650 border-b border-slate-100 font-sans">
+                                      <div className="flex gap-2 items-start py-1">
+                                        <span className="text-[8px] font-black uppercase text-amber-600 tracking-wider bg-amber-50 border border-amber-200/60 rounded px-1.5 py-0.5 shrink-0 mt-0.5 select-none font-sans">
+                                          Remarks
+                                        </span>
+                                        <p className="text-slate-600 text-[10px] break-words whitespace-pre-wrap leading-relaxed flex-1 font-sans text-left">
+                                          {row.remarks}
+                                        </p>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
