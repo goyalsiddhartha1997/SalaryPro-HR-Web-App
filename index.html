@@ -3,6 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      if (typeof global === 'undefined') {
+        window.global = window;
+      }
+    </script>
     <title>Salary Pro FFPL</title>
     <!-- Favicon and App Icons for web, iOS, and Android -->
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
