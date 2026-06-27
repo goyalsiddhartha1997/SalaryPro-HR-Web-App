@@ -2642,7 +2642,7 @@ export default function AttendanceImport({
               const workObj = calculateDutyHours(punches);
               const totalHours = workObj.hours + (workObj.minutes / 60);
 
-              if (totalHours < 6) {
+              if (totalHours < 7) {
                 worksheet[cellRef].s = shortHoursStyle;
               } else {
                 worksheet[cellRef].s = presentStyle;

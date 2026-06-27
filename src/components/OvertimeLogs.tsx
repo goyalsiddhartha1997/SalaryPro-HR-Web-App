@@ -33,6 +33,20 @@ interface OvertimeLogsProps {
   setLedgerYear?: (y: number) => void;
 }
 
+// Helper calculating overtime logs duration
+const calculateHoursWorked = (arr: string, out: string) => {
+  if (!arr || !out) return 0;
+  const [arrHrs, arrMins] = arr.split(':').map(Number);
+  const [outHrs, outMins] = out.split(':').map(Number);
+  if (isNaN(arrHrs) || isNaN(arrMins) || isNaN(outHrs) || isNaN(outMins)) return 0;
+  
+  let diffMins = (outHrs * 60 + outMins) - (arrHrs * 60 + arrMins);
+  if (diffMins < 0) {
+    diffMins += 24 * 60; // Over midnight Cross
+  }
+  return diffMins / 60;
+};
+
 export default function OvertimeLogs({
   employees,
   triggerAlert,
@@ -895,9 +909,14 @@ export default function OvertimeLogs({
                             {displayDateStr}
                           </td>
                           <td className="py-3 whitespace-nowrap text-slate-650">
-                            <span className="font-bold flex items-center gap-1 text-[10px] bg-slate-100 text-slate-700 font-mono px-2 py-0.5 rounded-lg border border-slate-200">
-                              {log.arrTime} <ArrowRight size={8} className="text-slate-400" /> {log.outTime}
-                            </span>
+                            <div className="flex flex-col items-start gap-1">
+                              <span className="font-bold flex items-center gap-1 text-[10px] bg-slate-100 text-slate-700 font-mono px-2 py-0.5 rounded-lg border border-slate-200">
+                                {log.arrTime} <ArrowRight size={8} className="text-slate-400" /> {log.outTime}
+                              </span>
+                              <span className="text-[9.5px] text-emerald-600 font-black font-mono">
+                                ⏱️ {calculateHoursWorked(log.arrTime, log.outTime).toFixed(1)} hrs ({Math.min(100, (calculateHoursWorked(log.arrTime, log.outTime) / 12 * 100)).toFixed(0)}% Shift)
+                              </span>
+                            </div>
                           </td>
                           <td className="py-3 font-medium max-w-[200px]">
                             <div className="text-[10.5px] font-black text-emerald-800 uppercase tracking-tight truncate" title={log.shiftPattern}>

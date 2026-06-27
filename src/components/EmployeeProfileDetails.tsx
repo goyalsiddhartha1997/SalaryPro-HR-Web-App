@@ -458,7 +458,12 @@ export default function EmployeeProfileDetails({
   }, [employee.monthlySalary, employee.workingHours, employee.salaryType, otFilterMonth, otFilterYear]);
 
   const totalOtAmount = useMemo(() => {
-    return filteredOtLogs.length * otRates.dailyRate;
+    let totalAmount = 0;
+    filteredOtLogs.forEach(log => {
+      const hours = calculateHoursWorked(log.arrTime, log.outTime);
+      totalAmount += (hours / 12) * otRates.dailyRate;
+    });
+    return totalAmount;
   }, [filteredOtLogs, otRates.dailyRate]);
 
   const startProfileEdit = () => {
@@ -624,7 +629,7 @@ export default function EmployeeProfileDetails({
     const dayPunches = getAdjustedPunchesForDate(d);
     if (dayPunches.length > 0) {
       const minutes = getWorkMinutes(dayPunches);
-      return minutes < 360;
+      return minutes < 420;
     }
     return false;
   }).map(d => {
@@ -692,7 +697,10 @@ export default function EmployeeProfileDetails({
     return acc + calculateHoursWorked(log.arrTime, log.outTime);
   }, 0);
 
-  const calendarMonthlyOtAmount = calendarMonthlyOtLogs.length * dynamicDailyRate;
+  const calendarMonthlyOtAmount = calendarMonthlyOtLogs.reduce((acc, log) => {
+    const hours = calculateHoursWorked(log.arrTime, log.outTime);
+    return acc + (hours / 12) * dynamicDailyRate;
+  }, 0);
   
   const liveDeductionFullDay = dynamicDailyRate * absencesCount;
   const liveTotalAbsentHours = (employee.absentHours || 0) + ((employee.absentMinutes || 0) / 60);
@@ -1226,7 +1234,7 @@ export default function EmployeeProfileDetails({
                         <span className="text-[10px] text-emerald-600 font-bold ml-0 block">{calendarMonthlyOtHours.toFixed(1)} Hours Worked</span>
                         <span className="text-[10px] text-emerald-600 font-bold ml-0 block">{calendarMonthlyOtLogs.length} Overtime Shifts Worked</span>
                       </div>
-                      <span className="text-xs font-bold text-emerald-600 font-mono" title={`${calendarMonthlyOtLogs.length} OT shift(s) × ${formatINR(dynamicDailyRate)} / shift`}>
+                      <span className="text-xs font-bold text-emerald-600 font-mono" title={`Calculated proportionally: ${calendarMonthlyOtHours.toFixed(1)} hours worked relative to 12h shifts @ ${formatINR(dynamicDailyRate)} / full shift`}>
                         + {formatINR(calendarMonthlyOtAmount)}
                       </span>
                     </div>
@@ -1260,7 +1268,7 @@ export default function EmployeeProfileDetails({
                       <div>
                         <span className="text-xs font-semibold text-slate-500 block">Partial Present Deductions</span>
                         <span className="text-[9px] text-rose-500 font-bold ml-0">
-                          {partialDaysList.length} day(s) &lt; 6 hrs (worked {partialDaysList.reduce((acc, pd) => acc + (pd.minutes / 60), 0).toFixed(1)} hrs total)
+                          {partialDaysList.length} day(s) &lt; 7 hrs (worked {partialDaysList.reduce((acc, pd) => acc + (pd.minutes / 60), 0).toFixed(1)} hrs total)
                         </span>
                       </div>
                       <span className="text-xs font-bold text-rose-600 font-mono">- {formatINR(liveDeductionPartialDay)}</span>
@@ -1362,7 +1370,7 @@ export default function EmployeeProfileDetails({
                     </div>
                     <span className="inline-flex items-center gap-1.5 text-[9px] font-bold text-slate-500 mt-2 bg-slate-550/5 border border-slate-200/40 rounded-lg px-2 py-1 w-max">
                       <Clock size={11} className="text-slate-400" />
-                      @ {formatINR(otRates.dailyRate)}/shift
+                      @ {formatINR(otRates.dailyRate)}/shift (12 hrs)
                     </span>
                   </div>
 
@@ -1391,7 +1399,7 @@ export default function EmployeeProfileDetails({
                   ) : (
                     filteredOtLogs.map((log) => {
                       const hw = calculateHoursWorked(log.arrTime, log.outTime);
-                      const shiftAmount = otRates.dailyRate;
+                      const shiftAmount = (hw / 12) * otRates.dailyRate;
                       // Format date format for log e.g. "08 Jun"
                       let displayDate = log.date;
                       try {
@@ -1594,7 +1602,7 @@ export default function EmployeeProfileDetails({
                 const workMinutes = getWorkMinutes(dayPunches);
 
                 const absent = isAbsentDay(slot.day, slot.isCurrentMonth);
-                const isPartialPresent = hasPunches && (workMinutes < 360);
+                const isPartialPresent = hasPunches && (workMinutes < 420);
                 const late = isLateDay(slot.day, slot.isCurrentMonth);
                 const isSelected = slot.isCurrentMonth && slot.day === selectedDay;
 

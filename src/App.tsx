@@ -889,7 +889,7 @@ export default function App() {
           const hasPunches = clean.length > 0;
           if (hasPunches) {
             const minutes = getWorkMinutes(clean);
-            if (minutes < 360) {
+            if (minutes < 420) {
               partialDaysList.push({ date, minutes });
             }
 
