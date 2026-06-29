@@ -50,10 +50,21 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [newName, setNewName] = useState<string>('');
   const [newCategory, setNewCategory] = useState<string>('PP Granules');
-  const [newStock, setNewStock] = useState<string>('1000');
+  const [newNoOfBags, setNewNoOfBags] = useState<string>('');
+  const [newKgPerBag, setNewKgPerBag] = useState<string>('25');
+  const [newStock, setNewStock] = useState<string>('0');
   const [newUnit, setNewUnit] = useState<string>('kg');
   const [newRemarks, setNewRemarks] = useState<string>('');
   const [isSubmittingNew, setIsSubmittingNew] = useState<boolean>(false);
+
+  // Auto-calculate initial stock when number of bags and kg per bag are input
+  useEffect(() => {
+    const bags = parseFloat(newNoOfBags);
+    const kg = parseFloat(newKgPerBag);
+    if (!isNaN(bags) && !isNaN(kg) && bags > 0 && kg > 0) {
+      setNewStock(String(bags * kg));
+    }
+  }, [newNoOfBags, newKgPerBag]);
 
   // Quick Action States (Add/Deduct Stock)
   const [activeActionItem, setActiveActionItem] = useState<RawMaterialItem | null>(null);
@@ -66,6 +77,8 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editName, setEditName] = useState<string>('');
   const [editCategory, setEditCategory] = useState<string>('');
+  const [editNoOfBags, setEditNoOfBags] = useState<string>('');
+  const [editKgPerBag, setEditKgPerBag] = useState<string>('');
   const [editStock, setEditStock] = useState<string>('');
   const [editUnit, setEditUnit] = useState<string>('');
   const [editRemarks, setEditRemarks] = useState<string>('');
@@ -75,12 +88,12 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
 
   // Default Seed Data
   const DEFAULT_MATERIALS: Omit<RawMaterialItem, 'id' | 'lastUpdated'>[] = [
-    { name: 'PP Granules (Raffia - Reprocessed)', category: 'PP Granules', currentStock: 12500, unit: 'kg', remarks: 'Standard domestic grade for high toughness tape' },
-    { name: 'PP Granules (Reliance H110MA)', category: 'PP Granules', currentStock: 24000, unit: 'kg', remarks: 'Virgin Reliance polymer grade for high durability tapes' },
-    { name: 'Calcium Carbonate Filler (PP Masterbatch)', category: 'Filler', currentStock: 8500, unit: 'kg', remarks: 'High percentage calcium carbonate filler masterbatch' },
-    { name: 'LDPE Granules (Standard)', category: 'LDPE', currentStock: 3200, unit: 'kg', remarks: 'Used for enhancing tape elasticity and film strength' },
-    { name: 'TPT White Masterbatch (Titanium Dioxide)', category: 'TPT', currentStock: 1500, unit: 'kg', remarks: 'White pigment masterbatch with high dispersion index' },
-    { name: 'UV Stabilizer Masterbatch', category: 'UV Stabilizer', currentStock: 800, unit: 'kg', remarks: 'Anti-UV additive to protect tape from sunlight degradation' }
+    { name: 'PP Granules (Raffia - Reprocessed)', category: 'PP Granules', currentStock: 12500, unit: 'kg', remarks: 'Standard domestic grade for high toughness tape', noOfBags: 500, kgPerBag: 25 },
+    { name: 'PP Granules (Reliance H110MA)', category: 'PP Granules', currentStock: 24000, unit: 'kg', remarks: 'Virgin Reliance polymer grade for high durability tapes', noOfBags: 960, kgPerBag: 25 },
+    { name: 'Calcium Carbonate Filler (PP Masterbatch)', category: 'Filler', currentStock: 8500, unit: 'kg', remarks: 'High percentage calcium carbonate filler masterbatch', noOfBags: 340, kgPerBag: 25 },
+    { name: 'LDPE Granules (Standard)', category: 'LDPE', currentStock: 3200, unit: 'kg', remarks: 'Used for enhancing tape elasticity and film strength', noOfBags: 128, kgPerBag: 25 },
+    { name: 'TPT White Masterbatch (Titanium Dioxide)', category: 'TPT', currentStock: 1500, unit: 'kg', remarks: 'White pigment masterbatch with high dispersion index', noOfBags: 60, kgPerBag: 25 },
+    { name: 'UV Stabilizer Masterbatch', category: 'UV Stabilizer', currentStock: 800, unit: 'kg', remarks: 'Anti-UV additive to protect tape from sunlight degradation', noOfBags: 32, kgPerBag: 25 }
   ];
 
   // Streaming real-time inventory from Firestore
@@ -265,6 +278,9 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         createdAt: now
       };
 
+      const bagsVal = parseFloat(newNoOfBags);
+      const kgVal = parseFloat(newKgPerBag);
+
       const newItem: RawMaterialItem = {
         id,
         name: newName.trim(),
@@ -276,12 +292,21 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         logs: [initialLog]
       };
 
+      if (!isNaN(bagsVal) && newNoOfBags.trim() !== '') {
+        newItem.noOfBags = bagsVal;
+      }
+      if (!isNaN(kgVal) && newKgPerBag.trim() !== '') {
+        newItem.kgPerBag = kgVal;
+      }
+
       await setDoc(itemRef, newItem);
       triggerAlert('success', `Successfully added raw material "${newName}" with ${initialQty} ${newUnit} stock.`);
       
       // Reset Form
       setNewName('');
-      setNewStock('1000');
+      setNewStock('0');
+      setNewNoOfBags('');
+      setNewKgPerBag('25');
       setNewRemarks('');
       setShowAddModal(false);
     } catch (err) {
@@ -339,6 +364,10 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         logs: [newLog, ...currentLogs].slice(0, 50) // Store last 50 transactions for performance
       };
 
+      if (activeActionItem.kgPerBag && activeActionItem.kgPerBag > 0) {
+        updatedItem.noOfBags = Math.round((finalStock / activeActionItem.kgPerBag) * 100) / 100;
+      }
+
       await setDoc(itemRef, updatedItem);
       triggerAlert('success', `Successfully ${actionType === 'add' ? 'added' : 'deducted'} ${qty} ${activeActionItem.unit} of ${activeActionItem.name}.`);
       
@@ -363,6 +392,8 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
     setEditStock(String(item.currentStock));
     setEditUnit(item.unit);
     setEditRemarks(item.remarks || '');
+    setEditNoOfBags(item.noOfBags !== undefined ? String(item.noOfBags) : '');
+    setEditKgPerBag(item.kgPerBag !== undefined ? String(item.kgPerBag) : '');
   };
 
   // Save Inline Editing Row
@@ -381,6 +412,9 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       triggerAlert('warn', 'Stock balance cannot be negative.');
       return;
     }
+
+    const bagsVal = parseFloat(editNoOfBags);
+    const kgVal = parseFloat(editKgPerBag);
 
     try {
       const itemRef = doc(db, 'rawMaterials', item.id);
@@ -412,6 +446,18 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         lastUpdated: now,
         logs: updatedLogs.slice(0, 50)
       };
+
+      if (!isNaN(bagsVal) && editNoOfBags.trim() !== '') {
+        updatedItem.noOfBags = bagsVal;
+      } else {
+        delete updatedItem.noOfBags;
+      }
+
+      if (!isNaN(kgVal) && editKgPerBag.trim() !== '') {
+        updatedItem.kgPerBag = kgVal;
+      } else {
+        delete updatedItem.kgPerBag;
+      }
 
       await setDoc(itemRef, updatedItem);
       triggerAlert('success', `Material specifications updated successfully.`);
@@ -652,9 +698,9 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                   <tr className="bg-slate-50 text-[10px] font-black text-slate-450 uppercase tracking-wider border-b border-slate-100 select-none">
                     <th className="p-4 pl-6">Material Details</th>
                     <th className="p-4">Category</th>
-                    <th className="p-4 text-right">In-Store Stock</th>
+                    <th className="p-4 text-right whitespace-nowrap min-w-[150px]">In-Store Stock</th>
                     <th className="p-4 text-center">Quick Stock Log</th>
-                    <th className="p-4">Remarks</th>
+                    <th className="p-4 min-w-[180px] max-w-[300px]">Remarks</th>
                     <th className="p-4 pr-6 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -714,29 +760,73 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                         </td>
 
                         {/* Column 3: In-Store Stock */}
-                        <td className="p-4 text-right">
+                        <td className="p-4 text-right whitespace-nowrap">
                           {isEditing ? (
-                            <div className="flex items-center justify-end gap-1">
-                              <input
-                                type="number"
-                                value={editStock}
-                                onChange={(e) => setEditStock(e.target.value)}
-                                className="w-16 h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs text-right font-bold"
-                              />
-                              <input
-                                type="text"
-                                value={editUnit}
-                                onChange={(e) => setEditUnit(e.target.value)}
-                                className="w-10 h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
-                              />
+                            <div className="space-y-1.5 flex flex-col items-end">
+                              <div className="flex items-center justify-end gap-1">
+                                <input
+                                  type="number"
+                                  value={editStock}
+                                  onChange={(e) => setEditStock(e.target.value)}
+                                  className="w-16 h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs text-right font-bold"
+                                />
+                                <input
+                                  type="text"
+                                  value={editUnit}
+                                  onChange={(e) => setEditUnit(e.target.value)}
+                                  className="w-10 h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
+                                />
+                              </div>
+                              <div className="flex items-center justify-end gap-1 text-[10px]">
+                                <input
+                                  type="number"
+                                  placeholder="Bags"
+                                  value={editNoOfBags}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setEditNoOfBags(val);
+                                    const bags = parseFloat(val);
+                                    const kg = parseFloat(editKgPerBag);
+                                    if (!isNaN(bags) && !isNaN(kg) && bags > 0 && kg > 0) {
+                                      setEditStock(String(bags * kg));
+                                    }
+                                  }}
+                                  className="w-12 h-6 px-1.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded text-right font-semibold"
+                                  title="Number of Bags"
+                                />
+                                <span className="text-slate-400">×</span>
+                                <input
+                                  type="number"
+                                  placeholder="kg/bag"
+                                  value={editKgPerBag}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setEditKgPerBag(val);
+                                    const bags = parseFloat(editNoOfBags);
+                                    const kg = parseFloat(val);
+                                    if (!isNaN(bags) && !isNaN(kg) && bags > 0 && kg > 0) {
+                                      setEditStock(String(bags * kg));
+                                    }
+                                  }}
+                                  className="w-12 h-6 px-1.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded text-right font-semibold"
+                                  title="Kg per Bag"
+                                />
+                              </div>
                             </div>
                           ) : (
                             <div className="space-y-0.5">
-                              <span className={`text-sm font-black font-mono tracking-tight ${isLow ? 'text-amber-600' : 'text-slate-800'}`}>
-                                {item.currentStock.toLocaleString()} {item.unit}
-                              </span>
+                              <div className="flex items-baseline justify-end gap-1.5">
+                                <span className={`text-sm font-black font-mono tracking-tight ${isLow ? 'text-amber-600' : 'text-slate-800'}`}>
+                                  {item.currentStock.toLocaleString()} {item.unit}
+                                </span>
+                                {item.noOfBags !== undefined && item.noOfBags > 0 && item.kgPerBag !== undefined && item.kgPerBag > 0 && (
+                                  <span className="text-[11px] text-slate-500 font-bold font-mono">
+                                    ({item.noOfBags} bags × {item.kgPerBag} kg)
+                                  </span>
+                                )}
+                              </div>
                               {isLow && (
-                                <span className="text-[8px] font-black uppercase text-amber-500 bg-amber-50 px-1 py-0.1 border border-amber-200/45 rounded block text-center max-w-[70px] ml-auto">
+                                <span className="text-[8px] font-black uppercase text-amber-500 bg-amber-50 px-1.5 py-0.5 border border-amber-200/45 rounded inline-block text-center ml-auto">
                                   LOW STOCK
                                 </span>
                               )}
@@ -777,7 +867,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                         </td>
 
                         {/* Column 5: Remarks */}
-                        <td className="p-4 max-w-[160px] truncate">
+                        <td className="p-4 min-w-[180px] max-w-[300px] whitespace-normal break-words">
                           {isEditing ? (
                             <input
                               type="text"
@@ -786,7 +876,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                               className="w-full h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs"
                             />
                           ) : (
-                            <span className="text-slate-500 text-[11px]" title={item.remarks}>
+                            <span className="text-slate-655 text-[11px] leading-relaxed block">
                               {item.remarks || <span className="text-slate-300 italic">No remarks</span>}
                             </span>
                           )}
@@ -1012,9 +1102,34 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                 </div>
               </div>
 
+              {/* Grid: Kg per Bag & No of Bags */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Number of Bags</label>
+                  <input
+                    type="number"
+                    value={newNoOfBags}
+                    onChange={(e) => setNewNoOfBags(e.target.value)}
+                    placeholder="e.g. 100"
+                    className="w-full h-10 px-3 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-semibold font-mono transition-all"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Kg per Bag</label>
+                  <input
+                    type="number"
+                    value={newKgPerBag}
+                    onChange={(e) => setNewKgPerBag(e.target.value)}
+                    placeholder="e.g. 25"
+                    className="w-full h-10 px-3 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-semibold font-mono transition-all"
+                  />
+                </div>
+              </div>
+
               {/* Initial Stock */}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Initial Stock Balance</label>
+                <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Initial Stock Balance (Total kgs)</label>
                 <input
                   type="number"
                   required
