@@ -88,15 +88,37 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
     setLoading(true);
     const q = collection(db, 'rawMaterials');
     const unsubscribe = onSnapshot(q, async (snapshot) => {
+      let hasSeedMarker = false;
       const list: RawMaterialItem[] = [];
       snapshot.forEach((docSnap) => {
-        list.push(docSnap.data() as RawMaterialItem);
+        const data = docSnap.data() as RawMaterialItem;
+        if (docSnap.id === 'seed_marker' || data.id === 'seed_marker') {
+          hasSeedMarker = true;
+        } else {
+          list.push(data);
+        }
       });
 
       // If the database is empty, seed initial data to make it look outstanding on first load
-      if (list.length === 0 && !viewOnly) {
+      if (list.length === 0 && !hasSeedMarker && !viewOnly) {
         try {
           const batch = writeBatch(db);
+          
+          // Write an internal marker to prevent automatic database re-seeding if the user deletes everything
+          const markerRef = doc(db, 'rawMaterials', 'seed_marker');
+          const markerNow = new Date().toISOString();
+          const markerItem: RawMaterialItem = {
+            id: 'seed_marker',
+            name: 'SEED_MARKER',
+            category: 'System',
+            currentStock: 0,
+            unit: 'pkg',
+            remarks: 'Internal marker to prevent automatic database re-seeding',
+            lastUpdated: markerNow,
+            logs: []
+          };
+          batch.set(markerRef, markerItem);
+
           DEFAULT_MATERIALS.forEach((mat) => {
             const itemRef = doc(collection(db, 'rawMaterials'));
             const id = itemRef.id;
@@ -414,6 +436,26 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       const itemRef = doc(db, 'rawMaterials', item.id);
       await deleteDoc(itemRef);
       triggerAlert('success', `Raw material "${item.name}" has been deleted.`);
+      
+      // If we are deleting the last visible material item, write a seed marker to Firestore
+      // so the system doesn't automatically trigger full default re-seeding.
+      const visibleItems = items.filter(i => i.id !== item.id);
+      if (visibleItems.length === 0) {
+        const markerRef = doc(db, 'rawMaterials', 'seed_marker');
+        const markerNow = new Date().toISOString();
+        const markerItem: RawMaterialItem = {
+          id: 'seed_marker',
+          name: 'SEED_MARKER',
+          category: 'System',
+          currentStock: 0,
+          unit: 'pkg',
+          remarks: 'Internal marker to prevent automatic database re-seeding',
+          lastUpdated: markerNow,
+          logs: []
+        };
+        await setDoc(markerRef, markerItem);
+      }
+
       if (selectedItemForLogs?.id === item.id) {
         setSelectedItemForLogs(null);
       }
