@@ -386,6 +386,53 @@
         "date",
         "monthYear"
       ]
+    },
+    "RawMaterialInventory": {
+      "title": "Raw Material Inventory",
+      "description": "Stock of raw materials used in the PP tape plant",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique record id of the raw material"
+        },
+        "name": {
+          "type": "string",
+          "description": "Variety or name of the raw material"
+        },
+        "category": {
+          "type": "string",
+          "description": "Category of the material (e.g. PP Granules, Filler, LDPE, TPT)"
+        },
+        "currentStock": {
+          "type": "number",
+          "description": "Total stock currently in hand"
+        },
+        "unit": {
+          "type": "string",
+          "description": "Unit of measurement (e.g. kg, bags, tons)"
+        },
+        "remarks": {
+          "type": "string",
+          "description": "Optional notes or details"
+        },
+        "lastUpdated": {
+          "type": "string",
+          "description": "ISO timestamp of last activity"
+        },
+        "logs": {
+          "type": "array",
+          "description": "Audit log list of additions/usages"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "category",
+        "currentStock",
+        "unit",
+        "lastUpdated"
+      ]
     }
   },
   "firestore": {
@@ -420,6 +467,10 @@
     "/canteenFoodBills/{billId}": {
       "schema": "CanteenFoodBill",
       "description": "Challan-based daily logged food bills for canteen lunches and dinners"
+    },
+    "/rawMaterials/{itemId}": {
+      "schema": "RawMaterialInventory",
+      "description": "Raw material inventory items and usage logs"
     }
   }
 }

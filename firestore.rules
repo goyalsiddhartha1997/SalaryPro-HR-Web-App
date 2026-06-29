@@ -106,6 +106,16 @@ service cloud.firestore {
         && (!('remarks' in data) || data.remarks is string);
     }
 
+    function isValidRawMaterial(data) {
+      return data.id is string
+        && data.name is string
+        && data.category is string
+        && data.currentStock is number
+        && data.unit is string
+        && data.lastUpdated is string;
+    }
+
+
 
     match /employees/{employeeId} {
       // Allow anybody to read the active ledger database (since it's a shared organizational sheet)
@@ -180,5 +190,12 @@ service cloud.firestore {
       allow create, update: if isValidId(billId) && isValidCanteenFoodBill(incoming()) && incoming().id == billId;
       allow delete: if isValidId(billId);
     }
+
+    match /rawMaterials/{itemId} {
+      allow read, list: if true;
+      allow create, update: if isValidId(itemId) && isValidRawMaterial(incoming()) && incoming().id == itemId;
+      allow delete: if isValidId(itemId);
+    }
+
   }
 }

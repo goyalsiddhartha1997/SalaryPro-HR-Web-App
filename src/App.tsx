@@ -15,6 +15,7 @@ import AdvancePaid from './components/AdvancePaid';
 import GatePassRecord from './components/GatePassRecord';
 import OvertimeLogs from './components/OvertimeLogs';
 import LoomOrders from './components/LoomOrders';
+import RawMaterialsInventory from './components/RawMaterialsInventory';
 import SearchEmp from './components/SearchEmp';
 import { 
   collection, 
@@ -52,6 +53,7 @@ import {
   Users, 
   Inbox, 
   Calendar, 
+  Package, 
   Clock, 
   TrendingUp, 
   Wallet,
@@ -790,7 +792,7 @@ export default function App() {
   const [isSignUpMode, setIsSignUpMode] = useState(false);
   const [customLoginLoading, setCustomLoginLoading] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'payroll' | 'calendar' | 'attendance' | 'performance' | 'advance' | 'gatepass' | 'overtime' | 'looms'>(() => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'payroll' | 'calendar' | 'attendance' | 'performance' | 'advance' | 'gatepass' | 'overtime' | 'looms' | 'inventory'>(() => {
     const email = localStorage.getItem('salarypro_logged_in_email');
     return email === 'hr@fortuneflexipack.com' ? 'gatepass' : 'employees';
   });
@@ -799,7 +801,7 @@ export default function App() {
   
   // Guard observer hr email to only access and use Advances, Gate Pass, and Overtime tabs
   useEffect(() => {
-    if (loggedInEmail === 'hr@fortuneflexipack.com' && activeTab !== 'advance' && activeTab !== 'gatepass' && activeTab !== 'overtime' && activeTab !== 'looms') {
+    if (loggedInEmail === 'hr@fortuneflexipack.com' && activeTab !== 'advance' && activeTab !== 'gatepass' && activeTab !== 'overtime' && activeTab !== 'looms' && activeTab !== 'inventory') {
       setActiveTab('gatepass');
     }
   }, [loggedInEmail, activeTab]);
@@ -2366,6 +2368,19 @@ export default function App() {
               <span>PP Fabric Orders</span>
             </button>
 
+            {/* Raw Materials Stock Inventory Link */}
+            <button
+              onClick={() => { setActiveTab('inventory'); setMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
+                activeTab === 'inventory' 
+                  ? 'bg-slate-55 text-slate-850 font-black shadow-sm' 
+                  : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <Package size={16} className={activeTab === 'inventory' ? 'text-amber-500 font-extrabold' : ''} />
+              <span>Raw Materials Stock</span>
+            </button>
+
             {/* Payroll Ledger Link (Our powerful Spreadsheet table!) */}
             {loggedInEmail !== 'hr@fortuneflexipack.com' && (
               <button
@@ -2437,6 +2452,7 @@ export default function App() {
                   {activeTab === 'gatepass' && 'Gate Pass Employee Record'}
                   {activeTab === 'overtime' && 'Employee Overtime Logs'}
                   {activeTab === 'looms' && 'PP Fabric Orders'}
+                  {activeTab === 'inventory' && 'Raw Material Stock Inventory'}
                   {activeTab === 'calendar' && 'Search EMP'}
                   {activeTab === 'attendance' && 'Attendance Logs'}
                   {activeTab === 'performance' && 'Evaluation Overviews'}
@@ -2451,7 +2467,8 @@ export default function App() {
                 {activeTab === 'dashboard' && 'Aggregate organization sums & outliers analysis'}
                 {activeTab === 'calendar' && 'Slice, filter and find staff by metrics, absences, basis or department'}
                 {activeTab === 'looms' && 'Weaving details, GSM, denier, weight, and order tonnage logs'}
-                {activeTab !== 'employees' && activeTab !== 'payroll' && activeTab !== 'dashboard' && activeTab !== 'calendar' && activeTab !== 'looms' && 'HR Portal sandbox and database logs'}
+                {activeTab === 'inventory' && 'Granules, fillers, modifiers, reception replenishment, and plant auto-deduction logs'}
+                {activeTab !== 'employees' && activeTab !== 'payroll' && activeTab !== 'dashboard' && activeTab !== 'calendar' && activeTab !== 'looms' && activeTab !== 'inventory' && 'HR Portal sandbox and database logs'}
               </p>
             </div>
           </div>
@@ -2921,6 +2938,14 @@ export default function App() {
           {/* ==================== TAB: PP FABRIC LOOM ORDERS ==================== */}
           {activeTab === 'looms' && (
             <LoomOrders 
+              triggerAlert={triggerAlert}
+              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
+            />
+          )}
+
+          {/* ==================== TAB: RAW MATERIALS INVENTORY ==================== */}
+          {activeTab === 'inventory' && (
+            <RawMaterialsInventory 
               triggerAlert={triggerAlert}
               viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
             />

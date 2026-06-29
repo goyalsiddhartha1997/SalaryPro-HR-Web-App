@@ -100,3 +100,25 @@ export interface LoomOrder {
   rows: LoomOrderRow[];
   createdAt: string;
 }
+
+export interface InventoryLog {
+  id: string;
+  date: string;
+  type: 'add_stock' | 'use_stock' | 'correction';
+  quantity: number;
+  remarks?: string;
+  operator?: string;
+  createdAt: string;
+}
+
+export interface RawMaterialItem {
+  id: string;
+  name: string;
+  category: string;
+  currentStock: number;
+  unit: string;
+  remarks?: string;
+  lastUpdated: string;
+  logs?: InventoryLog[];
+}
+
