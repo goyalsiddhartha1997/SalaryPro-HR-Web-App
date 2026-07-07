@@ -5,8 +5,9 @@
 
 import React, { useState, useMemo } from 'react';
 import { db } from '../firebase';
-import { doc, setDoc, collection, query, where, onSnapshot, deleteDoc, getDoc } from 'firebase/firestore';
-import { Wallet, Calendar as CalendarIcon, Plus, Info, Landmark, History, Coins, Utensils, Coffee, Receipt, UserCheck, Edit, Trash2, Check, X, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react';
+import { doc, setDoc, collection, query, where, onSnapshot, deleteDoc, getDoc, getDocs } from 'firebase/firestore';
+import { Wallet, Calendar as CalendarIcon, Plus, Info, Landmark, History, Coins, Utensils, Coffee, Receipt, UserCheck, Edit, Trash2, Check, X, ArrowUpDown, ArrowUp, ArrowDown, Search, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { Employee } from '../types';
 
 export interface CanteenFoodBill {
@@ -120,6 +121,21 @@ export default function AdvancePaid({
   const [foodSearchQuery, setFoodSearchQuery] = useState<string>('');
   const [foodFilterDay, setFoodFilterDay] = useState<number>(-1); // -1 is All
   const [foodFilterMonth, setFoodFilterMonth] = useState<number>(selectedFoodMonth); // Default to selectedFoodMonth
+
+  // --- STATE FOR CANTEEN DATE RANGE EXPORT ---
+  const [showExportModal, setShowExportModal] = useState<boolean>(false);
+  const [exportStartDate, setExportStartDate] = useState<string>(() => {
+    const now = new Date();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    return `${now.getFullYear()}-${mm}-01`;
+  });
+  const [exportEndDate, setExportEndDate] = useState<string>(() => {
+    const now = new Date();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    return `${now.getFullYear()}-${mm}-${dd}`;
+  });
+  const [isExporting, setIsExporting] = useState<boolean>(false);
 
   // Keep filters in sync with selected months
   React.useEffect(() => {
@@ -778,6 +794,206 @@ export default function AdvancePaid({
       currency: 'INR',
       maximumFractionDigits: 0
     }).format(val);
+  };
+
+  // Helper to convert date string like "25 May 2026" to "YYYY-MM-DD"
+  const getBillISODateStr = (billDateStr: string): string | null => {
+    const parsed = parseDateString(billDateStr);
+    if (!parsed) return null;
+    const mm = String(parsed.mIdx + 1).padStart(2, '0');
+    const dd = String(parsed.d).padStart(2, '0');
+    return `${parsed.y}-${mm}-${dd}`;
+  };
+
+  // Fetch all canteen food bills from Firestore for date range export
+  const fetchAllCanteenBills = async () => {
+    try {
+      const colRef = collection(db, 'canteenFoodBills');
+      const querySnapshot = await getDocs(colRef);
+      const allBills: CanteenFoodBill[] = [];
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        allBills.push({
+          id: docSnap.id,
+          challanNo: data.challanNo || '',
+          issuedBy: data.issuedBy || '',
+          mealType: data.mealType || 'Lunch',
+          noOfMeals: data.noOfMeals || 0,
+          amount: data.amount || 0,
+          date: data.date || '',
+          monthYear: data.monthYear || '',
+          remarks: data.remarks || '',
+        });
+      });
+      return allBills;
+    } catch (err) {
+      console.error("Failed to fetch all canteen food bills:", err);
+      throw err;
+    }
+  };
+
+  // Generate Excel report for selected date range with meal type columns and totals
+  const handleExportCanteenData = async () => {
+    if (!exportStartDate || !exportEndDate) {
+      triggerAlert('warn', 'Please select both start and end dates.');
+      return;
+    }
+    if (exportStartDate > exportEndDate) {
+      triggerAlert('warn', 'Start date cannot be after end date.');
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      // 1. Fetch all canteen food bills
+      const allBills = await fetchAllCanteenBills();
+
+      // 2. Filter bills within the selected date range
+      const filteredBills = allBills.filter(bill => {
+        const iso = getBillISODateStr(bill.date);
+        return iso && iso >= exportStartDate && iso <= exportEndDate;
+      });
+
+      if (filteredBills.length === 0) {
+        triggerAlert('info', 'No canteen food bills found within the selected date range.');
+        setIsExporting(false);
+        return;
+      }
+
+      // 3. Group bills by date
+      const groupedByDate: Record<string, CanteenFoodBill[]> = {};
+      filteredBills.forEach(bill => {
+        const iso = getBillISODateStr(bill.date);
+        if (iso) {
+          if (!groupedByDate[iso]) {
+            groupedByDate[iso] = [];
+          }
+          groupedByDate[iso].push(bill);
+        }
+      });
+
+      // 4. Sort dates chronologically
+      const sortedDates = Object.keys(groupedByDate).sort();
+
+      // 5. Build report rows
+      const mealTypes: ('Breakfast' | 'Lunch' | 'Dinner' | 'Morning Tea' | 'Evening Tea' | 'Snacks' | 'Night Tea')[] = [
+        'Breakfast', 'Lunch', 'Dinner', 'Morning Tea', 'Evening Tea', 'Snacks', 'Night Tea'
+      ];
+
+      const itemRows = sortedDates.map(dateStr => {
+        const dateBills = groupedByDate[dateStr];
+        
+        // Count meals per type on this date
+        const mealsCount: Record<string, number> = {};
+        mealTypes.forEach(type => {
+          mealsCount[type] = dateBills
+            .filter(b => b.mealType === type)
+            .reduce((sum, b) => sum + b.noOfMeals, 0);
+        });
+
+        const totalMealsOnDate = dateBills.reduce((sum, b) => sum + b.noOfMeals, 0);
+        const totalAmountOnDate = dateBills.reduce((sum, b) => sum + b.amount, 0);
+
+        // Convert YYYY-MM-DD to DD-MM-YYYY for presentation
+        const parts = dateStr.split('-');
+        const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+
+        return [
+          formattedDate,
+          mealsCount['Breakfast'],
+          mealsCount['Lunch'],
+          mealsCount['Dinner'],
+          mealsCount['Morning Tea'],
+          mealsCount['Evening Tea'],
+          mealsCount['Snacks'],
+          mealsCount['Night Tea'],
+          totalMealsOnDate,
+          totalAmountOnDate
+        ];
+      });
+
+      // 6. Calculate bottom totals row
+      const totalBreakfast = itemRows.reduce((sum, r) => sum + (r[1] as number), 0);
+      const totalLunch = itemRows.reduce((sum, r) => sum + (r[2] as number), 0);
+      const totalDinner = itemRows.reduce((sum, r) => sum + (r[3] as number), 0);
+      const totalMorningTea = itemRows.reduce((sum, r) => sum + (r[4] as number), 0);
+      const totalEveningTea = itemRows.reduce((sum, r) => sum + (r[5] as number), 0);
+      const totalSnacks = itemRows.reduce((sum, r) => sum + (r[6] as number), 0);
+      const totalNightTea = itemRows.reduce((sum, r) => sum + (r[7] as number), 0);
+      const totalMealsAll = itemRows.reduce((sum, r) => sum + (r[8] as number), 0);
+      const totalAmountAll = itemRows.reduce((sum, r) => sum + (r[9] as number), 0);
+
+      const totalsRow = [
+        'TOTALS',
+        totalBreakfast,
+        totalLunch,
+        totalDinner,
+        totalMorningTea,
+        totalEveningTea,
+        totalSnacks,
+        totalNightTea,
+        totalMealsAll,
+        totalAmountAll
+      ];
+
+      // 7. Assemble all rows with metadata headers
+      const reportHeaders = [
+        [`CANTEEN FOOD BILLS REPORT`],
+        [`Selected Period: ${exportStartDate} to ${exportEndDate}`],
+        [`Generated On: ${new Date().toLocaleString()}`],
+        [], // spacing row
+        [
+          'Date',
+          'Breakfast',
+          'Lunch',
+          'Dinner',
+          'Morning Tea',
+          'Evening Tea',
+          'Snacks',
+          'Night Tea',
+          'Total Meals',
+          'Total Cost (₹)'
+        ]
+      ];
+
+      const finalRows = [
+        ...reportHeaders,
+        ...itemRows,
+        [], // spacing row
+        totalsRow
+      ];
+
+      // 8. Generate workbook and save
+      const worksheet = XLSX.utils.aoa_to_sheet(finalRows);
+      
+      // Auto columns sizing
+      worksheet['!cols'] = [
+        { wch: 15 }, // Date
+        { wch: 12 }, // Breakfast
+        { wch: 12 }, // Lunch
+        { wch: 12 }, // Dinner
+        { wch: 15 }, // Morning Tea
+        { wch: 15 }, // Evening Tea
+        { wch: 12 }, // Snacks
+        { wch: 12 }, // Night Tea
+        { wch: 15 }, // Total Meals
+        { wch: 18 }  // Total Cost
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Canteen Report');
+      
+      const fileName = `Canteen_Food_Bills_${exportStartDate}_to_${exportEndDate}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+
+      triggerAlert('success', `Exported canteen report to "${fileName}" successfully.`);
+      setShowExportModal(false);
+    } catch (err) {
+      console.error("Error during Excel export:", err);
+      triggerAlert('warn', 'Failed to generate Excel export. Check console log.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -1514,9 +1730,20 @@ export default function AdvancePaid({
                   Logged Food Bills For {foodFilterMonth === -1 ? 'All Months' : months[foodFilterMonth]} {selectedFoodYear}
                 </h4>
               </div>
-              <span className="text-[10px] font-black text-slate-400 uppercase font-mono bg-slate-100 px-2.5 py-0.5 rounded-lg">
-                {filteredRecordedFoodBills.length} logged
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowExportModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 hover:border-emerald-300 text-emerald-700 hover:text-emerald-800 rounded-xl text-[10px] font-black uppercase transition-all cursor-pointer"
+                  title="Export date range to Excel"
+                >
+                  <FileSpreadsheet size={13} />
+                  Export Range
+                </button>
+                <span className="text-[10px] font-black text-slate-400 uppercase font-mono bg-slate-100 px-2.5 py-0.5 rounded-lg">
+                  {filteredRecordedFoodBills.length} logged
+                </span>
+              </div>
             </div>
 
             {/* Day, Month, Search filters similar to Overtime Logs */}
@@ -1749,6 +1976,71 @@ export default function AdvancePaid({
         </div>
 
       </div>
+
+      {/* 📊 Canteen Excel Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in" id="export-range-modal">
+          <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xl w-full max-w-md animate-scale-up select-none">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <FileSpreadsheet size={18} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black uppercase text-slate-800 tracking-wider">Export Food Bills</h4>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Select date range for Excel report</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block mb-1 text-[10px] font-bold text-slate-400 uppercase tracking-widest">From Date</label>
+                <input
+                  type="date"
+                  value={exportStartDate}
+                  onChange={(e) => setExportStartDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 focus:bg-white focus:outline-hidden"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-[10px] font-bold text-slate-400 uppercase tracking-widest">To Date</label>
+                <input
+                  type="date"
+                  value={exportEndDate}
+                  onChange={(e) => setExportEndDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 focus:bg-white focus:outline-hidden"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-xs tracking-wider uppercase transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExportCanteenData}
+                disabled={isExporting}
+                className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 text-white rounded-xl font-black text-xs tracking-wider uppercase shadow-md shadow-emerald-600/10 transition-all cursor-pointer inline-flex items-center gap-1.5"
+              >
+                {isExporting ? 'Generating...' : 'Export Spreadsheet'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
