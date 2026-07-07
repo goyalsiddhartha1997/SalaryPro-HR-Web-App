@@ -940,95 +940,95 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       </div>
 
       {/* 2. STATS OVERVIEW CARDS */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
         {/* Metric 1: Total Varieties */}
-        <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-xs">
+        <div className="bg-white border border-slate-200/85 p-5 rounded-3xl shadow-sm hover:shadow-md transition-all">
           <div className="flex justify-between items-start">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Registered Materials</span>
-            <span className="p-1.5 bg-slate-50 text-slate-550 rounded-lg">
-              <Package size={14} />
+            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">Registered Materials</span>
+            <span className="p-2 bg-slate-100 text-slate-700 rounded-xl">
+              <Package size={16} />
             </span>
           </div>
-          <div className="mt-2">
-            <h3 className="text-lg sm:text-xl font-black text-slate-800 tracking-tight">{metrics.totalVarieties} Varieties</h3>
-            <p className="text-[9.5px] text-slate-400 font-medium">Active stock sheets</p>
+          <div className="mt-3 space-y-1">
+            <h3 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">{metrics.totalVarieties} Varieties</h3>
+            <p className="text-xs text-slate-450 font-bold uppercase tracking-wider">Active stock sheets</p>
           </div>
         </div>
 
         {/* Metric 2: Total Stock in Store */}
-        <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-xs">
+        <div className="bg-white border border-slate-200/85 p-5 rounded-3xl shadow-sm hover:shadow-md transition-all">
           <div className="flex justify-between items-start">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Bulk Stock</span>
-            <span className="p-1.5 bg-indigo-50 text-indigo-500 rounded-lg">
-              <TrendingUp size={14} />
+            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">Total Bulk Stock</span>
+            <span className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+              <TrendingUp size={16} />
             </span>
           </div>
-          <div className="mt-2">
-            <h3 className="text-lg sm:text-xl font-black text-slate-800 tracking-tight">{(metrics.totalStockKgs / 1000).toFixed(2)} Tons</h3>
-            <p className="text-[9.5px] text-indigo-500 font-semibold">{metrics.totalStockKgs.toLocaleString()} kgs total in-store</p>
+          <div className="mt-3 space-y-1">
+            <h3 className="text-xl sm:text-2xl font-black text-indigo-900 font-mono tracking-tight">{(metrics.totalStockKgs / 1000).toFixed(2)} Tons</h3>
+            <p className="text-xs text-indigo-650 font-extrabold uppercase tracking-wider">{metrics.totalStockKgs.toLocaleString()} kgs total in-store</p>
           </div>
         </div>
 
         {/* Metric 3: Today's Deductions */}
-        <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-xs">
+        <div className="bg-white border border-slate-200/85 p-5 rounded-3xl shadow-sm hover:shadow-md transition-all">
           <div className="flex justify-between items-start">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Today's Plant Usage</span>
-            <span className="p-1.5 bg-rose-50 text-rose-500 rounded-lg animate-pulse">
-              <TrendingDown size={14} />
+            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">Today's Plant Usage</span>
+            <span className="p-2 bg-rose-50 text-rose-600 rounded-xl animate-pulse">
+              <TrendingDown size={16} />
             </span>
           </div>
-          <div className="mt-2">
-            <h3 className="text-lg sm:text-xl font-black text-rose-600 tracking-tight">{metrics.todayUsageKgs.toLocaleString()} kg</h3>
-            <p className="text-[9.5px] text-slate-400 font-medium">Auto-deductions today</p>
+          <div className="mt-3 space-y-1">
+            <h3 className="text-xl sm:text-2xl font-black text-rose-600 font-mono tracking-tight">{metrics.todayUsageKgs.toLocaleString()} kg</h3>
+            <p className="text-xs text-rose-500 font-extrabold uppercase tracking-wider">Auto-deductions today</p>
           </div>
         </div>
 
         {/* Metric 4: Low Stock Warnings */}
-        <div className={`border p-4 rounded-2xl shadow-xs transition-colors ${metrics.lowStockCount > 0 ? 'bg-amber-50/45 border-amber-100' : 'bg-white border-slate-100'}`}>
+        <div className={`border p-5 rounded-3xl shadow-sm hover:shadow-md transition-all ${metrics.lowStockCount > 0 ? 'bg-amber-50/70 border-amber-200 shadow-amber-100/10' : 'bg-white border-slate-200/85'}`}>
           <div className="flex justify-between items-start">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Restock Warning Alerts</span>
-            <span className={`p-1.5 rounded-lg ${metrics.lowStockCount > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-50 text-slate-450'}`}>
-              <AlertCircle size={14} />
+            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">Restock Warning Alerts</span>
+            <span className={`p-2 rounded-xl ${metrics.lowStockCount > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
+              <AlertCircle size={16} />
             </span>
           </div>
-          <div className="mt-2">
-            <h3 className={`text-lg sm:text-xl font-black tracking-tight ${metrics.lowStockCount > 0 ? 'text-amber-600' : 'text-slate-800'}`}>
+          <div className="mt-3 space-y-1">
+            <h3 className={`text-xl sm:text-2xl font-black tracking-tight font-mono ${metrics.lowStockCount > 0 ? 'text-amber-600' : 'text-slate-800'}`}>
               {metrics.lowStockCount} {metrics.lowStockCount === 1 ? 'Item' : 'Items'}
             </h3>
-            <p className="text-[9.5px] text-slate-400 font-medium">Below warning threshold (&lt;2t)</p>
+            <p className="text-xs text-slate-450 font-bold uppercase tracking-wider">Below warning threshold (&lt;2t)</p>
           </div>
         </div>
       </div>
 
       {/* 3. FILTER BAR */}
-      <div className="bg-white p-4 border border-slate-100 rounded-2xl shadow-xs flex flex-col md:flex-row gap-3 justify-between items-center select-none">
+      <div className="bg-white p-4.5 border border-slate-200 rounded-2xl shadow-sm flex flex-col md:flex-row gap-4 justify-between items-center select-none">
         {/* Search */}
-        <div className="relative w-full md:w-80">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+        <div className="relative w-full md:w-96">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search material variety, remarks..."
-            className="w-full h-9 pl-9 pr-4 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white rounded-xl text-xs font-medium focus:outline-none transition-all"
+            className="w-full h-10 pl-10 pr-4 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white rounded-xl text-xs font-semibold focus:outline-none transition-all"
           />
           {searchQuery && (
-            <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-450 hover:text-slate-800">
-              <X size={14} />
+            <button onClick={() => setSearchQuery('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-450 hover:text-slate-800 cursor-pointer">
+              <X size={16} />
             </button>
           )}
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
           {/* Category Filter */}
-          <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl text-xs font-semibold">
-            <Filter size={12} className="text-slate-450" />
-            <span className="text-slate-400 font-medium">Category:</span>
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold shadow-2xs">
+            <Filter size={13} className="text-slate-450" />
+            <span className="text-slate-450 uppercase tracking-wider text-[10px]">Category:</span>
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="bg-transparent border-none pr-1 text-slate-700 font-bold focus:outline-none cursor-pointer"
+              className="bg-transparent border-none pr-2 text-slate-700 font-extrabold focus:outline-none cursor-pointer"
             >
               <option value="All">All Categories</option>
               {categories.map(cat => (
@@ -1038,12 +1038,12 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
           </div>
 
           {/* Stock Level Filter */}
-          <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl text-xs font-semibold">
-            <span className="text-slate-400 font-medium">Stock Status:</span>
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold shadow-2xs">
+            <span className="text-slate-450 uppercase tracking-wider text-[10px]">Stock Status:</span>
             <select
               value={stockStatusFilter}
               onChange={(e) => setStockStatusFilter(e.target.value)}
-              className="bg-transparent border-none pr-1 text-slate-700 font-bold focus:outline-none cursor-pointer"
+              className="bg-transparent border-none pr-2 text-slate-700 font-extrabold focus:outline-none cursor-pointer"
             >
               <option value="All">All Levels</option>
               <option value="Low Stock">Low Stock (&lt;2t)</option>
@@ -1059,10 +1059,10 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                 setStockStatusFilter('All');
                 setSearchQuery('');
               }}
-              className="h-8 px-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-650 hover:text-slate-850 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+              className="h-10 px-3.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-700 hover:text-slate-900 text-xs font-extrabold uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer border border-slate-200"
               title="Reset Filters"
             >
-              <RefreshCw size={12} />
+              <RefreshCw size={13} />
               <span>Reset</span>
             </button>
           )}
@@ -1072,23 +1072,23 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       {/* 4. MAIN LAYOUT: TABLES & HISTORY LEDGER PANEL */}
       <div className="space-y-6">
         {/* LEFT/MAIN TABLE CARD (stretched to full width) */}
-        <div className="bg-white border border-slate-100 rounded-2xl shadow-xs overflow-hidden">
-          <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-            <h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-              <Package size={14} className="text-slate-500" />
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+          <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+            <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+              <Package size={16} className="text-slate-500" />
               Raw Material Stock Sheet ({filteredItems.length} listed)
             </h3>
-            <span className="text-[10px] font-mono text-slate-450 font-bold">Autocommit to Google Cloud Database</span>
+            <span className="text-[10px] font-mono text-slate-450 font-bold uppercase tracking-wider">Autocommit to Google Cloud Database</span>
           </div>
 
           {loading ? (
-            <div className="p-12 text-center text-slate-400 font-medium space-y-2">
-              <RefreshCw className="animate-spin mx-auto text-amber-500" size={24} />
-              <p className="text-xs">Streaming real-time inventory ledger state...</p>
+            <div className="p-12 text-center text-slate-450 font-semibold space-y-3">
+              <RefreshCw className="animate-spin mx-auto text-amber-500" size={28} />
+              <p className="text-xs uppercase tracking-wider">Streaming real-time inventory ledger state...</p>
             </div>
           ) : filteredItems.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 font-medium space-y-1">
-              <AlertCircle className="mx-auto text-slate-350" size={32} />
+            <div className="p-12 text-center text-slate-400 font-medium space-y-2">
+              <AlertCircle className="mx-auto text-slate-350" size={36} />
               <p className="text-sm font-bold text-slate-700">No raw material matching filters</p>
               <p className="text-xs text-slate-400">Try adjusting your search queries or category filters above.</p>
             </div>
@@ -1096,16 +1096,16 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 text-[10px] font-black text-slate-450 uppercase tracking-wider border-b border-slate-100 select-none">
-                    <th className="p-4 pl-6">Material Details</th>
-                    <th className="p-4">Category</th>
-                    <th className="p-4 text-right whitespace-nowrap min-w-[150px]">In-Store Stock</th>
-                    <th className="p-4 text-center">Quick Stock Log</th>
-                    <th className="p-4 min-w-[180px] max-w-[300px]">Remarks</th>
-                    <th className="p-4 pr-6 text-right">Actions</th>
+                  <tr className="bg-slate-900 text-slate-100 text-[11px] font-black uppercase tracking-wider select-none border-b border-slate-800">
+                    <th className="py-4.5 px-6">Material Details</th>
+                    <th className="py-4.5 px-6">Category</th>
+                    <th className="py-4.5 px-6 text-right whitespace-nowrap min-w-[170px]">In-Store Stock</th>
+                    <th className="py-4.5 px-6 text-center">Quick Stock Log</th>
+                    <th className="py-4.5 px-6 min-w-[200px] max-w-[320px]">Remarks</th>
+                    <th className="py-4.5 px-6 pr-6 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-xs">
+                <tbody className="divide-y divide-slate-150 text-xs">
                   {filteredItems.map((item) => {
                     const isEditing = editingItemId === item.id;
                     const isLow = item.currentStock < 2000;
@@ -1114,40 +1114,42 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                     return (
                       <tr 
                         key={item.id} 
-                        className={`hover:bg-slate-50/40 transition-colors ${isSelected ? 'bg-amber-50/15' : ''}`}
+                        className={`hover:bg-slate-50/50 transition-colors ${isSelected ? 'bg-amber-50/20' : ''}`}
                       >
                         {/* Column 1: Material Details */}
-                        <td className="p-4 pl-6">
+                        <td className="py-4.5 px-6">
                           {isEditing ? (
                             <input
                               type="text"
                               value={editName}
                               onChange={(e) => setEditName(e.target.value)}
-                              className="w-full h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
+                              className="w-full h-9 px-2.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
                             />
                           ) : (
-                            <div className="space-y-0.5">
+                            <div className="space-y-1">
                               <span 
                                 onClick={() => setSelectedItemForLogs(item)}
-                                className="font-bold text-slate-800 text-xs hover:text-amber-600 hover:underline cursor-pointer block"
+                                className="font-extrabold text-slate-900 text-[13px] hover:text-amber-600 hover:underline cursor-pointer block leading-snug"
                               >
                                 {item.name}
                               </span>
-                              <span className="text-[9px] text-slate-400 font-mono block">ID: {item.id}</span>
-                              <span className="text-[9.5px] text-amber-600 font-bold block" id={`reg-date-${item.id}`}>
-                                Setup: {formatDateToDMY(item.registrationDate || (item.logs && item.logs.length > 0 ? item.logs[item.logs.length - 1].date : item.lastUpdated?.split('T')[0]))}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[9px] text-slate-400 font-mono font-bold uppercase tracking-wider">ID: {item.id}</span>
+                                <span className="text-[9.5px] text-indigo-500 font-bold block" id={`reg-date-${item.id}`}>
+                                  Setup: {formatDateToDMY(item.registrationDate || (item.logs && item.logs.length > 0 ? item.logs[item.logs.length - 1].date : item.lastUpdated?.split('T')[0]))}
+                                </span>
+                              </div>
                             </div>
                           )}
                         </td>
 
                         {/* Column 2: Category */}
-                        <td className="p-4">
+                        <td className="py-4.5 px-6">
                           {isEditing ? (
                             <select
                               value={editCategory}
                               onChange={(e) => setEditCategory(e.target.value)}
-                              className="h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-semibold"
+                              className="h-9 px-2.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
                             >
                               <option value="PP Granules">PP Granules</option>
                               <option value="Filler">Filler</option>
@@ -1157,14 +1159,14 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                               <option value="Others">Others</option>
                             </select>
                           ) : (
-                            <span className="px-2.5 py-0.5 bg-slate-100 text-slate-650 text-[9.5px] font-black rounded-full uppercase tracking-wider">
+                            <span className="px-3 py-1 bg-slate-100 text-slate-700 text-[10px] font-black rounded-full uppercase tracking-widest border border-slate-200">
                               {item.category}
                             </span>
                           )}
                         </td>
 
                         {/* Column 3: In-Store Stock */}
-                        <td className="p-4 text-right whitespace-nowrap">
+                        <td className="py-4.5 px-6 text-right whitespace-nowrap">
                           {isEditing ? (
                             <div className="space-y-1.5 flex flex-col items-end">
                               <div className="flex items-center justify-end gap-1">
@@ -1172,13 +1174,13 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                                   type="number"
                                   value={editStock}
                                   onChange={(e) => setEditStock(e.target.value)}
-                                  className="w-16 h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs text-right font-bold"
+                                  className="w-20 h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs text-right font-bold"
                                 />
                                 <input
                                   type="text"
                                   value={editUnit}
                                   onChange={(e) => setEditUnit(e.target.value)}
-                                  className="w-10 h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
+                                  className="w-12 h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
                                 />
                               </div>
                               <div className="flex items-center justify-end gap-1 text-[10px]">
@@ -1195,7 +1197,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                                       setEditStock(String(bags * kg));
                                     }
                                   }}
-                                  className="w-12 h-6 px-1.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded text-right font-semibold"
+                                  className="w-14 h-6 px-1.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded text-right font-semibold"
                                   title="Number of Bags"
                                 />
                                 <span className="text-slate-400">×</span>
@@ -1212,25 +1214,25 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                                       setEditStock(String(bags * kg));
                                     }
                                   }}
-                                  className="w-12 h-6 px-1.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded text-right font-semibold"
+                                  className="w-14 h-6 px-1.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded text-right font-semibold"
                                   title="Kg per Bag"
                                 />
                               </div>
                             </div>
                           ) : (
-                            <div className="space-y-0.5">
+                            <div className="space-y-1">
                               <div className="flex items-baseline justify-end gap-1.5">
-                                <span className={`text-sm font-black font-mono tracking-tight ${isLow ? 'text-amber-600' : 'text-slate-800'}`}>
+                                <span className={`text-[15px] font-black font-mono tracking-tight ${isLow ? 'text-amber-600' : 'text-slate-900'}`}>
                                   {item.currentStock.toLocaleString()} {item.unit}
                                 </span>
                                 {item.noOfBags !== undefined && item.noOfBags > 0 && item.kgPerBag !== undefined && item.kgPerBag > 0 && (
-                                  <span className="text-[11px] text-slate-500 font-bold font-mono">
+                                  <span className="text-[11px] text-slate-500 font-extrabold font-mono">
                                     ({item.noOfBags} bags × {item.kgPerBag} kg)
                                   </span>
                                 )}
                               </div>
                               {isLow && (
-                                <span className="text-[8px] font-black uppercase text-amber-500 bg-amber-50 px-1.5 py-0.5 border border-amber-200/45 rounded inline-block text-center ml-auto">
+                                <span className="text-[9px] font-black uppercase text-amber-600 bg-amber-50 px-2 py-0.5 border border-amber-200 rounded inline-block text-center ml-auto">
                                   LOW STOCK
                                 </span>
                               )}
@@ -1239,9 +1241,9 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                         </td>
 
                         {/* Column 4: Quick Stock Log Operations */}
-                        <td className="p-4 text-center">
+                        <td className="py-4.5 px-6 text-center">
                           {!isEditing && (
-                            <div className="flex justify-center items-center gap-1.5">
+                            <div className="flex justify-center items-center gap-2">
                               <button
                                 onClick={() => {
                                   setActiveActionItem(item);
@@ -1251,10 +1253,10 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                                   setActionRemarks('');
                                   setActionReconciliation('Balanced');
                                 }}
-                                className="h-7 px-2.5 hover:bg-emerald-50 text-emerald-600 hover:text-emerald-700 font-bold rounded-lg transition-all border border-slate-100 hover:border-emerald-100 cursor-pointer flex items-center gap-1 text-[11px]"
+                                className="h-8 px-3 hover:bg-emerald-50 text-emerald-600 hover:text-emerald-700 font-extrabold uppercase tracking-wider rounded-xl transition-all border border-slate-200 hover:border-emerald-200 cursor-pointer flex items-center gap-1 text-[10px] shadow-2xs"
                                 title="Replenish stock"
                               >
-                                <PlusCircle size={13} />
+                                <PlusCircle size={14} />
                                 <span>Add</span>
                               </button>
                               <button
@@ -1269,10 +1271,10 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                                   setActionWastage('');
                                   setActionReconciliation('Balanced');
                                 }}
-                                className="h-7 px-2.5 hover:bg-rose-50 text-rose-500 hover:text-rose-600 font-bold rounded-lg transition-all border border-slate-100 hover:border-rose-100 cursor-pointer flex items-center gap-1 text-[11px]"
+                                className="h-8 px-3 hover:bg-rose-50 text-rose-500 hover:text-rose-600 font-extrabold uppercase tracking-wider rounded-xl transition-all border border-slate-200 hover:border-rose-200 cursor-pointer flex items-center gap-1 text-[10px] shadow-2xs"
                                 title="Log today's usage/disbursal"
                               >
-                                <MinusCircle size={13} />
+                                <MinusCircle size={14} />
                                 <span>Use</span>
                               </button>
                             </div>
@@ -1280,36 +1282,36 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                         </td>
 
                         {/* Column 5: Remarks */}
-                        <td className="p-4 min-w-[180px] max-w-[300px] whitespace-normal break-words">
+                        <td className="py-4.5 px-6 min-w-[200px] max-w-[320px] whitespace-normal break-words">
                           {isEditing ? (
                             <input
                               type="text"
                               value={editRemarks}
                               onChange={(e) => setEditRemarks(e.target.value)}
-                              className="w-full h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs"
+                              className="w-full h-9 px-2.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs"
                             />
                           ) : (
-                            <span className="text-slate-655 text-[11px] leading-relaxed block">
-                              {item.remarks || <span className="text-slate-300 italic">No remarks</span>}
+                            <span className="text-slate-600 text-xs leading-relaxed block font-medium">
+                              {item.remarks || <span className="text-slate-350 italic">No remarks recorded</span>}
                             </span>
                           )}
                         </td>
 
                         {/* Column 6: Actions */}
-                        <td className="p-4 pr-6 text-right">
+                        <td className="py-4.5 px-6 pr-6 text-right">
                           <div className="flex justify-end items-center gap-1.5">
                             {isEditing ? (
                               <>
                                 <button
                                   onClick={() => saveInlineEdit(item)}
-                                  className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-all border border-emerald-100"
+                                  className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-all border border-emerald-100 cursor-pointer"
                                   title="Save material details"
                                 >
                                   <Check size={14} strokeWidth={2.5} />
                                 </button>
                                 <button
                                   onClick={() => setEditingItemId(null)}
-                                  className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg transition-all border border-slate-200"
+                                  className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg transition-all border border-slate-200 cursor-pointer"
                                   title="Cancel edit"
                                 >
                                   <X size={14} />
@@ -1319,7 +1321,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                               <>
                                 <button
                                   onClick={() => setSelectedItemForLogs(item)}
-                                  className={`p-1.5 rounded-lg transition-all border ${isSelected ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-450'}`}
+                                  className={`p-1.5 rounded-lg transition-all border cursor-pointer ${isSelected ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-450'}`}
                                   title="View audit logs"
                                 >
                                   <History size={13} />
@@ -1352,38 +1354,38 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         </div>
 
         {/* PERSISTENT DAILY/SHIFT-WISE MATERIAL AUDIT LEDGER */}
-        <div className="bg-white border border-slate-150 rounded-2xl shadow-sm overflow-hidden p-5 space-y-4">
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-slate-100 select-none">
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden p-6 space-y-5">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-slate-150 select-none">
             <div className="space-y-1">
-              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                <FileSpreadsheet className="text-amber-500" size={18} />
+              <h3 className="text-base font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                <FileSpreadsheet className="text-amber-500" size={20} />
                 Daily Material Audit Ledger
               </h3>
-              <p className="text-[11px] text-slate-400">
-                Opening stock, plant consumption, process wastage, and final closing balances for <strong className="text-slate-600 font-mono font-bold">{ledgerAuditDate}</strong>
+              <p className="text-xs text-slate-500">
+                Opening stock, plant consumption, process wastage, and final closing balances for <strong className="text-slate-800 font-mono font-black">{ledgerAuditDate}</strong>
               </p>
             </div>
             
             {/* Date & Shift Selectors */}
             <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
-                <Calendar size={13} className="text-slate-450" />
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Date:</span>
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl shadow-2xs">
+                <Calendar size={14} className="text-slate-500" />
+                <span className="text-[10px] font-black text-slate-450 uppercase tracking-wider">Date:</span>
                 <input
                   type="date"
                   value={ledgerAuditDate}
                   onChange={(e) => setLedgerAuditDate(e.target.value)}
-                  className="bg-transparent text-xs font-bold text-slate-700 outline-none focus:ring-0 cursor-pointer font-mono"
+                  className="bg-transparent text-xs font-black text-slate-800 outline-none focus:ring-0 cursor-pointer font-mono"
                 />
               </div>
 
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
-                <Activity size={13} className="text-slate-450" />
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Shift:</span>
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl shadow-2xs">
+                <Activity size={14} className="text-slate-500" />
+                <span className="text-[10px] font-black text-slate-450 uppercase tracking-wider">Shift:</span>
                 <select
                   value={ledgerAuditShift}
                   onChange={(e) => setLedgerAuditShift(e.target.value as 'All' | 'Day Shift' | 'Night Shift')}
-                  className="bg-transparent text-xs font-bold text-slate-700 outline-none focus:ring-0 cursor-pointer"
+                  className="bg-transparent text-xs font-black text-slate-800 outline-none focus:ring-0 cursor-pointer"
                 >
                   <option value="All">All Shifts</option>
                   <option value="Day Shift">Day Shift</option>
@@ -1394,14 +1396,14 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
           </div>
 
           {/* TWO SEPARATE BUTTONS UNDER THE MATERIAL AUDIT LEDGER */}
-          <div className="flex items-center gap-3 py-1">
+          <div className="flex flex-wrap items-center gap-3.5 py-1">
             <button
               onClick={() => {
                 setAddHistoryMonth('All');
                 setAddHistoryYear(String(new Date().getFullYear()));
                 setShowAddHistoryModal(true);
               }}
-              className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100/85 text-emerald-700 font-bold text-xs rounded-xl border border-emerald-250 hover:border-emerald-300 transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+              className="h-10 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl transition-all cursor-pointer flex items-center gap-2 shadow-sm shadow-emerald-200/50 uppercase tracking-wider"
               title="View History of Stock Additions"
             >
               <History size={14} strokeWidth={2.5} />
@@ -1413,7 +1415,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                 setUseHistoryYear(String(new Date().getFullYear()));
                 setShowUseHistoryModal(true);
               }}
-              className="px-4 py-2 bg-rose-50 hover:bg-rose-100/85 text-rose-700 font-bold text-xs rounded-xl border border-rose-250 hover:border-rose-300 transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+              className="h-10 px-5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl transition-all cursor-pointer flex items-center gap-2 shadow-sm shadow-rose-200/50 uppercase tracking-wider"
               title="View History of Stock Usage / Deductions"
             >
               <History size={14} strokeWidth={2.5} />
@@ -1422,48 +1424,48 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
           </div>
 
           {/* Ledger Table */}
-          <div className="overflow-x-auto border border-slate-100 rounded-xl">
+          <div className="overflow-x-auto border border-slate-200 rounded-2xl">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-100 text-[9px] font-extrabold text-slate-400 uppercase tracking-wider select-none">
-                  <th className="p-3 pl-4">Material Name</th>
-                  <th className="p-3">Category</th>
-                  <th className="p-3 text-right">Opening Stock</th>
-                  <th className="p-3 text-right">Consumption</th>
-                  <th className="p-3 text-right">Wastage</th>
-                  <th className="p-3 text-right">Closing Stock</th>
-                  <th className="p-3 pl-6">Consumption Remarks / Notes</th>
+                <tr className="bg-slate-900 border-b border-slate-800 text-[11px] font-black text-slate-100 uppercase tracking-wider select-none">
+                  <th className="py-4 px-5 pl-6">Material Name</th>
+                  <th className="py-4 px-5">Category</th>
+                  <th className="py-4 px-5 text-right">Opening Stock</th>
+                  <th className="py-4 px-5 text-right font-black">Consumption</th>
+                  <th className="py-4 px-5 text-right">Wastage</th>
+                  <th className="py-4 px-5 text-right">Closing Stock</th>
+                  <th className="py-4 px-5 pl-8">Consumption Remarks / Notes</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100/60 text-xs">
+              <tbody className="divide-y divide-slate-150 text-xs">
                 {dailyAuditLedgerData.map((row) => {
                   if (!row) return null;
                   const hasConsumed = row.consumption > 0;
                   return (
                     <tr 
                       key={row.id} 
-                      className={`hover:bg-slate-50/40 transition-colors ${hasConsumed ? 'bg-amber-50/10' : ''}`}
+                      className={`hover:bg-slate-50/50 transition-colors ${hasConsumed ? 'bg-amber-50/10' : ''}`}
                     >
-                      <td className="p-3 pl-4 font-bold text-slate-700">{row.name}</td>
-                      <td className="p-3">
-                        <span className="px-2 py-0.5 text-[10px] font-semibold text-slate-500 bg-slate-100/70 rounded-md">
+                      <td className="py-4 px-5 pl-6 font-black text-slate-800 text-[13px]">{row.name}</td>
+                      <td className="py-4 px-5">
+                        <span className="px-3 py-1 text-[10px] font-black text-slate-700 bg-slate-100 rounded-md uppercase tracking-wider border border-slate-200">
                           {row.category}
                         </span>
                       </td>
-                      <td className="p-3 text-right font-mono text-slate-600">
+                      <td className="py-4 px-5 text-right font-mono font-bold text-slate-700 text-[13px]">
                         {row.openingStock.toLocaleString()} {row.unit}
                       </td>
-                      <td className={`p-3 text-right font-mono font-bold ${hasConsumed ? 'text-rose-600' : 'text-slate-400'}`}>
+                      <td className={`py-4 px-5 text-right font-mono font-black text-[13px] ${hasConsumed ? 'text-rose-600' : 'text-slate-400'}`}>
                         {hasConsumed ? `-${row.consumption.toLocaleString()}` : '0'} {row.unit}
                       </td>
-                      <td className={`p-3 text-right font-mono font-medium ${row.wastage > 0 ? 'text-orange-600' : 'text-slate-400'}`}>
+                      <td className={`py-4 px-5 text-right font-mono font-bold text-[13px] ${row.wastage > 0 ? 'text-orange-600' : 'text-slate-400'}`}>
                         {row.wastage > 0 ? `${row.wastage.toLocaleString()} kg` : '—'}
                       </td>
-                      <td className="p-3 text-right font-mono font-bold text-slate-800">
+                      <td className="py-4 px-5 text-right font-mono font-black text-slate-900 text-[13px]">
                         {row.finalStock.toLocaleString()} {row.unit}
                       </td>
-                      <td className="p-3 pl-6 max-w-[220px] truncate text-[11px] text-slate-500 italic">
-                        {row.remarks}
+                      <td className="py-4 px-5 pl-8 max-w-[240px] truncate text-xs text-slate-500 font-medium italic">
+                        {row.remarks || <span className="text-slate-300">No remarks</span>}
                       </td>
                     </tr>
                   );
@@ -1840,7 +1842,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       {/* 7. POPUP MODAL: ADDITIONS HISTORY LEDGER */}
       {showAddHistoryModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-250 w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col transform transition-all animate-in fade-in zoom-in-95 duration-200">
+          <div className={`bg-white rounded-3xl shadow-2xl border border-slate-250 w-full ${editingLogId ? 'max-w-7xl lg:max-w-[92vw]' : 'max-w-4xl'} max-h-[85vh] overflow-hidden flex flex-col transform transition-all duration-300 animate-in fade-in zoom-in-95`}>
             {/* Header */}
             <div className="bg-emerald-700 text-white p-5 flex justify-between items-center select-none">
               <div className="space-y-0.5">
@@ -2069,7 +2071,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       {/* 8. POPUP MODAL: DEDUCTIONS HISTORY LEDGER */}
       {showUseHistoryModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-250 w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col transform transition-all animate-in fade-in zoom-in-95 duration-200">
+          <div className={`bg-white rounded-3xl shadow-2xl border border-slate-250 w-full ${editingLogId ? 'max-w-7xl lg:max-w-[95vw]' : 'max-w-5xl'} max-h-[85vh] overflow-hidden flex flex-col transform transition-all duration-300 animate-in fade-in zoom-in-95`}>
             {/* Header */}
             <div className="bg-rose-700 text-white p-5 flex justify-between items-center select-none">
               <div className="space-y-0.5">

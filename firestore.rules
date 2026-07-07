@@ -115,6 +115,18 @@ service cloud.firestore {
         && data.lastUpdated is string;
     }
 
+    function isValidLoomProduction(data) {
+      return data.id is string
+        && data.date is string
+        && data.isStopped is bool
+        && (!('looms' in data) || data.looms == null || data.looms is number)
+        && (!('production' in data) || data.production == null || data.production is number)
+        && (!('average' in data) || data.average == null || data.average is number)
+        && (!('wastage' in data) || data.wastage == null || data.wastage is number)
+        && (!('createdAt' in data) || data.createdAt is string)
+        && (!('shift' in data) || data.shift is string);
+    }
+
 
 
     match /employees/{employeeId} {
@@ -195,6 +207,12 @@ service cloud.firestore {
       allow read, list: if true;
       allow create, update: if isValidId(itemId) && isValidRawMaterial(incoming()) && incoming().id == itemId;
       allow delete: if isValidId(itemId);
+    }
+
+    match /loomProductions/{productionId} {
+      allow read, list: if true;
+      allow create, update: if isValidId(productionId) && isValidLoomProduction(incoming()) && incoming().id == productionId;
+      allow delete: if isValidId(productionId);
     }
 
   }

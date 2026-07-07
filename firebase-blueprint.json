@@ -433,6 +433,51 @@
         "unit",
         "lastUpdated"
       ]
+    },
+    "LoomProduction": {
+      "title": "Loom Production Summary",
+      "description": "Daily production metrics, looms, and wastage reports for weaving plant",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique record id of the production report"
+        },
+        "date": {
+          "type": "string",
+          "description": "Date of production report in YYYY-MM-DD"
+        },
+        "isStopped": {
+          "type": "boolean",
+          "description": "Whether the plant was stopped on this day"
+        },
+        "looms": {
+          "type": "number",
+          "description": "Number of active looms"
+        },
+        "production": {
+          "type": "number",
+          "description": "Total production in meters"
+        },
+        "average": {
+          "type": "number",
+          "description": "Average production in meters per loom"
+        },
+        "wastage": {
+          "type": "number",
+          "description": "Total wastage in kilograms"
+        },
+        "shift": {
+          "type": "string",
+          "enum": ["day", "night"],
+          "description": "Day or night shift of the production report"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        }
+      },
+      "required": ["id", "date", "isStopped"]
     }
   },
   "firestore": {
@@ -471,6 +516,10 @@
     "/rawMaterials/{itemId}": {
       "schema": "RawMaterialInventory",
       "description": "Raw material inventory items and usage logs"
+    },
+    "/loomProductions/{productionId}": {
+      "schema": "LoomProduction",
+      "description": "Daily logged loom production metrics and plant stop tracking ledger"
     }
   }
 }
