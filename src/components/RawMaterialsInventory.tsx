@@ -70,6 +70,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
   const [newStock, setNewStock] = useState<string>('0');
   const [newUnit, setNewUnit] = useState<string>('kg');
   const [newRemarks, setNewRemarks] = useState<string>('');
+  const [newMaterialDate, setNewMaterialDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isSubmittingNew, setIsSubmittingNew] = useState<boolean>(false);
 
   // Auto-calculate initial stock when number of bags and kg per bag are input
@@ -121,6 +122,17 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
   const [editStock, setEditStock] = useState<string>('');
   const [editUnit, setEditUnit] = useState<string>('');
   const [editRemarks, setEditRemarks] = useState<string>('');
+
+  // Log Inline Editing States
+  const [editingLogId, setEditingLogId] = useState<string | null>(null);
+  const [editLogDate, setEditLogDate] = useState<string>('');
+  const [editLogQty, setEditLogQty] = useState<string>('');
+  const [editLogOperator, setEditLogOperator] = useState<string>('');
+  const [editLogRemarks, setEditLogRemarks] = useState<string>('');
+  const [editLogReconciliation, setEditLogReconciliation] = useState<string>('');
+  const [editLogShift, setEditLogShift] = useState<'Day Shift' | 'Night Shift'>('Day Shift');
+  const [editLogStage, setEditLogStage] = useState<string>('');
+  const [editLogWastage, setEditLogWastage] = useState<string>('');
 
   // Selected Item for viewing history log
   const [selectedItemForLogs, setSelectedItemForLogs] = useState<RawMaterialItem | null>(null);
@@ -465,7 +477,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       const now = new Date().toISOString();
       const initialLog: InventoryLog = {
         id: `LOG_${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-        date: now.split('T')[0],
+        date: newMaterialDate || now.split('T')[0],
         type: 'add_stock',
         quantity: initialQty,
         remarks: newRemarks.trim() ? `Initial Setup: ${newRemarks.trim()}` : 'Initial stock setup upon material registration',
@@ -484,6 +496,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         unit: newUnit.trim(),
         remarks: newRemarks.trim() || '',
         lastUpdated: now,
+        registrationDate: newMaterialDate || now.split('T')[0],
         logs: [initialLog]
       };
 
@@ -503,6 +516,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       setNewNoOfBags('');
       setNewKgPerBag('25');
       setNewRemarks('');
+      setNewMaterialDate(new Date().toISOString().split('T')[0]);
       setShowAddModal(false);
     } catch (err) {
       console.error('Error adding raw material', err);
@@ -783,6 +797,121 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
     }
   };
 
+  // Start Editing Transaction Log
+  const startEditingLog = (log: InventoryLog) => {
+    setEditingLogId(log.id);
+    setEditLogDate(log.date);
+    setEditLogQty(String(log.quantity));
+    setEditLogOperator(log.operator || '');
+    setEditLogRemarks(log.remarks || '');
+    setEditLogReconciliation(log.reconciliation || 'Balanced');
+    setEditLogShift(log.shift || 'Day Shift');
+    setEditLogStage(log.stage || 'Extrusion / Tape Line');
+    setEditLogWastage(log.wastage !== undefined ? String(log.wastage) : '');
+  };
+
+  // Cancel Editing Transaction Log
+  const cancelEditingLog = () => {
+    setEditingLogId(null);
+  };
+
+  // Save Transaction Log Edits
+  const handleSaveLogEdit = async (materialId: string, logId: string) => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Viewing in sandbox mode. Database writes are disabled.');
+      return;
+    }
+    const newQty = parseFloat(editLogQty);
+    if (isNaN(newQty) || newQty < 0) {
+      triggerAlert('warn', 'Please enter a valid non-negative quantity.');
+      return;
+    }
+
+    try {
+      const item = items.find(i => i.id === materialId);
+      if (!item) {
+        triggerAlert('warn', 'Material item not found.');
+        return;
+      }
+
+      const originalLogs = item.logs || [];
+      const logIndex = originalLogs.findIndex(l => l.id === logId);
+      if (logIndex === -1) {
+        triggerAlert('warn', 'Transaction log not found.');
+        return;
+      }
+
+      const originalLog = originalLogs[logIndex];
+      const oldQty = originalLog.quantity;
+
+      // Adjust stock mathematically:
+      // If editing add_stock: remove old add, add new add qty
+      // If editing use_stock: add old usage back, deduct new usage qty
+      let adjustedStock = item.currentStock;
+      if (originalLog.type === 'add_stock') {
+        adjustedStock = item.currentStock - oldQty + newQty;
+      } else if (originalLog.type === 'use_stock') {
+        adjustedStock = item.currentStock + oldQty - newQty;
+      }
+
+      if (adjustedStock < 0) {
+        if (!window.confirm(`Warning: Saving this edit will result in a negative stock level of ${adjustedStock} ${item.unit}. Do you still want to proceed?`)) {
+          return;
+        }
+      }
+
+      const updatedLog: InventoryLog = {
+        ...originalLog,
+        date: editLogDate,
+        quantity: newQty,
+        operator: editLogOperator,
+        remarks: editLogRemarks,
+        reconciliation: editLogReconciliation
+      };
+
+      if (originalLog.type === 'use_stock') {
+        updatedLog.shift = editLogShift;
+        updatedLog.stage = editLogStage;
+        if (editLogWastage.trim() !== '') {
+          const wNum = parseFloat(editLogWastage);
+          if (!isNaN(wNum) && wNum >= 0) {
+            updatedLog.wastage = wNum;
+          } else {
+            delete updatedLog.wastage;
+          }
+        } else {
+          delete updatedLog.wastage;
+        }
+      }
+
+      const updatedLogs = [...originalLogs];
+      updatedLogs[logIndex] = updatedLog;
+
+      const itemRef = doc(db, 'rawMaterials', materialId);
+      const now = new Date().toISOString();
+
+      const updatedItem: RawMaterialItem = {
+        ...item,
+        currentStock: Math.round(adjustedStock * 100) / 100,
+        lastUpdated: now,
+        logs: updatedLogs
+      };
+
+      if (item.kgPerBag && item.kgPerBag > 0) {
+        updatedItem.noOfBags = Math.round((adjustedStock / item.kgPerBag) * 100) / 100;
+      } else {
+        delete updatedItem.noOfBags;
+      }
+
+      await setDoc(itemRef, updatedItem);
+      triggerAlert('success', 'Successfully updated transaction record and adjusted inventory stock.');
+      setEditingLogId(null);
+    } catch (err) {
+      console.error('Failed to save log edit', err);
+      triggerAlert('warn', 'Failed to save transaction edits to cloud database.');
+    }
+  };
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto w-full select-none" id="raw-materials-inventory-page">
       {/* 1. TOP HERO TITLE BANNER */}
@@ -1005,6 +1134,9 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                                 {item.name}
                               </span>
                               <span className="text-[9px] text-slate-400 font-mono block">ID: {item.id}</span>
+                              <span className="text-[9.5px] text-amber-600 font-bold block" id={`reg-date-${item.id}`}>
+                                Setup: {formatDateToDMY(item.registrationDate || (item.logs && item.logs.length > 0 ? item.logs[item.logs.length - 1].date : item.lastUpdated?.split('T')[0]))}
+                              </span>
                             </div>
                           )}
                         </td>
@@ -1434,16 +1566,29 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                 </div>
               </div>
 
-              {/* Initial Stock */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Initial Stock Balance (Total kgs)</label>
-                <input
-                  type="number"
-                  required
-                  value={newStock}
-                  onChange={(e) => setNewStock(e.target.value)}
-                  className="w-full h-10 px-3 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-semibold font-mono transition-all"
-                />
+              {/* Initial Stock & Registration Date */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Initial Stock Balance</label>
+                  <input
+                    type="number"
+                    required
+                    value={newStock}
+                    onChange={(e) => setNewStock(e.target.value)}
+                    className="w-full h-10 px-3 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-semibold font-mono transition-all"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Registration / Setup Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={newMaterialDate}
+                    onChange={(e) => setNewMaterialDate(e.target.value)}
+                    className="w-full h-10 px-3 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-semibold font-mono transition-all cursor-pointer"
+                  />
+                </div>
               </div>
 
               {/* Remarks */}
@@ -1784,33 +1929,124 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100/60 text-xs text-slate-650">
-                      {filteredAddHistoryLogs.map((entry) => (
-                        <tr key={entry.log.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="p-3 pl-4 font-semibold font-mono text-slate-600 whitespace-nowrap">{formatDateToDMY(entry.log.date)}</td>
-                          <td className="p-3 font-bold text-slate-800">{entry.materialName}</td>
-                          <td className="p-3 text-right font-mono font-bold text-emerald-600">
-                            +{entry.log.quantity.toLocaleString()} {entry.materialUnit}
-                          </td>
-                          <td className="p-3 text-center">
-                            <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100">
-                              {entry.log.reconciliation || 'Balanced'}
-                            </span>
-                          </td>
-                          <td className="p-3 font-medium text-slate-600">{entry.log.operator || 'System'}</td>
-                          <td className="p-3 pl-6 italic text-slate-500 max-w-[200px] truncate" title={entry.log.remarks}>
-                            {entry.log.remarks || '—'}
-                          </td>
-                          <td className="p-3 text-center pr-4">
-                            <button
-                              onClick={() => handleDeleteLog(entry.materialId, entry.log.id)}
-                              className="p-1 hover:bg-rose-50 border border-transparent hover:border-rose-100 text-slate-400 hover:text-rose-600 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
-                              title="Delete transaction record"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {filteredAddHistoryLogs.map((entry) => {
+                        const isEditingLog = editingLogId === entry.log.id;
+                        return (
+                          <tr key={entry.log.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="p-3 pl-4 font-semibold font-mono text-slate-600 whitespace-nowrap">
+                              {isEditingLog ? (
+                                <input
+                                  type="date"
+                                  value={editLogDate}
+                                  onChange={(e) => setEditLogDate(e.target.value)}
+                                  className="w-24 px-1.5 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 focus:bg-white rounded text-xs font-mono font-semibold"
+                                />
+                              ) : (
+                                formatDateToDMY(entry.log.date)
+                              )}
+                            </td>
+                            <td className="p-3 font-bold text-slate-800">{entry.materialName}</td>
+                            <td className="p-3 text-right font-mono font-bold text-emerald-600">
+                              {isEditingLog ? (
+                                <div className="flex items-center justify-end gap-1">
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    value={editLogQty}
+                                    onChange={(e) => setEditLogQty(e.target.value)}
+                                    className="w-16 px-1.5 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 focus:bg-white rounded text-right text-xs font-mono font-semibold"
+                                  />
+                                  <span className="text-[10px]">{entry.materialUnit}</span>
+                                </div>
+                              ) : (
+                                `+${entry.log.quantity.toLocaleString()} ${entry.materialUnit}`
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              {isEditingLog ? (
+                                <select
+                                  value={editLogReconciliation}
+                                  onChange={(e) => setEditLogReconciliation(e.target.value)}
+                                  className="px-1 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 rounded text-[10px] font-bold text-slate-700 cursor-pointer"
+                                >
+                                  <option value="Balanced">Balanced</option>
+                                  <option value="Audited">Audited</option>
+                                  <option value="Pending">Pending</option>
+                                  <option value="Correction">Correction</option>
+                                </select>
+                              ) : (
+                                <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100">
+                                  {entry.log.reconciliation || 'Balanced'}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3 font-medium text-slate-600">
+                              {isEditingLog ? (
+                                <input
+                                  type="text"
+                                  value={editLogOperator}
+                                  onChange={(e) => setEditLogOperator(e.target.value)}
+                                  className="w-20 px-1.5 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 focus:bg-white rounded text-xs font-semibold"
+                                />
+                              ) : (
+                                entry.log.operator || 'System'
+                              )}
+                            </td>
+                            <td className="p-3 pl-6 italic text-slate-500 max-w-[200px] truncate" title={entry.log.remarks}>
+                              {isEditingLog ? (
+                                <input
+                                  type="text"
+                                  value={editLogRemarks}
+                                  onChange={(e) => setEditLogRemarks(e.target.value)}
+                                  className="w-full px-1.5 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 focus:bg-white rounded text-xs font-medium"
+                                  placeholder="Remarks..."
+                                />
+                              ) : (
+                                entry.log.remarks || '—'
+                              )}
+                            </td>
+                            <td className="p-3 text-center pr-4">
+                              <div className="flex items-center justify-center gap-1.5">
+                                {isEditingLog ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleSaveLogEdit(entry.materialId, entry.log.id)}
+                                      className="p-1 hover:bg-emerald-50 border border-transparent hover:border-emerald-100 text-emerald-600 hover:text-emerald-800 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
+                                      title="Save changes"
+                                    >
+                                      <Check size={13} strokeWidth={2.5} />
+                                    </button>
+                                    <button
+                                      onClick={cancelEditingLog}
+                                      className="p-1 hover:bg-slate-100 border border-transparent hover:border-slate-200 text-slate-400 hover:text-slate-600 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
+                                      title="Cancel"
+                                    >
+                                      <X size={13} strokeWidth={2.5} />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => startEditingLog(entry.log)}
+                                      className="p-1 hover:bg-amber-50 border border-transparent hover:border-amber-100 text-slate-400 hover:text-amber-600 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
+                                      title="Edit transaction record"
+                                    >
+                                      <Edit3 size={13} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteLog(entry.materialId, entry.log.id)}
+                                      className="p-1 hover:bg-rose-50 border border-transparent hover:border-rose-100 text-slate-400 hover:text-rose-600 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
+                                      title="Delete transaction record"
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1925,38 +2161,165 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100/60 text-xs text-slate-655">
-                      {filteredUseHistoryLogs.map((entry) => (
-                        <tr key={entry.log.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="p-3 pl-4 font-semibold font-mono text-slate-600 whitespace-nowrap">{formatDateToDMY(entry.log.date)}</td>
-                          <td className="p-3 font-bold text-slate-800">{entry.materialName}</td>
-                          <td className="p-3 text-right font-mono font-bold text-rose-600">
-                            -{entry.log.quantity.toLocaleString()} {entry.materialUnit}
-                          </td>
-                          <td className="p-3 font-semibold text-slate-700">{entry.log.shift || '—'}</td>
-                          <td className="p-3 text-slate-500 font-medium">{entry.log.stage || '—'}</td>
-                          <td className="p-3 text-right font-mono text-orange-600 font-bold">
-                            {entry.log.wastage ? `${entry.log.wastage} kg` : '0 kg'}
-                          </td>
-                          <td className="p-3 text-center">
-                            <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-700 rounded-full border border-slate-200">
-                              {entry.log.reconciliation || 'Audited'}
-                            </span>
-                          </td>
-                          <td className="p-3 font-medium text-slate-600">{entry.log.operator || 'System'}</td>
-                          <td className="p-3 pl-5 italic text-slate-500 max-w-[160px] truncate" title={entry.log.remarks}>
-                            {entry.log.remarks || '—'}
-                          </td>
-                          <td className="p-3 text-center pr-4">
-                            <button
-                              onClick={() => handleDeleteLog(entry.materialId, entry.log.id)}
-                              className="p-1 hover:bg-rose-50 border border-transparent hover:border-rose-100 text-slate-400 hover:text-rose-600 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
-                              title="Delete transaction record"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {filteredUseHistoryLogs.map((entry) => {
+                        const isEditingLog = editingLogId === entry.log.id;
+                        return (
+                          <tr key={entry.log.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="p-3 pl-4 font-semibold font-mono text-slate-600 whitespace-nowrap">
+                              {isEditingLog ? (
+                                <input
+                                  type="date"
+                                  value={editLogDate}
+                                  onChange={(e) => setEditLogDate(e.target.value)}
+                                  className="w-24 px-1.5 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 focus:bg-white rounded text-xs font-mono font-semibold"
+                                />
+                              ) : (
+                                formatDateToDMY(entry.log.date)
+                              )}
+                            </td>
+                            <td className="p-3 font-bold text-slate-800">{entry.materialName}</td>
+                            <td className="p-3 text-right font-mono font-bold text-rose-600">
+                              {isEditingLog ? (
+                                <div className="flex items-center justify-end gap-1">
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    value={editLogQty}
+                                    onChange={(e) => setEditLogQty(e.target.value)}
+                                    className="w-16 px-1.5 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 focus:bg-white rounded text-right text-xs font-mono font-semibold"
+                                  />
+                                  <span className="text-[10px]">{entry.materialUnit}</span>
+                                </div>
+                              ) : (
+                                `-${entry.log.quantity.toLocaleString()} ${entry.materialUnit}`
+                              )}
+                            </td>
+                            <td className="p-3 font-semibold text-slate-700">
+                              {isEditingLog ? (
+                                <select
+                                  value={editLogShift}
+                                  onChange={(e) => setEditLogShift(e.target.value as any)}
+                                  className="px-1 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 rounded text-xs font-bold text-slate-700 cursor-pointer"
+                                >
+                                  <option value="Day Shift">Day Shift</option>
+                                  <option value="Night Shift">Night Shift</option>
+                                </select>
+                              ) : (
+                                entry.log.shift || '—'
+                              )}
+                            </td>
+                            <td className="p-3 text-slate-500 font-medium">
+                              {isEditingLog ? (
+                                <input
+                                  type="text"
+                                  value={editLogStage}
+                                  onChange={(e) => setEditLogStage(e.target.value)}
+                                  className="w-24 px-1.5 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 focus:bg-white rounded text-xs font-semibold"
+                                />
+                              ) : (
+                                entry.log.stage || '—'
+                              )}
+                            </td>
+                            <td className="p-3 text-right font-mono text-orange-600 font-bold">
+                              {isEditingLog ? (
+                                <div className="flex items-center justify-end gap-0.5">
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    value={editLogWastage}
+                                    onChange={(e) => setEditLogWastage(e.target.value)}
+                                    className="w-12 px-1.5 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 focus:bg-white rounded text-right text-xs font-mono font-semibold"
+                                  />
+                                  <span className="text-[10px]">kg</span>
+                                </div>
+                              ) : (
+                                entry.log.wastage ? `${entry.log.wastage} kg` : '0 kg'
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              {isEditingLog ? (
+                                <select
+                                  value={editLogReconciliation}
+                                  onChange={(e) => setEditLogReconciliation(e.target.value)}
+                                  className="px-1 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 rounded text-[10px] font-bold text-slate-700 cursor-pointer"
+                                >
+                                  <option value="Audited">Audited</option>
+                                  <option value="Balanced">Balanced</option>
+                                  <option value="Pending">Pending</option>
+                                </select>
+                              ) : (
+                                <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-700 rounded-full border border-slate-200">
+                                  {entry.log.reconciliation || 'Audited'}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3 font-medium text-slate-600">
+                              {isEditingLog ? (
+                                <input
+                                  type="text"
+                                  value={editLogOperator}
+                                  onChange={(e) => setEditLogOperator(e.target.value)}
+                                  className="w-16 px-1.5 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 focus:bg-white rounded text-xs font-semibold"
+                                />
+                              ) : (
+                                entry.log.operator || 'System'
+                              )}
+                            </td>
+                            <td className="p-3 pl-5 italic text-slate-500 max-w-[160px] truncate" title={entry.log.remarks}>
+                              {isEditingLog ? (
+                                <input
+                                  type="text"
+                                  value={editLogRemarks}
+                                  onChange={(e) => setEditLogRemarks(e.target.value)}
+                                  className="w-full px-1.5 py-0.5 bg-slate-50 border border-slate-250 focus:border-amber-400 focus:bg-white rounded text-xs font-medium"
+                                  placeholder="Remarks..."
+                                />
+                              ) : (
+                                entry.log.remarks || '—'
+                              )}
+                            </td>
+                            <td className="p-3 text-center pr-4">
+                              <div className="flex items-center justify-center gap-1.5">
+                                {isEditingLog ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleSaveLogEdit(entry.materialId, entry.log.id)}
+                                      className="p-1 hover:bg-emerald-50 border border-transparent hover:border-emerald-100 text-emerald-600 hover:text-emerald-800 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
+                                      title="Save changes"
+                                    >
+                                      <Check size={13} strokeWidth={2.5} />
+                                    </button>
+                                    <button
+                                      onClick={cancelEditingLog}
+                                      className="p-1 hover:bg-slate-100 border border-transparent hover:border-slate-200 text-slate-400 hover:text-slate-600 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
+                                      title="Cancel"
+                                    >
+                                      <X size={13} strokeWidth={2.5} />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => startEditingLog(entry.log)}
+                                      className="p-1 hover:bg-amber-50 border border-transparent hover:border-amber-100 text-slate-400 hover:text-amber-600 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
+                                      title="Edit transaction record"
+                                    >
+                                      <Edit3 size={13} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteLog(entry.materialId, entry.log.id)}
+                                      className="p-1 hover:bg-rose-50 border border-transparent hover:border-rose-100 text-slate-400 hover:text-rose-600 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
+                                      title="Delete transaction record"
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

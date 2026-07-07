@@ -126,5 +126,6 @@ export interface RawMaterialItem {
   logs?: InventoryLog[];
   noOfBags?: number;
   kgPerBag?: number;
+  registrationDate?: string;
 }
 
