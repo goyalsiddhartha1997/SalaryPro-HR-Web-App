@@ -704,6 +704,28 @@ export default function GatePassRecord({
                     <th 
                       className="py-2 pr-2 cursor-pointer hover:text-slate-700 transition-colors select-none"
                       onClick={() => {
+                        if (sortField === 'employeeId') {
+                          setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setSortField('employeeId');
+                          setSortDirection('asc');
+                        }
+                      }}
+                      title="Sort by Employee ID"
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        Employee ID
+                        {sortField === 'employeeId' ? (
+                          sortDirection === 'asc' ? <ArrowUp size={11} className="text-amber-500" /> : <ArrowDown size={11} className="text-amber-500" />
+                        ) : (
+                          <ArrowUpDown size={11} className="text-slate-300" />
+                        )}
+                      </span>
+                    </th>
+                    <th className="py-2 pr-2">Employee Name</th>
+                    <th 
+                      className="py-2 pr-2 cursor-pointer hover:text-slate-700 transition-colors select-none"
+                      onClick={() => {
                         if (sortField === 'date') {
                           setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
                         } else {
@@ -722,29 +744,7 @@ export default function GatePassRecord({
                         )}
                       </span>
                     </th>
-                    <th 
-                      className="py-2 pr-2 cursor-pointer hover:text-slate-700 transition-colors select-none"
-                      onClick={() => {
-                        if (sortField === 'employeeId') {
-                          setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
-                        } else {
-                          setSortField('employeeId');
-                          setSortDirection('asc');
-                        }
-                      }}
-                      title="Sort by Staff ID"
-                    >
-                      <span className="inline-flex items-center gap-1">
-                        Staff ID
-                        {sortField === 'employeeId' ? (
-                          sortDirection === 'asc' ? <ArrowUp size={11} className="text-amber-500" /> : <ArrowDown size={11} className="text-amber-500" />
-                        ) : (
-                          <ArrowUpDown size={11} className="text-slate-300" />
-                        )}
-                      </span>
-                    </th>
-                    <th className="py-2 pr-2">Employee Name</th>
-                    <th className="py-2 pr-2">OUT - IN TIME</th>
+                    <th className="py-2 pr-2">Out in time</th>
                     <th className="py-2 pr-2">Remarks</th>
                     {!viewOnly && <th className="py-2 text-right">Actions</th>}
                   </tr>
@@ -759,11 +759,11 @@ export default function GatePassRecord({
 
                       return (
                         <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="py-3 font-mono font-black text-slate-600 pr-2">{r.employeeId}</td>
+                          <td className="py-3 font-extrabold text-slate-800 pr-2">{r.employeeName}</td>
                           <td className="py-3 font-mono font-bold text-slate-500 whitespace-nowrap uppercase text-[10px]" title={r.date}>
                             {formattedDate}
                           </td>
-                          <td className="py-3 font-mono font-black text-slate-600 pr-2">{r.employeeId}</td>
-                          <td className="py-3 font-extrabold text-slate-800 pr-2">{r.employeeName}</td>
                           <td className="py-3 pr-2 whitespace-nowrap">
                             {r.inTime === 'No Return' ? (
                               <span className="inline-flex items-center gap-1 font-extrabold bg-rose-50 text-rose-750 px-2.5 py-0.5 rounded-md text-[9px] uppercase tracking-wider border border-rose-150 shadow-sm">

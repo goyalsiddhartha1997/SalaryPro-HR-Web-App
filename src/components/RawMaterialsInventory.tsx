@@ -32,6 +32,21 @@ import {
 } from 'lucide-react';
 import { RawMaterialItem, InventoryLog } from '../types';
 
+const formatDateToDMY = (dateStr?: string) => {
+  if (!dateStr) return '—';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const mIdx = parseInt(month, 10) - 1;
+    if (mIdx >= 0 && mIdx < 12) {
+      return `${day} ${months[mIdx]} ${year}`;
+    }
+    return `${day}-${month}-${year}`;
+  }
+  return dateStr;
+};
+
 interface RawMaterialsInventoryProps {
   triggerAlert: (type: 'info' | 'success' | 'warn', msg: string) => void;
   viewOnly?: boolean;
@@ -72,6 +87,30 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
   const [actionQty, setActionQty] = useState<string>('');
   const [actionRemarks, setActionRemarks] = useState<string>('');
   const [isSubmittingAction, setIsSubmittingAction] = useState<boolean>(false);
+  const [actionDate, setActionDate] = useState<string>('');
+  const [actionShift, setActionShift] = useState<'Day Shift' | 'Night Shift'>('Day Shift');
+  const [actionStage, setActionStage] = useState<string>('Extrusion / Tape Line');
+  const [actionWastage, setActionWastage] = useState<string>('');
+  const [actionReconciliation, setActionReconciliation] = useState<string>('Balanced');
+
+  // Selected Ledger Month/Year and Tab (Default to current)
+  const [selectedLedgerMonth, setSelectedLedgerMonth] = useState<string>(String(new Date().getMonth() + 1));
+  const [selectedLedgerYear, setSelectedLedgerYear] = useState<string>(String(new Date().getFullYear()));
+  const [ledgerTab, setLedgerTab] = useState<'additions' | 'deductions'>('additions');
+
+  // Daily / Shift-wise Material Audit Ledger States
+  const [ledgerAuditDate, setLedgerAuditDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [ledgerAuditShift, setLedgerAuditShift] = useState<'All' | 'Day Shift' | 'Night Shift'>('All');
+
+  // Popup History Modals States
+  const [showAddHistoryModal, setShowAddHistoryModal] = useState<boolean>(false);
+  const [showUseHistoryModal, setShowUseHistoryModal] = useState<boolean>(false);
+
+  // Month & Year selection filters for Additions & Deductions popups
+  const [addHistoryMonth, setAddHistoryMonth] = useState<string>('All');
+  const [addHistoryYear, setAddHistoryYear] = useState<string>('All');
+  const [useHistoryMonth, setUseHistoryMonth] = useState<string>('All');
+  const [useHistoryYear, setUseHistoryYear] = useState<string>('All');
 
   // Inline Editing States
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -211,6 +250,162 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
     });
   }, [items, searchQuery, categoryFilter, stockStatusFilter]);
 
+  // ----------------- COMPUTE PERSISTENT DAILY/SHIFT AUDIT LEDGER -----------------
+  const dailyAuditLedgerData = useMemo(() => {
+    return items
+      .filter(item => item.id !== 'seed_marker')
+      .map(item => {
+        // Sort logs in reverse chronological order to reconstruct balance backwards from current balance
+        const sortedLogs = [...(item.logs || [])].sort((a, b) => {
+          const timeA = a.date + 'T' + (a.createdAt?.split('T')[1] || '00:00:00');
+          const timeB = b.date + 'T' + (b.createdAt?.split('T')[1] || '00:00:00');
+          return timeB.localeCompare(timeA); // newest first
+        });
+
+        // Reconstruct balances backwards
+        let runningStock = item.currentStock;
+        const logsWithBalance = sortedLogs.map(log => {
+          const stockAfter = runningStock;
+          let stockBefore = runningStock;
+          if (log.type === 'add_stock') {
+            stockBefore = runningStock - log.quantity;
+          } else if (log.type === 'use_stock') {
+            stockBefore = runningStock + log.quantity;
+          }
+          runningStock = stockBefore;
+          return {
+            ...log,
+            stockBefore,
+            stockAfter
+          };
+        });
+
+        // Find usage/consumption logs on the specific ledgerAuditDate
+        const usageOnDate = logsWithBalance.filter(l => 
+          l.date === ledgerAuditDate && 
+          l.type === 'use_stock' &&
+          (ledgerAuditShift === 'All' || l.shift === ledgerAuditShift)
+        );
+
+        const totalConsumed = usageOnDate.reduce((sum, l) => sum + l.quantity, 0);
+        const totalWastage = usageOnDate.reduce((sum, l) => sum + (l.wastage || 0), 0);
+        const remarksList = usageOnDate.map(l => l.remarks).filter(Boolean).join(', ');
+
+        // Compute Opening & Final stocks on ledgerAuditDate
+        // The final stock level on ledgerAuditDate is the balance AFTER the latest transaction on or before that date.
+        const logsPriorOrOnDate = logsWithBalance.filter(l => l.date <= ledgerAuditDate);
+        const latestLogOnOrBefore = logsPriorOrOnDate[0];
+        const finalStock = latestLogOnOrBefore ? latestLogOnOrBefore.stockAfter : runningStock;
+
+        // Opening stock is the balance BEFORE the oldest transaction on ledgerAuditDate.
+        const logsOnDate = logsWithBalance.filter(l => l.date === ledgerAuditDate);
+        const oldestLogOnDate = logsOnDate[logsOnDate.length - 1];
+        const openingStock = oldestLogOnDate ? oldestLogOnDate.stockBefore : finalStock;
+
+        return {
+          id: item.id,
+          name: item.name,
+          unit: item.unit,
+          category: item.category,
+          openingStock,
+          consumption: totalConsumed,
+          wastage: totalWastage,
+          finalStock,
+          remarks: remarksList || (usageOnDate.length > 0 ? '' : 'No usage today')
+        };
+      });
+  }, [items, ledgerAuditDate, ledgerAuditShift]);
+
+  // ----------------- COMPILE & FILTER LOGS FOR MATERIAL AUDIT LEDGERS -----------------
+  const allLogs = useMemo(() => {
+    const list: { materialName: string; materialId: string; materialUnit: string; log: InventoryLog }[] = [];
+    items.forEach(item => {
+      if (item.id === 'seed_marker') return;
+      if (item.logs) {
+        item.logs.forEach(log => {
+          list.push({
+            materialName: item.name,
+            materialId: item.id,
+            materialUnit: item.unit,
+            log
+          });
+        });
+      }
+    });
+    // Sort all logs by log date descending, then createdAt descending
+    return list.sort((a, b) => {
+      const dateA = a.log.date + 'T' + (a.log.createdAt?.split('T')[1] || '00:00:00');
+      const dateB = b.log.date + 'T' + (b.log.createdAt?.split('T')[1] || '00:00:00');
+      return dateB.localeCompare(dateA);
+    });
+  }, [items]);
+
+  const filteredLogs = useMemo(() => {
+    return allLogs.filter(entry => {
+      const log = entry.log;
+      
+      // 1. Filter by item focus
+      if (selectedItemForLogs && entry.materialId !== selectedItemForLogs.id) {
+        return false;
+      }
+      
+      // 2. Filter by tab type
+      const isAdd = log.type === 'add_stock';
+      if (ledgerTab === 'additions' && !isAdd) return false;
+      if (ledgerTab === 'deductions' && isAdd) return false;
+      
+      // 3. Filter by month and year
+      if (log.date) {
+        const parts = log.date.split('-');
+        if (parts.length === 3) {
+          const y = parts[0];
+          const m = parseInt(parts[1], 10).toString(); // remove leading zeros (e.g. "07" -> "7")
+          
+          if (selectedLedgerYear !== 'All' && y !== selectedLedgerYear) return false;
+          if (selectedLedgerMonth !== 'All' && m !== selectedLedgerMonth) return false;
+        }
+      }
+      
+      return true;
+    });
+  }, [allLogs, selectedItemForLogs, ledgerTab, selectedLedgerMonth, selectedLedgerYear]);
+
+  // Filtered addition logs for the "Add History" popup
+  const filteredAddHistoryLogs = useMemo(() => {
+    return allLogs.filter(entry => {
+      if (entry.log.type !== 'add_stock') return false;
+      const d = entry.log.date;
+      if (d) {
+        const parts = d.split('-');
+        if (parts.length === 3) {
+          const y = parts[0];
+          const m = parseInt(parts[1], 10).toString();
+          if (addHistoryYear !== 'All' && y !== addHistoryYear) return false;
+          if (addHistoryMonth !== 'All' && m !== addHistoryMonth) return false;
+        }
+      }
+      return true;
+    });
+  }, [allLogs, addHistoryMonth, addHistoryYear]);
+
+  // Filtered deduction logs for the "Use History" popup
+  const filteredUseHistoryLogs = useMemo(() => {
+    return allLogs.filter(entry => {
+      if (entry.log.type !== 'use_stock') return false;
+      const d = entry.log.date;
+      if (d) {
+        const parts = d.split('-');
+        if (parts.length === 3) {
+          const y = parts[0];
+          const m = parseInt(parts[1], 10).toString();
+          if (useHistoryYear !== 'All' && y !== useHistoryYear) return false;
+          if (useHistoryMonth !== 'All' && m !== useHistoryMonth) return false;
+        }
+      }
+      return true;
+    });
+  }, [allLogs, useHistoryMonth, useHistoryYear]);
+
   // Aggregate Metrics
   const metrics = useMemo(() => {
     let totalStockKgs = 0;
@@ -344,13 +539,25 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       
       const newLog: InventoryLog = {
         id: `LOG_${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-        date: now.split('T')[0],
+        date: actionDate || now.split('T')[0],
         type: actionType === 'add' ? 'add_stock' : 'use_stock',
         quantity: qty,
         remarks: actionRemarks.trim() || (actionType === 'add' ? 'Received stock replenishment' : 'Disbursed for plant production line usage'),
         operator: 'HR Supervisor',
-        createdAt: now
+        createdAt: now,
+        reconciliation: actionReconciliation.trim() || 'Balanced'
       };
+
+      if (actionType === 'deduct') {
+        newLog.shift = actionShift;
+        newLog.stage = actionStage;
+        if (actionWastage.trim() !== '') {
+          const wNum = parseFloat(actionWastage);
+          if (!isNaN(wNum) && wNum >= 0) {
+            newLog.wastage = wNum;
+          }
+        }
+      }
 
       const finalStock = actionType === 'add' 
         ? activeActionItem.currentStock + qty 
@@ -376,6 +583,9 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       setActionType(null);
       setActionQty('');
       setActionRemarks('');
+      setActionDate('');
+      setActionWastage('');
+      setActionReconciliation('Balanced');
     } catch (err) {
       console.error('Quick action failed', err);
       triggerAlert('warn', 'Could not update material stock on database.');
@@ -508,6 +718,68 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
     } catch (err) {
       console.error('Delete failed', err);
       triggerAlert('warn', 'Failed to delete record from database.');
+    }
+  };
+
+  // Delete a specific transaction log entry and adjust inventory stock
+  const handleDeleteLog = async (materialId: string, logId: string) => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Viewing in sandbox mode. Database writes are disabled.');
+      return;
+    }
+    if (!window.confirm('Are you sure you want to permanently delete this transaction record? This will adjust the material stock accordingly.')) {
+      return;
+    }
+
+    try {
+      const item = items.find(i => i.id === materialId);
+      if (!item) {
+        triggerAlert('warn', 'Material item not found.');
+        return;
+      }
+
+      const logToDelete = item.logs?.find(l => l.id === logId);
+      if (!logToDelete) {
+        triggerAlert('warn', 'Transaction log not found.');
+        return;
+      }
+
+      // Calculate adjusted stock
+      let adjustedStock = item.currentStock;
+      if (logToDelete.type === 'add_stock') {
+        adjustedStock = item.currentStock - logToDelete.quantity;
+      } else if (logToDelete.type === 'use_stock') {
+        adjustedStock = item.currentStock + logToDelete.quantity;
+      }
+
+      if (adjustedStock < 0) {
+        if (!window.confirm(`Warning: Deleting this log will result in a negative stock level of ${adjustedStock} ${item.unit}. Do you still want to proceed?`)) {
+          return;
+        }
+      }
+
+      const itemRef = doc(db, 'rawMaterials', materialId);
+      const now = new Date().toISOString();
+      const updatedLogs = (item.logs || []).filter(l => l.id !== logId);
+
+      const updatedItem: RawMaterialItem = {
+        ...item,
+        currentStock: Math.round(adjustedStock * 100) / 100,
+        lastUpdated: now,
+        logs: updatedLogs
+      };
+
+      if (item.kgPerBag && item.kgPerBag > 0) {
+        updatedItem.noOfBags = Math.round((adjustedStock / item.kgPerBag) * 100) / 100;
+      } else {
+        delete updatedItem.noOfBags;
+      }
+
+      await setDoc(itemRef, updatedItem);
+      triggerAlert('success', 'Successfully deleted the transaction log and adjusted stock.');
+    } catch (err) {
+      console.error('Failed to delete transaction log', err);
+      triggerAlert('warn', 'Failed to delete transaction log from database.');
     }
   };
 
@@ -669,9 +941,9 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       </div>
 
       {/* 4. MAIN LAYOUT: TABLES & HISTORY LEDGER PANEL */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-        {/* LEFT/MAIN TABLE CARD (takes 2 cols on xl) */}
-        <div className="xl:col-span-2 bg-white border border-slate-100 rounded-2xl shadow-xs overflow-hidden">
+      <div className="space-y-6">
+        {/* LEFT/MAIN TABLE CARD (stretched to full width) */}
+        <div className="bg-white border border-slate-100 rounded-2xl shadow-xs overflow-hidden">
           <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
             <h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
               <Package size={14} className="text-slate-500" />
@@ -843,6 +1115,9 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                                   setActiveActionItem(item);
                                   setActionType('add');
                                   setActionQty('');
+                                  setActionDate(new Date().toISOString().split('T')[0]);
+                                  setActionRemarks('');
+                                  setActionReconciliation('Balanced');
                                 }}
                                 className="h-7 px-2.5 hover:bg-emerald-50 text-emerald-600 hover:text-emerald-700 font-bold rounded-lg transition-all border border-slate-100 hover:border-emerald-100 cursor-pointer flex items-center gap-1 text-[11px]"
                                 title="Replenish stock"
@@ -855,6 +1130,12 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                                   setActiveActionItem(item);
                                   setActionType('deduct');
                                   setActionQty('');
+                                  setActionDate(new Date().toISOString().split('T')[0]);
+                                  setActionShift('Day Shift');
+                                  setActionRemarks('');
+                                  setActionStage('Extrusion / Tape Line');
+                                  setActionWastage('');
+                                  setActionReconciliation('Balanced');
                                 }}
                                 className="h-7 px-2.5 hover:bg-rose-50 text-rose-500 hover:text-rose-600 font-bold rounded-lg transition-all border border-slate-100 hover:border-rose-100 cursor-pointer flex items-center gap-1 text-[11px]"
                                 title="Log today's usage/disbursal"
@@ -938,99 +1219,125 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
           )}
         </div>
 
-        {/* RIGHT PANEL: TRANSACTION AUDIT LEDGER LOGS (takes 1 col on xl) */}
-        <div className="bg-white border border-slate-100 rounded-2xl shadow-xs overflow-hidden h-full">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center select-none">
-            <h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-              <History size={14} className="text-slate-500" />
-              Material Audit Ledger
-            </h3>
-            {selectedItemForLogs && (
-              <button 
-                onClick={() => setSelectedItemForLogs(null)}
-                className="text-[9px] font-bold text-slate-400 hover:text-slate-700 underline"
-              >
-                Clear Focus
-              </button>
-            )}
+        {/* PERSISTENT DAILY/SHIFT-WISE MATERIAL AUDIT LEDGER */}
+        <div className="bg-white border border-slate-150 rounded-2xl shadow-sm overflow-hidden p-5 space-y-4">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-slate-100 select-none">
+            <div className="space-y-1">
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                <FileSpreadsheet className="text-amber-500" size={18} />
+                Daily Material Audit Ledger
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Opening stock, plant consumption, process wastage, and final closing balances for <strong className="text-slate-600 font-mono font-bold">{ledgerAuditDate}</strong>
+              </p>
+            </div>
+            
+            {/* Date & Shift Selectors */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
+                <Calendar size={13} className="text-slate-450" />
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Date:</span>
+                <input
+                  type="date"
+                  value={ledgerAuditDate}
+                  onChange={(e) => setLedgerAuditDate(e.target.value)}
+                  className="bg-transparent text-xs font-bold text-slate-700 outline-none focus:ring-0 cursor-pointer font-mono"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
+                <Activity size={13} className="text-slate-450" />
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Shift:</span>
+                <select
+                  value={ledgerAuditShift}
+                  onChange={(e) => setLedgerAuditShift(e.target.value as 'All' | 'Day Shift' | 'Night Shift')}
+                  className="bg-transparent text-xs font-bold text-slate-700 outline-none focus:ring-0 cursor-pointer"
+                >
+                  <option value="All">All Shifts</option>
+                  <option value="Day Shift">Day Shift</option>
+                  <option value="Night Shift">Night Shift</option>
+                </select>
+              </div>
+            </div>
           </div>
 
-          <div className="p-4">
-            {selectedItemForLogs ? (
-              <div className="space-y-4">
-                {/* Focused Material Summary */}
-                <div className="p-3 bg-amber-50/15 border border-amber-100 rounded-xl space-y-1">
-                  <span className="text-[9px] font-black text-amber-600 uppercase tracking-wider block">FOCUSED STOCK</span>
-                  <h4 className="text-xs font-bold text-slate-800 leading-tight">{selectedItemForLogs.name}</h4>
-                  <div className="flex justify-between items-baseline pt-1">
-                    <span className="text-[11px] text-slate-500 font-medium">{selectedItemForLogs.category}</span>
-                    <span className="text-xs font-black text-slate-800 font-mono">
-                      Current: {selectedItemForLogs.currentStock.toLocaleString()} {selectedItemForLogs.unit}
-                    </span>
-                  </div>
-                </div>
+          {/* TWO SEPARATE BUTTONS UNDER THE MATERIAL AUDIT LEDGER */}
+          <div className="flex items-center gap-3 py-1">
+            <button
+              onClick={() => {
+                setAddHistoryMonth('All');
+                setAddHistoryYear(String(new Date().getFullYear()));
+                setShowAddHistoryModal(true);
+              }}
+              className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100/85 text-emerald-700 font-bold text-xs rounded-xl border border-emerald-250 hover:border-emerald-300 transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+              title="View History of Stock Additions"
+            >
+              <History size={14} strokeWidth={2.5} />
+              <span>Add History Ledger</span>
+            </button>
+            <button
+              onClick={() => {
+                setUseHistoryMonth('All');
+                setUseHistoryYear(String(new Date().getFullYear()));
+                setShowUseHistoryModal(true);
+              }}
+              className="px-4 py-2 bg-rose-50 hover:bg-rose-100/85 text-rose-700 font-bold text-xs rounded-xl border border-rose-250 hover:border-rose-300 transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+              title="View History of Stock Usage / Deductions"
+            >
+              <History size={14} strokeWidth={2.5} />
+              <span>Use History Ledger</span>
+            </button>
+          </div>
 
-                {/* Audit logs List */}
-                <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Transaction History</span>
-                  
-                  {!selectedItemForLogs.logs || selectedItemForLogs.logs.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic text-center py-4">No audit transactions logged yet.</p>
-                  ) : (
-                    selectedItemForLogs.logs.map((log) => {
-                      const isAdd = log.type === 'add_stock';
-                      const isCorrection = log.type === 'correction';
-
-                      return (
-                        <div 
-                          key={log.id} 
-                          className="p-2.5 rounded-xl border border-slate-100 hover:border-slate-200 bg-slate-50/20 transition-all text-[11px] space-y-1"
-                        >
-                          <div className="flex justify-between items-center">
-                            <span className={`px-1.5 py-0.2 text-[8px] font-black uppercase rounded ${
-                              isAdd 
-                                ? 'bg-emerald-50 text-emerald-600 border border-emerald-150' 
-                                : isCorrection 
-                                  ? 'bg-amber-50 text-amber-600 border border-amber-150'
-                                  : 'bg-rose-50 text-rose-500 border border-rose-150'
-                            }`}>
-                              {isAdd ? 'REPLENISH' : isCorrection ? 'ADJUSTMENT' : 'DISBURSED'}
-                            </span>
-                            <span className="text-slate-400 font-mono text-[9px]">
-                              {log.date}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-baseline">
-                            <span className="text-slate-550 font-medium">Quantity</span>
-                            <span className={`font-bold font-mono ${isAdd ? 'text-emerald-600' : isCorrection ? 'text-amber-600' : 'text-rose-500'}`}>
-                              {isAdd ? '+' : isCorrection ? '±' : '-'}{log.quantity.toLocaleString()} {selectedItemForLogs.unit}
-                            </span>
-                          </div>
-                          {log.remarks && (
-                            <p className="text-slate-500 text-[10px] leading-tight pt-0.5 border-t border-slate-100/40">
-                              "{log.remarks}"
-                            </p>
-                          )}
-                          <div className="text-[8px] text-slate-400 font-mono text-right">
-                            Logged by: {log.operator || 'System'}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="p-8 text-center text-slate-400 font-medium space-y-2">
-                <History className="mx-auto text-slate-300" size={36} />
-                <div className="space-y-1">
-                  <p className="text-xs font-bold text-slate-600">No Material Selected</p>
-                  <p className="text-[11px] text-slate-400 max-w-[200px] mx-auto">
-                    Click the history clock icon on any material row in the table to load its comprehensive transaction audit trail, additions, disbursals, and logs.
-                  </p>
-                </div>
-              </div>
-            )}
+          {/* Ledger Table */}
+          <div className="overflow-x-auto border border-slate-100 rounded-xl">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100 text-[9px] font-extrabold text-slate-400 uppercase tracking-wider select-none">
+                  <th className="p-3 pl-4">Material Name</th>
+                  <th className="p-3">Category</th>
+                  <th className="p-3 text-right">Opening Stock</th>
+                  <th className="p-3 text-right">Consumption</th>
+                  <th className="p-3 text-right">Wastage</th>
+                  <th className="p-3 text-right">Closing Stock</th>
+                  <th className="p-3 pl-6">Consumption Remarks / Notes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100/60 text-xs">
+                {dailyAuditLedgerData.map((row) => {
+                  if (!row) return null;
+                  const hasConsumed = row.consumption > 0;
+                  return (
+                    <tr 
+                      key={row.id} 
+                      className={`hover:bg-slate-50/40 transition-colors ${hasConsumed ? 'bg-amber-50/10' : ''}`}
+                    >
+                      <td className="p-3 pl-4 font-bold text-slate-700">{row.name}</td>
+                      <td className="p-3">
+                        <span className="px-2 py-0.5 text-[10px] font-semibold text-slate-500 bg-slate-100/70 rounded-md">
+                          {row.category}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right font-mono text-slate-600">
+                        {row.openingStock.toLocaleString()} {row.unit}
+                      </td>
+                      <td className={`p-3 text-right font-mono font-bold ${hasConsumed ? 'text-rose-600' : 'text-slate-400'}`}>
+                        {hasConsumed ? `-${row.consumption.toLocaleString()}` : '0'} {row.unit}
+                      </td>
+                      <td className={`p-3 text-right font-mono font-medium ${row.wastage > 0 ? 'text-orange-600' : 'text-slate-400'}`}>
+                        {row.wastage > 0 ? `${row.wastage.toLocaleString()} kg` : '—'}
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold text-slate-800">
+                        {row.finalStock.toLocaleString()} {row.unit}
+                      </td>
+                      <td className="p-3 pl-6 max-w-[220px] truncate text-[11px] text-slate-500 italic">
+                        {row.remarks}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -1182,15 +1489,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       {/* 6. MODAL: QUICK STOCK ACTION (ADD OR DEDUCT USAGE) */}
       {activeActionItem && actionType && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 select-none">
-          <div className="bg-white rounded-3xl shadow-xl border border-slate-200/50 w-full max-w-sm overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-3xl shadow-xl border border-slate-200/50 w-full max-w-md overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-200">
             {/* Header */}
-            <div className={`p-4 text-white flex justify-between items-center ${actionType === 'add' ? 'bg-emerald-600' : 'bg-rose-600'}`}>
+            <div className={`p-4.5 text-white flex justify-between items-center ${actionType === 'add' ? 'bg-emerald-600' : 'bg-rose-600'}`}>
               <div className="space-y-0.5">
                 <h3 className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
                   {actionType === 'add' ? <PlusCircle size={15} /> : <MinusCircle size={15} />}
                   {actionType === 'add' ? 'Add Stock' : 'Deduct Stock Usage'}
                 </h3>
-                <p className="text-[10px] text-white/80 leading-none truncate max-w-[280px]">For: {activeActionItem.name}</p>
+                <p className="text-[10px] text-white/80 leading-none truncate max-w-[340px]">For: {activeActionItem.name}</p>
               </div>
               <button 
                 onClick={() => {
@@ -1204,78 +1511,467 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
             </div>
 
             {/* Form */}
-            <form onSubmit={handleQuickActionSubmit} className="p-4 space-y-4">
-              <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-xl space-y-0.5 text-center">
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">CURRENT STOCK LEVEL</span>
+            <form onSubmit={handleQuickActionSubmit} className="p-5 space-y-4">
+              <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl space-y-0.5 text-center">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">CURRENT STORE BALANCE</span>
                 <span className="text-sm font-black text-slate-700 font-mono">
                   {activeActionItem.currentStock.toLocaleString()} {activeActionItem.unit}
                 </span>
               </div>
 
-              {/* Qty */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">
-                  {actionType === 'add' ? 'Quantity Received *' : 'Quantity Used Today *'}
-                </label>
-                <div className="relative">
+              {/* Grid: Qty and Date */}
+              <div className="grid grid-cols-2 gap-4">
+                {/* Qty */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">
+                    {actionType === 'add' ? 'Quantity Added *' : 'Quantity Used *'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      autoFocus
+                      value={actionQty}
+                      onChange={(e) => setActionQty(e.target.value)}
+                      placeholder="e.g. 500"
+                      className="w-full h-10 pl-3 pr-12 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-bold font-mono transition-all"
+                    />
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400 font-sans uppercase">
+                      {activeActionItem.unit}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Date */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">
+                    Transaction Date *
+                  </label>
                   <input
-                    type="number"
-                    step="any"
+                    type="date"
                     required
-                    autoFocus
-                    value={actionQty}
-                    onChange={(e) => setActionQty(e.target.value)}
-                    placeholder="e.g. 500"
-                    className="w-full h-10 pl-3 pr-12 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-bold font-mono transition-all"
+                    value={actionDate}
+                    onChange={(e) => setActionDate(e.target.value)}
+                    className="w-full h-10 px-3 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-semibold font-mono transition-all"
                   />
-                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400 font-sans uppercase">
-                    {activeActionItem.unit}
-                  </span>
+                </div>
+              </div>
+
+              {/* Deductions-Only: Shift & Stage */}
+              {actionType === 'deduct' && (
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Shift Dropdown */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Plant Shift *</label>
+                    <select
+                      value={actionShift}
+                      onChange={(e) => setActionShift(e.target.value as 'Day Shift' | 'Night Shift')}
+                      className="w-full h-10 px-3 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                    >
+                      <option value="Day Shift">Day Shift</option>
+                      <option value="Night Shift">Night Shift</option>
+                    </select>
+                  </div>
+
+                  {/* Stage Dropdown */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Production Stage *</label>
+                    <select
+                      value={actionStage}
+                      onChange={(e) => setActionStage(e.target.value)}
+                      className="w-full h-10 px-3 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                    >
+                      <option value="Extrusion / Tape Line">Extrusion / Tape Line</option>
+                      <option value="Mixing / Blending">Mixing / Blending</option>
+                      <option value="Weaving Loom">Weaving Loom</option>
+                      <option value="Lamination">Lamination</option>
+                      <option value="Bag Conversion">Bag Conversion</option>
+                      <option value="Printing">Printing</option>
+                      <option value="Packaging">Packaging</option>
+                      <option value="Others">Others</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Optional Wastage and Reconciliation Row */}
+              <div className="grid grid-cols-2 gap-4">
+                {/* Wastage (Deductions only) or Info for Additions */}
+                {actionType === 'deduct' ? (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">
+                      Wastage (Optional)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        value={actionWastage}
+                        onChange={(e) => setActionWastage(e.target.value)}
+                        placeholder="e.g. 12.5"
+                        className="w-full h-10 pl-3 pr-10 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-semibold font-mono transition-all"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-450">
+                        kg
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">
+                      Ref Supplier Lot (Opt)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Reliance, Lot #103"
+                      className="w-full h-10 px-3 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-semibold transition-all"
+                    />
+                  </div>
+                )}
+
+                {/* Reconciliation Status */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">
+                    Reconciliation Status
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={actionReconciliation}
+                    onChange={(e) => setActionReconciliation(e.target.value)}
+                    placeholder="e.g. Balanced, Audited"
+                    className="w-full h-10 px-3 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-semibold transition-all"
+                  />
                 </div>
               </div>
 
               {/* Remarks */}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Remarks / Supplier / Line No.</label>
+                <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Remarks / Notes</label>
                 <input
                   type="text"
                   value={actionRemarks}
                   onChange={(e) => setActionRemarks(e.target.value)}
-                  placeholder={actionType === 'add' ? 'e.g. Supplier Lot #103, Invoice ref' : 'e.g. Extruder Line 1 production run'}
-                  className="w-full h-10 px-3 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-semibold transition-all"
+                  placeholder={actionType === 'add' ? 'e.g. Received replenishment from vendor' : 'e.g. Disbursed for shift production runs'}
+                  className="w-full h-10 px-3 bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white focus:outline-none rounded-xl text-xs font-medium transition-all"
                 />
               </div>
 
               {/* Actions */}
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => {
                     setActiveActionItem(null);
                     setActionType(null);
                   }}
-                  className="flex-1 h-9 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-650 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                  className="flex-1 h-10 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-650 text-xs font-bold rounded-xl transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingAction}
-                  className={`flex-1 h-9 text-white text-xs font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 cursor-pointer ${
+                  className={`flex-1 h-10 text-white text-xs font-bold rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1 cursor-pointer ${
                     actionType === 'add' ? 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400' : 'bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400'
                   }`}
                 >
                   {isSubmittingAction ? (
-                    <RefreshCw className="animate-spin text-white" size={13} />
+                    <RefreshCw className="animate-spin text-white" size={14} />
                   ) : (
                     <>
-                      <Check size={13} strokeWidth={2.5} />
-                      <span>{actionType === 'add' ? 'Confirm Add' : 'Confirm Use'}</span>
+                      <Check size={14} strokeWidth={2.5} />
+                      <span>{actionType === 'add' ? 'Confirm Addition' : 'Confirm Deduction'}</span>
                     </>
                   )}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 7. POPUP MODAL: ADDITIONS HISTORY LEDGER */}
+      {showAddHistoryModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-250 w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col transform transition-all animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="bg-emerald-700 text-white p-5 flex justify-between items-center select-none">
+              <div className="space-y-0.5">
+                <h3 className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
+                  <History size={16} />
+                  Raw Material Additions History Ledger
+                </h3>
+                <p className="text-[10px] text-emerald-100">All recorded replenishments and restock transactions</p>
+              </div>
+              <button 
+                onClick={() => setShowAddHistoryModal(false)}
+                className="p-1 hover:bg-white/10 rounded-lg text-emerald-100 hover:text-white transition-all cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Filters Bar */}
+            <div className="bg-slate-50 border-b border-slate-150 p-4 flex flex-wrap items-center justify-between gap-4 select-none">
+              <span className="text-xs font-bold text-slate-500">
+                Found {filteredAddHistoryLogs.length} addition log(s)
+              </span>
+              
+              <div className="flex items-center gap-3">
+                {/* Month Dropdown */}
+                <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-1.5 rounded-xl">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Month:</span>
+                  <select
+                    value={addHistoryMonth}
+                    onChange={(e) => setAddHistoryMonth(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                  >
+                    <option value="All">All Months</option>
+                    <option value="1">January</option>
+                    <option value="2">February</option>
+                    <option value="3">March</option>
+                    <option value="4">April</option>
+                    <option value="5">May</option>
+                    <option value="6">June</option>
+                    <option value="7">July</option>
+                    <option value="8">August</option>
+                    <option value="9">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                  </select>
+                </div>
+
+                {/* Year Dropdown */}
+                <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-1.5 rounded-xl">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Year:</span>
+                  <select
+                    value={addHistoryYear}
+                    onChange={(e) => setAddHistoryYear(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                  >
+                    <option value="All">All Years</option>
+                    <option value="2026">2026</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* List/Table */}
+            <div className="flex-1 overflow-y-auto p-5">
+              {filteredAddHistoryLogs.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 space-y-2">
+                  <History className="mx-auto text-slate-300" size={32} />
+                  <p className="text-xs font-bold text-slate-600">No Addition Logs Found</p>
+                  <p className="text-[11px] text-slate-400">Try adjusting your Month or Year filter settings.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                  <table className="w-full text-left border-collapse font-sans">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-150 text-[9px] font-extrabold text-slate-400 uppercase tracking-wider select-none">
+                        <th className="p-3 pl-4">Date</th>
+                        <th className="p-3">Material Name</th>
+                        <th className="p-3 text-right">Qty Added</th>
+                        <th className="p-3 text-center">Reconciliation Status</th>
+                        <th className="p-3">Operator</th>
+                        <th className="p-3 pl-6">Remarks / Notes</th>
+                        <th className="p-3 text-center pr-4">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100/60 text-xs text-slate-650">
+                      {filteredAddHistoryLogs.map((entry) => (
+                        <tr key={entry.log.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="p-3 pl-4 font-semibold font-mono text-slate-600 whitespace-nowrap">{formatDateToDMY(entry.log.date)}</td>
+                          <td className="p-3 font-bold text-slate-800">{entry.materialName}</td>
+                          <td className="p-3 text-right font-mono font-bold text-emerald-600">
+                            +{entry.log.quantity.toLocaleString()} {entry.materialUnit}
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100">
+                              {entry.log.reconciliation || 'Balanced'}
+                            </span>
+                          </td>
+                          <td className="p-3 font-medium text-slate-600">{entry.log.operator || 'System'}</td>
+                          <td className="p-3 pl-6 italic text-slate-500 max-w-[200px] truncate" title={entry.log.remarks}>
+                            {entry.log.remarks || '—'}
+                          </td>
+                          <td className="p-3 text-center pr-4">
+                            <button
+                              onClick={() => handleDeleteLog(entry.materialId, entry.log.id)}
+                              className="p-1 hover:bg-rose-50 border border-transparent hover:border-rose-100 text-slate-400 hover:text-rose-600 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
+                              title="Delete transaction record"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-slate-50 border-t border-slate-150 p-4.5 flex justify-end">
+              <button
+                onClick={() => setShowAddHistoryModal(false)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all active:scale-95 cursor-pointer"
+              >
+                Close Ledger Window
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. POPUP MODAL: DEDUCTIONS HISTORY LEDGER */}
+      {showUseHistoryModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-250 w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col transform transition-all animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="bg-rose-700 text-white p-5 flex justify-between items-center select-none">
+              <div className="space-y-0.5">
+                <h3 className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
+                  <History size={16} />
+                  Raw Material Usage & Deductions History Ledger
+                </h3>
+                <p className="text-[10px] text-rose-100">All recorded production floor disbursals and process usages</p>
+              </div>
+              <button 
+                onClick={() => setShowUseHistoryModal(false)}
+                className="p-1 hover:bg-white/10 rounded-lg text-rose-100 hover:text-white transition-all cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Filters Bar */}
+            <div className="bg-slate-50 border-b border-slate-150 p-4 flex flex-wrap items-center justify-between gap-4 select-none">
+              <span className="text-xs font-bold text-slate-500">
+                Found {filteredUseHistoryLogs.length} usage deduction log(s)
+              </span>
+              
+              <div className="flex items-center gap-3">
+                {/* Month Dropdown */}
+                <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-1.5 rounded-xl">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Month:</span>
+                  <select
+                    value={useHistoryMonth}
+                    onChange={(e) => setUseHistoryMonth(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                  >
+                    <option value="All">All Months</option>
+                    <option value="1">January</option>
+                    <option value="2">February</option>
+                    <option value="3">March</option>
+                    <option value="4">April</option>
+                    <option value="5">May</option>
+                    <option value="6">June</option>
+                    <option value="7">July</option>
+                    <option value="8">August</option>
+                    <option value="9">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                  </select>
+                </div>
+
+                {/* Year Dropdown */}
+                <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-1.5 rounded-xl">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Year:</span>
+                  <select
+                    value={useHistoryYear}
+                    onChange={(e) => setUseHistoryYear(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                  >
+                    <option value="All">All Years</option>
+                    <option value="2026">2026</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* List/Table */}
+            <div className="flex-1 overflow-y-auto p-5">
+              {filteredUseHistoryLogs.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 space-y-2">
+                  <History className="mx-auto text-slate-300" size={32} />
+                  <p className="text-xs font-bold text-slate-600">No Deduction Logs Found</p>
+                  <p className="text-[11px] text-slate-400">Try adjusting your Month or Year filter settings.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                  <table className="w-full text-left border-collapse font-sans">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-150 text-[9px] font-extrabold text-slate-400 uppercase tracking-wider select-none">
+                        <th className="p-3 pl-4">Date</th>
+                        <th className="p-3">Material Name</th>
+                        <th className="p-3 text-right">Quantity Used</th>
+                        <th className="p-3">Shift</th>
+                        <th className="p-3">Stage</th>
+                        <th className="p-3 text-right">Wastage</th>
+                        <th className="p-3 text-center">Status</th>
+                        <th className="p-3">Operator</th>
+                        <th className="p-3 pl-5">Remarks / Details</th>
+                        <th className="p-3 text-center pr-4">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100/60 text-xs text-slate-655">
+                      {filteredUseHistoryLogs.map((entry) => (
+                        <tr key={entry.log.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="p-3 pl-4 font-semibold font-mono text-slate-600 whitespace-nowrap">{formatDateToDMY(entry.log.date)}</td>
+                          <td className="p-3 font-bold text-slate-800">{entry.materialName}</td>
+                          <td className="p-3 text-right font-mono font-bold text-rose-600">
+                            -{entry.log.quantity.toLocaleString()} {entry.materialUnit}
+                          </td>
+                          <td className="p-3 font-semibold text-slate-700">{entry.log.shift || '—'}</td>
+                          <td className="p-3 text-slate-500 font-medium">{entry.log.stage || '—'}</td>
+                          <td className="p-3 text-right font-mono text-orange-600 font-bold">
+                            {entry.log.wastage ? `${entry.log.wastage} kg` : '0 kg'}
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-700 rounded-full border border-slate-200">
+                              {entry.log.reconciliation || 'Audited'}
+                            </span>
+                          </td>
+                          <td className="p-3 font-medium text-slate-600">{entry.log.operator || 'System'}</td>
+                          <td className="p-3 pl-5 italic text-slate-500 max-w-[160px] truncate" title={entry.log.remarks}>
+                            {entry.log.remarks || '—'}
+                          </td>
+                          <td className="p-3 text-center pr-4">
+                            <button
+                              onClick={() => handleDeleteLog(entry.materialId, entry.log.id)}
+                              className="p-1 hover:bg-rose-50 border border-transparent hover:border-rose-100 text-slate-400 hover:text-rose-600 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
+                              title="Delete transaction record"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-slate-50 border-t border-slate-150 p-4.5 flex justify-end">
+              <button
+                onClick={() => setShowUseHistoryModal(false)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all active:scale-95 cursor-pointer"
+              >
+                Close Ledger Window
+              </button>
+            </div>
           </div>
         </div>
       )}

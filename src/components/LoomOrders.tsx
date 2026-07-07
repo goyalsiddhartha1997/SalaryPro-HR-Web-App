@@ -34,6 +34,7 @@ import {
   Hammer
 } from 'lucide-react';
 import { LoomOrder, LoomOrderRow } from '../types';
+import * as XLSX from 'xlsx';
 
 interface LoomOrdersProps {
   triggerAlert: (type: 'info' | 'success' | 'warn', msg: string) => void;
@@ -259,6 +260,63 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     } catch (err) {
       console.error("Failed to update parent status", err);
       triggerAlert('warn', 'Failed to update overall order status.');
+    }
+  };
+
+  // Export current modal order data to Excel
+  const handleExportOrderToExcel = () => {
+    if (!modalOrder) return;
+
+    try {
+      // 1. Prepare Header info rows
+      const headerRows = [
+        ["PP FABRIC MANUFACTURING SPECIFICATIONS SHEET"],
+        ["Order Reference:", modalOrder.orderNo, "", "Logged Date:", modalOrder.date, "", "Overall Status:", modalOrder.status],
+        [], // empty spacer row
+        ["#", "Weave Quality", "Size / Width", "GSM", "Denier", "Fabric Weight (g)", "Target (Tons)", "Completed (Tons)", "Status", "Remarks"]
+      ];
+
+      // 2. Prepare items rows
+      const itemRows = sortedModalRows.map(({ row }, idx) => [
+        idx + 1,
+        row.quality || '',
+        row.size || '',
+        row.gsm || 0,
+        row.denier || 0,
+        row.fabricWeight || 0,
+        row.totalQuantity || 0,
+        row.productionCompleted || 0,
+        row.status || 'Pending',
+        row.remarks || ''
+      ]);
+
+      // Combine them
+      const allRows = [...headerRows, ...itemRows];
+
+      // Create sheet
+      const worksheet = XLSX.utils.aoa_to_sheet(allRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, `Order_${modalOrder.orderNo}`);
+
+      // Auto columns sizing
+      worksheet['!cols'] = [
+        { wch: 6 },  // #
+        { wch: 25 }, // Quality
+        { wch: 15 }, // Size
+        { wch: 10 }, // GSM
+        { wch: 10 }, // Denier
+        { wch: 15 }, // Fabric weight
+        { wch: 15 }, // Target Quantity
+        { wch: 18 }, // Production Completed
+        { wch: 12 }, // Status
+        { wch: 30 }  // Remarks
+      ];
+
+      XLSX.writeFile(workbook, `PP_Fabric_Order_${modalOrder.orderNo}_Details.xlsx`);
+      triggerAlert('success', `Exported Order "${modalOrder.orderNo}" details to Excel successfully.`);
+    } catch (err) {
+      console.error("Failed to export order to Excel", err);
+      triggerAlert('warn', 'Failed to generate Excel export.');
     }
   };
 
@@ -969,7 +1027,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               </div>
 
               {/* Header Right: Status Manager & Dismiss */}
-              <div className="flex items-center gap-3 self-stretch md:self-auto justify-between md:justify-end border-t border-zinc-850 pt-3.5 md:pt-0 md:border-0">
+              <div className="flex flex-wrap items-center gap-3 self-stretch md:self-auto justify-between md:justify-end border-t border-zinc-850 pt-3.5 md:pt-0 md:border-0">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
                     Overall Status:
@@ -986,12 +1044,21 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 </div>
 
                 <button
+                  onClick={handleExportOrderToExcel}
+                  className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  title="Export Order to Excel Sheet"
+                >
+                  <FileSpreadsheet size={14} className="text-white" />
+                  <span>Export to Excel</span>
+                </button>
+
+                <button
                   onClick={() => {
                     setActiveModalOrderId(null);
                     setEditingRowIndex(null);
                     setDeleteConfirmSubIdx(null);
                   }}
-                  className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 transition-all flex items-center justify-center"
+                  className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 transition-all flex items-center justify-center cursor-pointer"
                   title="Close Registry Modal"
                 >
                   <X size={16} className="stroke-[2.5]" />

@@ -366,7 +366,7 @@ export default function App() {
 
       // --- SELF-HEALING / UPGRADE SALARIES FROM JUNE & MAY OVERRIDES ---
       // We promote June 2026 overrides or specific corrections (like Raju Tiwari) to become master values permanently.
-      if (firestoreEmployees.length > 0) {
+      if (!isMigratedV2 && firestoreEmployees.length > 0) {
         const migrationBatch = writeBatch(db);
         let migrationNeeded = false;
 
@@ -472,37 +472,35 @@ export default function App() {
       const logs: Record<string, Record<string, string[]>> = {};
       const overrides: Record<string, Record<string, any>> = {};
 
-      // Pull data concurrently for active employees and targeted months
-      await Promise.all(liveEmployeeIds.map(async (empId) => {
-        try {
-          // Fetch punches for this employee for each of the selected months to sync
-          await Promise.all(Array.from(monthsToSync).map(async (mStr) => {
-            const startDate = `${mStr}-01`;
-            const endDate = `${mStr}-31`;
-            const punchesQuery = query(
-              collection(db, 'employees', empId, 'punches'),
-              where('date', '>=', startDate),
-              where('date', '<=', endDate)
-            );
-            const punchesSnap = await getDocs(punchesQuery);
-            
-            punchesSnap.forEach((docSnap) => {
-              const punchesData = docSnap.data().punches || [];
-              const date = docSnap.id;
-              if (date) {
-                if (!logs[empId]) {
-                  logs[empId] = {};
-                }
-                logs[empId][date] = punchesData;
-              }
-            });
-          }));
+      // Pull data using collection group queries to fetch all employees' records at once (massively reduces network roundtrips and avoids connection limits/timeout in published environment)
+      try {
+        const [punchesSnapshot, overridesSnapshot] = await Promise.all([
+          getDocs(collectionGroup(db, 'punches')),
+          getDocs(collectionGroup(db, 'monthlyPayroll'))
+        ]);
 
-          // Fetch payroll override document for this focused month
-          const payrollRef = doc(db, 'employees', empId, 'monthlyPayroll', monthStr);
-          const payrollSnap = await getDoc(payrollRef);
-          if (payrollSnap.exists()) {
-            const data = payrollSnap.data();
+        punchesSnapshot.forEach((docSnap) => {
+          const punchesData = docSnap.data().punches || [];
+          const date = docSnap.id;
+          const empId = docSnap.ref.parent?.parent?.id;
+
+          if (empId && date) {
+            const dateMonthStr = date.substring(0, 7);
+            if (monthsToSync.has(dateMonthStr)) {
+              if (!logs[empId]) {
+                logs[empId] = {};
+              }
+              logs[empId][date] = punchesData;
+            }
+          }
+        });
+
+        overridesSnapshot.forEach((docSnap) => {
+          const mStr = docSnap.id;
+          const data = docSnap.data();
+          const empId = docSnap.ref.parent?.parent?.id;
+
+          if (empId && mStr === monthStr) {
             if (!overrides[empId]) {
               overrides[empId] = {};
             }
@@ -522,10 +520,10 @@ export default function App() {
               advances: Array.isArray(data.advances) ? data.advances : undefined,
             };
           }
-        } catch (subErr) {
-          console.warn(`Could not sync detailed subcollections for Employee ID ${empId}:`, subErr);
-        }
-      }));
+        });
+      } catch (subErr) {
+        console.warn("Could not sync detailed subcollections using collection groups:", subErr);
+      }
 
        // Merge newly fetched month data into in-memory states and local cache, deleting any dates in the synced range that are no longer in Firestore
       setAllPunchLogs(prev => {
@@ -608,7 +606,7 @@ export default function App() {
     fetchAllData(true); // Silent sync on initial load or focused month/year shift
   }, [ledgerMonth, ledgerYear]);
 
-  // Pre-seed custom login for Laxman Verma as a fallback
+  // Pre-seed custom login for Laxman Verma and Demo Account as a fallback
   useEffect(() => {
     const seedCustomUser = async () => {
       try {
@@ -623,6 +621,19 @@ export default function App() {
             createdAt: new Date().toISOString()
           });
           console.log("Seeded custom login credentials for Laxman Verma");
+        }
+
+        const demoRef = doc(db, 'custom_users', 'demo@fortuneflexipack.com');
+        const demoSnap = await getDoc(demoRef);
+        if (!demoSnap.exists()) {
+          await setDoc(demoRef, {
+            email: 'demo@fortuneflexipack.com',
+            password: 'Paonta@2025',
+            role: 'observer',
+            name: 'Demo Account',
+            createdAt: new Date().toISOString()
+          });
+          console.log("Seeded custom login credentials for Demo Account");
         }
       } catch (err) {
         console.error("Failed to seed custom login credentials:", err);
@@ -735,7 +746,8 @@ export default function App() {
         localStorage.setItem('salarypro_logged_in_photo', photo);
       } else {
         const cachedEmail = localStorage.getItem('salarypro_logged_in_email') || '';
-        if (cachedEmail.toLowerCase() !== 'hr@fortuneflexipack.com') {
+        const isCustomEmail = ['hr@fortuneflexipack.com', 'demo@fortuneflexipack.com', 'laxmanverma@fortuneflexipack.com'].includes(cachedEmail.toLowerCase());
+        if (!isCustomEmail) {
           setLoggedInEmail(null);
           setLoggedInName(null);
           setLoggedInPhoto(null);
@@ -1990,28 +2002,75 @@ export default function App() {
         return;
       }
 
-      // ONLY allow hr@fortuneflexipack.com for Custom Email sign-in
-      if (trimmedEmail !== 'hr@fortuneflexipack.com') {
-        setOtpError('Unauthorized email. Only hr@fortuneflexipack.com is permitted to login.');
+      let authenticated = false;
+      let userName = '';
+      let userEmail = '';
+
+      if (trimmedEmail === 'hr@fortuneflexipack.com') {
+        if (trimmedPassword === 'Paonta@2025') {
+          authenticated = true;
+          userName = 'HR Fortuneflexipack';
+          userEmail = 'hr@fortuneflexipack.com';
+        } else {
+          setOtpError('Incorrect password. Please verify and try again.');
+          setAuthLoading(false);
+          return;
+        }
+      } else if (trimmedEmail === 'demo@fortuneflexipack.com') {
+        if (trimmedPassword === 'Paonta@2025') {
+          authenticated = true;
+          userName = 'Demo Account';
+          userEmail = 'demo@fortuneflexipack.com';
+        } else {
+          setOtpError('Incorrect password. Please verify and try again.');
+          setAuthLoading(false);
+          return;
+        }
+      } else if (trimmedEmail === 'laxmanverma@fortuneflexipack.com') {
+        if (trimmedPassword === 'Paonta@2025') {
+          authenticated = true;
+          userName = 'Laxman Verma';
+          userEmail = 'laxmanverma@fortuneflexipack.com';
+        } else {
+          setOtpError('Incorrect password. Please verify and try again.');
+          setAuthLoading(false);
+          return;
+        }
+      } else {
+        // Query Firestore custom_users collection as a fallback
+        try {
+          const userRef = doc(db, 'custom_users', trimmedEmail);
+          const snap = await getDoc(userRef);
+          if (snap.exists()) {
+            const userData = snap.data();
+            if (userData.password === trimmedPassword) {
+              authenticated = true;
+              userName = userData.name || userData.email.split('@')[0] || 'User';
+              userEmail = userData.email;
+            } else {
+              setOtpError('Incorrect password. Please verify and try again.');
+              setAuthLoading(false);
+              return;
+            }
+          }
+        } catch (err) {
+          console.error("Firestore custom_users check failed:", err);
+        }
+      }
+
+      if (!authenticated) {
+        setOtpError('Unauthorized email. This email is not permitted to login.');
         setAuthLoading(false);
         return;
       }
 
-      if (trimmedPassword !== 'Paonta@2025') {
-        setOtpError('Incorrect password. Please verify and try again.');
-        setAuthLoading(false);
-        return;
-      }
-
-      const email = 'hr@fortuneflexipack.com';
-      const name = 'HR Fortuneflexipack';
-      setLoggedInEmail(email);
-      setLoggedInName(name);
+      setLoggedInEmail(userEmail);
+      setLoggedInName(userName);
       setLoggedInPhoto('');
-      localStorage.setItem('salarypro_logged_in_email', email);
-      localStorage.setItem('salarypro_logged_in_name', name);
+      localStorage.setItem('salarypro_logged_in_email', userEmail);
+      localStorage.setItem('salarypro_logged_in_name', userName);
       localStorage.setItem('salarypro_logged_in_photo', '');
-      triggerAlert('success', `Logged in successfully! Welcome Observer (${email})`);
+      triggerAlert('success', `Logged in successfully! Welcome Observer (${userEmail})`);
       setAuthLoading(false);
     };
 
@@ -2670,7 +2729,7 @@ export default function App() {
             <span>
               Enterprise Ledger Access Rights: {hasEditingRights ? (
                 <strong className="text-emerald-700">Admin Supervisor (🟢 Read & Write)</strong>
-              ) : loggedInEmail === 'laxmanverma@fortuneflexipack.com' ? (
+              ) : (loggedInEmail === 'laxmanverma@fortuneflexipack.com' || loggedInEmail === 'demo@fortuneflexipack.com') ? (
                 <strong className="text-slate-700">Read-Only Administrator (🟢 Full Views, View-Only)</strong>
               ) : (
                 <strong className="text-amber-700">Guest Observer (⚠️ Read-Only Restriction)</strong>

@@ -830,16 +830,14 @@ export default function AttendanceImport({
   const [highlightAutoPunches, setHighlightAutoPunches] = useState<boolean>(false);
   const [exportEmployeeId, setExportEmployeeId] = useState<string>('');
 
+  const lastProcessedLedger = useRef({ year: ledgerYear || 0, month: ledgerMonth || 0 });
+
   // Sync parent ledgerMonth and ledgerYear down to historyDate
   useEffect(() => {
     if (ledgerYear && ledgerMonth) {
-      const parts = historyDate.split('-');
-      if (parts.length === 3) {
-        const selectYr = parseInt(parts[0], 10);
-        const selectMo = parseInt(parts[1], 10);
-        if (selectYr !== ledgerYear || selectMo !== ledgerMonth) {
-          setHistoryDate(`${ledgerYear}-${String(ledgerMonth).padStart(2, '0')}-01`);
-        }
+      if (ledgerYear !== lastProcessedLedger.current.year || ledgerMonth !== lastProcessedLedger.current.month) {
+        lastProcessedLedger.current = { year: ledgerYear, month: ledgerMonth };
+        setHistoryDate(`${ledgerYear}-${String(ledgerMonth).padStart(2, '0')}-01`);
       }
     }
   }, [ledgerMonth, ledgerYear]);
@@ -852,11 +850,16 @@ export default function AttendanceImport({
       const year = parseInt(parts[0], 10);
       const month = parseInt(parts[1], 10);
       if (!isNaN(year) && !isNaN(month)) {
-        if (setLedgerMonth && month !== ledgerMonth) {
-          setLedgerMonth(month);
-        }
-        if (setLedgerYear && year !== ledgerYear) {
-          setLedgerYear(year);
+        const currentMonth = ledgerMonth || 0;
+        const currentYear = ledgerYear || 0;
+        if ((setLedgerMonth && month !== currentMonth) || (setLedgerYear && year !== currentYear)) {
+          lastProcessedLedger.current = { year, month };
+          if (setLedgerMonth && month !== currentMonth) {
+            setLedgerMonth(month);
+          }
+          if (setLedgerYear && year !== currentYear) {
+            setLedgerYear(year);
+          }
         }
       }
     }

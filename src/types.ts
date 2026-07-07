@@ -109,6 +109,10 @@ export interface InventoryLog {
   remarks?: string;
   operator?: string;
   createdAt: string;
+  shift?: 'Day Shift' | 'Night Shift';
+  stage?: string;
+  wastage?: number;
+  reconciliation?: string;
 }
 
 export interface RawMaterialItem {
