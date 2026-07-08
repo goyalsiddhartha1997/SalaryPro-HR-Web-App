@@ -2268,14 +2268,14 @@ export default function App() {
             {/* Gate Pass Employee Record Link */}
             <button
               onClick={() => { setActiveTab('gatepass'); setMobileMenuOpen(false); }}
-              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
+              className={`w-full flex items-center justify-start text-left gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
                 activeTab === 'gatepass' 
                   ? 'bg-slate-55 text-slate-850 font-black shadow-sm' 
                   : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
               }`}
             >
               <ClipboardList size={16} className={activeTab === 'gatepass' ? 'text-amber-500' : ''} />
-              <span>Gate Pass Employee Record</span>
+              <span className="truncate">Gate Pass Emp Record</span>
             </button>
 
             {/* Overtime Logs Link */}

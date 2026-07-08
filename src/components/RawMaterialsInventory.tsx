@@ -103,6 +103,12 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
   const [ledgerAuditDate, setLedgerAuditDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [ledgerAuditShift, setLedgerAuditShift] = useState<'All' | 'Day Shift' | 'Night Shift'>('All');
 
+  // Metrics date filters for plant usage overview
+  const [metricsFilterMode, setMetricsFilterMode] = useState<'single' | 'range'>('single');
+  const [metricsSingleDate, setMetricsSingleDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [metricsRangeStart, setMetricsRangeStart] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [metricsRangeEnd, setMetricsRangeEnd] = useState<string>(new Date().toISOString().split('T')[0]);
+
   // Popup History Modals States
   const [showAddHistoryModal, setShowAddHistoryModal] = useState<boolean>(false);
   const [showUseHistoryModal, setShowUseHistoryModal] = useState<boolean>(false);
@@ -264,9 +270,24 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
 
   // ----------------- COMPUTE PERSISTENT DAILY/SHIFT AUDIT LEDGER -----------------
   const dailyAuditLedgerData = useMemo(() => {
-    return items
+    const rows: {
+      id: string;
+      itemId: string;
+      name: string;
+      category: string;
+      unit: string;
+      shift: 'Day Shift' | 'Night Shift';
+      openingStock: number;
+      consumption: number;
+      wastage: number;
+      additions: number;
+      finalStock: number;
+      remarks: string;
+    }[] = [];
+
+    items
       .filter(item => item.id !== 'seed_marker')
-      .map(item => {
+      .forEach(item => {
         // Sort logs in reverse chronological order to reconstruct balance backwards from current balance
         const sortedLogs = [...(item.logs || [])].sort((a, b) => {
           const timeA = a.date + 'T' + (a.createdAt?.split('T')[1] || '00:00:00');
@@ -292,41 +313,172 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
           };
         });
 
-        // Find usage/consumption logs on the specific ledgerAuditDate
-        const usageOnDate = logsWithBalance.filter(l => 
-          l.date === ledgerAuditDate && 
-          l.type === 'use_stock' &&
-          (ledgerAuditShift === 'All' || l.shift === ledgerAuditShift)
-        );
-
-        const totalConsumed = usageOnDate.reduce((sum, l) => sum + l.quantity, 0);
-        const totalWastage = usageOnDate.reduce((sum, l) => sum + (l.wastage || 0), 0);
-        const remarksList = usageOnDate.map(l => l.remarks).filter(Boolean).join(', ');
-
-        // Compute Opening & Final stocks on ledgerAuditDate
-        // The final stock level on ledgerAuditDate is the balance AFTER the latest transaction on or before that date.
+        // Compute overall Opening & Final stocks on ledgerAuditDate
         const logsPriorOrOnDate = logsWithBalance.filter(l => l.date <= ledgerAuditDate);
         const latestLogOnOrBefore = logsPriorOrOnDate[0];
-        const finalStock = latestLogOnOrBefore ? latestLogOnOrBefore.stockAfter : runningStock;
+        const finalStockOfDay = latestLogOnOrBefore ? latestLogOnOrBefore.stockAfter : runningStock;
 
-        // Opening stock is the balance BEFORE the oldest transaction on ledgerAuditDate.
         const logsOnDate = logsWithBalance.filter(l => l.date === ledgerAuditDate);
         const oldestLogOnDate = logsOnDate[logsOnDate.length - 1];
-        const openingStock = oldestLogOnDate ? oldestLogOnDate.stockBefore : finalStock;
+        const openingStockOfDay = oldestLogOnDate ? oldestLogOnDate.stockBefore : finalStockOfDay;
 
-        return {
-          id: item.id,
-          name: item.name,
-          unit: item.unit,
-          category: item.category,
-          openingStock,
-          consumption: totalConsumed,
-          wastage: totalWastage,
-          finalStock,
-          remarks: remarksList || (usageOnDate.length > 0 ? '' : 'No usage today')
-        };
+        // Separate transactions into Day Shift and Night Shift
+        const dayLogs = logsOnDate.filter(l => !l.shift || l.shift === 'Day Shift');
+        const nightLogs = logsOnDate.filter(l => l.shift === 'Night Shift');
+
+        // --- Day Shift Calculation ---
+        const dayConsumed = dayLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + l.quantity, 0);
+        const dayWastage = dayLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + (l.wastage || 0), 0);
+        const dayAdded = dayLogs.filter(l => l.type === 'add_stock').reduce((sum, l) => sum + l.quantity, 0);
+        
+        const dayOpeningStock = openingStockOfDay;
+        let dayClosingStock = dayOpeningStock + dayAdded - dayConsumed - dayWastage;
+        if (dayLogs.length > 0) {
+          dayClosingStock = dayLogs[0].stockAfter;
+        }
+
+        const dayRemarks = dayLogs.map(l => l.remarks).filter(Boolean).join(', ') || (dayLogs.length > 0 ? '' : 'No usage in Day Shift');
+
+        // --- Night Shift Calculation ---
+        const nightConsumed = nightLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + l.quantity, 0);
+        const nightWastage = nightLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + (l.wastage || 0), 0);
+        const nightAdded = nightLogs.filter(l => l.type === 'add_stock').reduce((sum, l) => sum + l.quantity, 0);
+
+        const nightOpeningStock = dayClosingStock; // Night shift opening is Day shift closing
+        let nightClosingStock = nightOpeningStock + nightAdded - nightConsumed - nightWastage;
+        if (nightLogs.length > 0) {
+          nightClosingStock = nightLogs[0].stockAfter;
+        }
+
+        const nightRemarks = nightLogs.map(l => l.remarks).filter(Boolean).join(', ') || (nightLogs.length > 0 ? '' : 'No usage in Night Shift');
+
+        // Add to rows depending on ledgerAuditShift
+        if (ledgerAuditShift === 'All' || ledgerAuditShift === 'Day Shift') {
+          rows.push({
+            id: `${item.id}_Day`,
+            itemId: item.id,
+            name: item.name,
+            category: item.category,
+            unit: item.unit,
+            shift: 'Day Shift',
+            openingStock: dayOpeningStock,
+            consumption: dayConsumed,
+            wastage: dayWastage,
+            additions: dayAdded,
+            finalStock: dayClosingStock,
+            remarks: dayRemarks
+          });
+        }
+
+        if (ledgerAuditShift === 'All' || ledgerAuditShift === 'Night Shift') {
+          rows.push({
+            id: `${item.id}_Night`,
+            itemId: item.id,
+            name: item.name,
+            category: item.category,
+            unit: item.unit,
+            shift: 'Night Shift',
+            openingStock: nightOpeningStock,
+            consumption: nightConsumed,
+            wastage: nightWastage,
+            additions: nightAdded,
+            finalStock: nightClosingStock,
+            remarks: nightRemarks
+          });
+        }
       });
+
+    return rows;
   }, [items, ledgerAuditDate, ledgerAuditShift]);
+
+  // Compute shift-wise summary for all active materials on ledgerAuditDate
+  const ledgerSummary = useMemo(() => {
+    let dayOpeningTotal = 0;
+    let dayClosingTotal = 0;
+    let nightOpeningTotal = 0;
+    let nightClosingTotal = 0;
+
+    items
+      .filter(item => item.id !== 'seed_marker')
+      .forEach(item => {
+        const sortedLogs = [...(item.logs || [])].sort((a, b) => {
+          const timeA = a.date + 'T' + (a.createdAt?.split('T')[1] || '00:00:00');
+          const timeB = b.date + 'T' + (b.createdAt?.split('T')[1] || '00:00:00');
+          return timeB.localeCompare(timeA);
+        });
+
+        let runningStock = item.currentStock;
+        const logsWithBalance = sortedLogs.map(log => {
+          const stockAfter = runningStock;
+          let stockBefore = runningStock;
+          if (log.type === 'add_stock') {
+            stockBefore = runningStock - log.quantity;
+          } else if (log.type === 'use_stock') {
+            stockBefore = runningStock + log.quantity;
+          }
+          runningStock = stockBefore;
+          return { ...log, stockBefore, stockAfter };
+        });
+
+        const logsPriorOrOnDate = logsWithBalance.filter(l => l.date <= ledgerAuditDate);
+        const latestLogOnOrBefore = logsPriorOrOnDate[0];
+        const finalStockOfDay = latestLogOnOrBefore ? latestLogOnOrBefore.stockAfter : runningStock;
+
+        const logsOnDate = logsWithBalance.filter(l => l.date === ledgerAuditDate);
+        const oldestLogOnDate = logsOnDate[logsOnDate.length - 1];
+        const openingStockOfDay = oldestLogOnDate ? oldestLogOnDate.stockBefore : finalStockOfDay;
+
+        const dayLogs = logsOnDate.filter(l => !l.shift || l.shift === 'Day Shift');
+        const nightLogs = logsOnDate.filter(l => l.shift === 'Night Shift');
+
+        const dayConsumed = dayLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + l.quantity, 0);
+        const dayWastage = dayLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + (l.wastage || 0), 0);
+        const dayAdded = dayLogs.filter(l => l.type === 'add_stock').reduce((sum, l) => sum + l.quantity, 0);
+        
+        const dayOpeningStock = openingStockOfDay;
+        let dayClosingStock = dayOpeningStock + dayAdded - dayConsumed - dayWastage;
+        if (dayLogs.length > 0) {
+          dayClosingStock = dayLogs[0].stockAfter;
+        }
+
+        const nightConsumed = nightLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + l.quantity, 0);
+        const nightWastage = nightLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + (l.wastage || 0), 0);
+        const nightAdded = nightLogs.filter(l => l.type === 'add_stock').reduce((sum, l) => sum + l.quantity, 0);
+
+        const nightOpeningStock = dayClosingStock;
+        let nightClosingStock = nightOpeningStock + nightAdded - nightConsumed - nightWastage;
+        if (nightLogs.length > 0) {
+          nightClosingStock = nightLogs[0].stockAfter;
+        }
+
+        dayOpeningTotal += dayOpeningStock;
+        dayClosingTotal += dayClosingStock;
+        nightOpeningTotal += nightOpeningStock;
+        nightClosingTotal += nightClosingStock;
+      });
+
+    return {
+      dayOpeningTotal,
+      dayClosingTotal,
+      nightOpeningTotal,
+      nightClosingTotal
+    };
+  }, [items, ledgerAuditDate]);
+
+  // Compute visible columns sum
+  const visibleTotals = useMemo(() => {
+    let opening = 0;
+    let consumption = 0;
+    let wastage = 0;
+    let finalStock = 0;
+    dailyAuditLedgerData.forEach(row => {
+      opening += row.openingStock;
+      consumption += row.consumption;
+      wastage += row.wastage;
+      finalStock += row.finalStock;
+    });
+    return { opening, consumption, wastage, finalStock };
+  }, [dailyAuditLedgerData]);
 
   // ----------------- COMPILE & FILTER LOGS FOR MATERIAL AUDIT LEDGERS -----------------
   const allLogs = useMemo(() => {
@@ -425,8 +577,6 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
     let totalVarieties = items.length;
     let todayUsageKgs = 0;
 
-    const todayStr = new Date().toISOString().split('T')[0];
-
     items.forEach(item => {
       // Stock conversion to display equivalent (assume mostly kg)
       totalStockKgs += item.currentStock;
@@ -434,11 +584,19 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         lowStockCount++;
       }
 
-      // Today's usage accumulation
+      // Usage accumulation based on filters
       if (item.logs) {
         item.logs.forEach(log => {
-          if (log.date === todayStr && log.type === 'use_stock') {
-            todayUsageKgs += log.quantity;
+          if (log.type === 'use_stock') {
+            if (metricsFilterMode === 'single') {
+              if (log.date === metricsSingleDate) {
+                todayUsageKgs += log.quantity;
+              }
+            } else {
+              if (log.date >= metricsRangeStart && log.date <= metricsRangeEnd) {
+                todayUsageKgs += log.quantity;
+              }
+            }
           }
         });
       }
@@ -450,7 +608,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       totalVarieties,
       todayUsageKgs
     };
-  }, [items]);
+  }, [items, metricsFilterMode, metricsSingleDate, metricsRangeStart, metricsRangeEnd]);
 
   // Add New Material Submission
   const handleAddNewMaterial = async (e: React.FormEvent) => {
@@ -939,7 +1097,131 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         </div>
       </div>
 
-      {/* 2. STATS OVERVIEW CARDS */}
+      {/* 2. PLANT USAGE METRIC DATE FILTER */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-4.5 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between select-none">
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="p-2.5 bg-rose-50 text-rose-600 rounded-xl">
+            <Calendar size={18} />
+          </div>
+          <div>
+            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Usage Telemetry Period</h4>
+            <p className="text-[10px] text-slate-450 font-bold uppercase">Configure date filters to analyze plant consumption metrics</p>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto justify-end">
+          {/* Mode Selector Toggle Button Group */}
+          <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+            <button
+              onClick={() => setMetricsFilterMode('single')}
+              className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                metricsFilterMode === 'single'
+                  ? 'bg-white text-slate-900 shadow-2xs'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Single Date
+            </button>
+            <button
+              onClick={() => setMetricsFilterMode('range')}
+              className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                metricsFilterMode === 'range'
+                  ? 'bg-white text-slate-900 shadow-2xs'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Date Range
+            </button>
+          </div>
+
+          {/* Date Picker Controls */}
+          {metricsFilterMode === 'single' ? (
+            <div className="flex items-center gap-1.5 w-full sm:w-auto">
+              <button
+                onClick={() => {
+                  const d = new Date(metricsSingleDate);
+                  d.setDate(d.getDate() - 1);
+                  setMetricsSingleDate(d.toISOString().split('T')[0]);
+                }}
+                className="h-9 w-9 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl flex items-center justify-center text-slate-600 active:scale-95 transition-all cursor-pointer"
+                title="Previous Day"
+              >
+                &larr;
+              </button>
+              <input
+                type="date"
+                value={metricsSingleDate}
+                onChange={(e) => setMetricsSingleDate(e.target.value)}
+                className="h-9 px-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-extrabold focus:outline-none focus:border-amber-400 focus:bg-white text-slate-700 w-full sm:w-40"
+              />
+              <button
+                onClick={() => {
+                  const d = new Date(metricsSingleDate);
+                  d.setDate(d.getDate() + 1);
+                  setMetricsSingleDate(d.toISOString().split('T')[0]);
+                }}
+                className="h-9 w-9 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl flex items-center justify-center text-slate-600 active:scale-95 transition-all cursor-pointer"
+                title="Next Day"
+              >
+                &rarr;
+              </button>
+              <button
+                onClick={() => setMetricsSingleDate(new Date().toISOString().split('T')[0])}
+                className="h-9 px-2.5 bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer active:scale-95 transition-all"
+              >
+                Today
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 w-full sm:w-auto">
+              <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-bold w-full sm:w-auto">
+                <span className="text-[9px] text-slate-400 uppercase tracking-widest font-black pr-1">From</span>
+                <input
+                  type="date"
+                  value={metricsRangeStart}
+                  onChange={(e) => setMetricsRangeStart(e.target.value)}
+                  className="bg-transparent border-none p-0 text-xs font-extrabold focus:outline-none text-slate-700 w-full sm:w-32"
+                />
+              </div>
+              <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-bold w-full sm:w-auto">
+                <span className="text-[9px] text-slate-400 uppercase tracking-widest font-black pr-1">To</span>
+                <input
+                  type="date"
+                  value={metricsRangeEnd}
+                  onChange={(e) => setMetricsRangeEnd(e.target.value)}
+                  className="bg-transparent border-none p-0 text-xs font-extrabold focus:outline-none text-slate-700 w-full sm:w-32"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                <button
+                  onClick={() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    setMetricsRangeStart(today);
+                    setMetricsRangeEnd(today);
+                  }}
+                  className="h-9 flex-1 sm:flex-none px-2.5 bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer"
+                >
+                  Today
+                </button>
+                <button
+                  onClick={() => {
+                    const end = new Date();
+                    const start = new Date();
+                    start.setDate(end.getDate() - 7);
+                    setMetricsRangeStart(start.toISOString().split('T')[0]);
+                    setMetricsRangeEnd(end.toISOString().split('T')[0]);
+                  }}
+                  className="h-9 flex-1 sm:flex-none px-2.5 bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer"
+                >
+                  7 Days
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 3. STATS OVERVIEW CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
         {/* Metric 1: Total Varieties */}
         <div className="bg-white border border-slate-200/85 p-5 rounded-3xl shadow-sm hover:shadow-md transition-all">
@@ -969,17 +1251,24 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
           </div>
         </div>
 
-        {/* Metric 3: Today's Deductions */}
+        {/* Metric 3: Plant Usage */}
         <div className="bg-white border border-slate-200/85 p-5 rounded-3xl shadow-sm hover:shadow-md transition-all">
           <div className="flex justify-between items-start">
-            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">Today's Plant Usage</span>
+            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">
+              {metricsFilterMode === 'single' ? 'Selected Plant Usage' : 'Range Plant Usage'}
+            </span>
             <span className="p-2 bg-rose-50 text-rose-600 rounded-xl animate-pulse">
               <TrendingDown size={16} />
             </span>
           </div>
           <div className="mt-3 space-y-1">
             <h3 className="text-xl sm:text-2xl font-black text-rose-600 font-mono tracking-tight">{metrics.todayUsageKgs.toLocaleString()} kg</h3>
-            <p className="text-xs text-rose-500 font-extrabold uppercase tracking-wider">Auto-deductions today</p>
+            <p className="text-[10px] text-rose-500 font-extrabold uppercase tracking-wider">
+              {metricsFilterMode === 'single' 
+                ? `Usage on ${formatDateToDMY(metricsSingleDate)}`
+                : `${formatDateToDMY(metricsRangeStart)} to ${formatDateToDMY(metricsRangeEnd)}`
+              }
+            </p>
           </div>
         </div>
 
@@ -1430,6 +1719,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                 <tr className="bg-slate-900 border-b border-slate-800 text-[11px] font-black text-slate-100 uppercase tracking-wider select-none">
                   <th className="py-4 px-5 pl-6">Material Name</th>
                   <th className="py-4 px-5">Category</th>
+                  <th className="py-4 px-5">Shift</th>
                   <th className="py-4 px-5 text-right">Opening Stock</th>
                   <th className="py-4 px-5 text-right font-black">Consumption</th>
                   <th className="py-4 px-5 text-right">Wastage</th>
@@ -1452,6 +1742,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                           {row.category}
                         </span>
                       </td>
+                      <td className="py-4 px-5">
+                        <span className={`px-2.5 py-0.5 text-[10px] font-black rounded-full border whitespace-nowrap inline-block ${
+                          row.shift === 'Day Shift' 
+                            ? 'bg-amber-50 text-amber-700 border-amber-200' 
+                            : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                        }`}>
+                          {row.shift}
+                        </span>
+                      </td>
                       <td className="py-4 px-5 text-right font-mono font-bold text-slate-700 text-[13px]">
                         {row.openingStock.toLocaleString()} {row.unit}
                       </td>
@@ -1471,7 +1770,96 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                   );
                 })}
               </tbody>
+              <tfoot className="bg-slate-50 border-t border-slate-200 font-bold text-slate-800 text-[11px] uppercase tracking-wide">
+                <tr>
+                  <td className="py-4 px-5 pl-6" colSpan={3}>Grand Total (Current View)</td>
+                  <td className="py-4 px-5 text-right font-mono font-black text-[13px]">{visibleTotals.opening.toLocaleString()} kg</td>
+                  <td className="py-4 px-5 text-right font-mono font-black text-[13px] text-rose-600">
+                    {visibleTotals.consumption > 0 ? `-${visibleTotals.consumption.toLocaleString()}` : '0'} kg
+                  </td>
+                  <td className="py-4 px-5 text-right font-mono font-black text-[13px] text-orange-600">
+                    {visibleTotals.wastage > 0 ? `${visibleTotals.wastage.toLocaleString()} kg` : '—'}
+                  </td>
+                  <td className="py-4 px-5 text-right font-mono font-black text-[13px]">{visibleTotals.finalStock.toLocaleString()} kg</td>
+                  <td className="py-4 px-5 pl-8" />
+                </tr>
+              </tfoot>
             </table>
+          </div>
+
+          {/* Shift-Wise Summary Cards */}
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 select-none">
+            {/* Day Shift Summary Card */}
+            {(ledgerAuditShift === 'All' || ledgerAuditShift === 'Day Shift') && (
+              <div className="bg-gradient-to-br from-amber-50/60 to-amber-100/30 border border-amber-200/60 rounded-2xl p-5 flex flex-col justify-between shadow-xs">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                      <h4 className="text-xs font-black text-amber-900 uppercase tracking-wider">Day Shift Summary</h4>
+                    </div>
+                    <span className="text-[10px] bg-amber-100 text-amber-800 font-black px-2 py-0.5 rounded-md uppercase">08:00 - 20:00</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider block">Total Opening Stock</span>
+                      <span className="text-lg font-mono font-black text-amber-950">{ledgerSummary.dayOpeningTotal.toLocaleString()} kg</span>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider block">Total Closing Stock</span>
+                      <span className="text-lg font-mono font-black text-amber-950">{ledgerSummary.dayClosingTotal.toLocaleString()} kg</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-amber-200/50 flex items-center justify-between text-xs font-bold text-amber-900">
+                  <span>Net Stock Change:</span>
+                  <span className={`font-mono font-black px-2.5 py-0.5 rounded-lg text-xs ${
+                    ledgerSummary.dayClosingTotal >= ledgerSummary.dayOpeningTotal 
+                      ? 'bg-emerald-100 text-emerald-800' 
+                      : 'bg-rose-100 text-rose-800'
+                  }`}>
+                    {ledgerSummary.dayClosingTotal >= ledgerSummary.dayOpeningTotal ? '+' : ''}
+                    {(ledgerSummary.dayClosingTotal - ledgerSummary.dayOpeningTotal).toLocaleString()} kg
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Night Shift Summary Card */}
+            {(ledgerAuditShift === 'All' || ledgerAuditShift === 'Night Shift') && (
+              <div className="bg-gradient-to-br from-indigo-50/60 to-indigo-100/30 border border-indigo-200/60 rounded-2xl p-5 flex flex-col justify-between shadow-xs">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
+                      <h4 className="text-xs font-black text-indigo-900 uppercase tracking-wider">Night Shift Summary</h4>
+                    </div>
+                    <span className="text-[10px] bg-indigo-100 text-indigo-800 font-black px-2 py-0.5 rounded-md uppercase">20:00 - 08:00</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider block">Total Opening Stock</span>
+                      <span className="text-lg font-mono font-black text-indigo-950">{ledgerSummary.nightOpeningTotal.toLocaleString()} kg</span>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider block">Total Closing Stock</span>
+                      <span className="text-lg font-mono font-black text-indigo-950">{ledgerSummary.nightClosingTotal.toLocaleString()} kg</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-indigo-200/50 flex items-center justify-between text-xs font-bold text-indigo-900">
+                  <span>Net Stock Change:</span>
+                  <span className={`font-mono font-black px-2.5 py-0.5 rounded-lg text-xs ${
+                    ledgerSummary.nightClosingTotal >= ledgerSummary.nightOpeningTotal 
+                      ? 'bg-emerald-100 text-emerald-800' 
+                      : 'bg-rose-100 text-rose-800'
+                  }`}>
+                    {ledgerSummary.nightClosingTotal >= ledgerSummary.nightOpeningTotal ? '+' : ''}
+                    {(ledgerSummary.nightClosingTotal - ledgerSummary.nightOpeningTotal).toLocaleString()} kg
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
