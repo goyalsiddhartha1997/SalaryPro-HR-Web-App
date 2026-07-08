@@ -130,46 +130,7 @@ export default function App() {
     try {
       const cached = localStorage.getItem('salarypro_employees_cache');
       if (cached) {
-        const parsed = JSON.parse(cached) as Employee[];
-        // Auto self-heal Harmeet Kaur locally if she is missing from local storage cache
-        const hasHarmeet = parsed.some(e => e.id === '8' && e.name && e.name.trim() !== '');
-        if (!hasHarmeet) {
-          const harmeetData: Employee = {
-            id: '8',
-            name: 'Harmeet Kaur',
-            monthlySalary: 10000,
-            workingDays: 0,
-            workingHours: 0,
-            fullDaysAbsent: 0,
-            absentHours: 0,
-            absentMinutes: 0,
-            role: 'HR Mgr',
-            designation: 'HR Mgr',
-            department: 'HR',
-            shiftTime: '09:00-18:00',
-            phone: '78767-76550',
-            address: 'Devinagar, Paonta Sahib, Near Priyanshi Hospital, Sirmour (HP)-173025',
-            salaryType: 'fixed',
-            sundayPaid: 'Paid'
-          };
-          const index8 = parsed.findIndex(e => e.id === '8');
-          if (index8 !== -1) {
-            parsed[index8] = harmeetData;
-          } else {
-            const tempIndex = parsed.findIndex(e => e.id.toUpperCase().startsWith('EMP_TEMP_'));
-            if (tempIndex !== -1) {
-              parsed[tempIndex] = harmeetData;
-            } else {
-              parsed.push(harmeetData);
-            }
-          }
-          try {
-            localStorage.setItem('salarypro_employees_cache', JSON.stringify(parsed));
-          } catch (storageErr) {
-            console.warn("Could not write self-healed employees to local cache:", storageErr);
-          }
-        }
-        return parsed;
+        return JSON.parse(cached) as Employee[];
       }
     } catch (e) {
       console.warn("Could not parse cached employees roster:", e);
@@ -330,39 +291,7 @@ export default function App() {
           }
         }
 
-        // Self-heal/Restoration of Harmeet Kaur (id: '8') if deleted or missing
-        const harmeetObj = firestoreEmployees.find(e => e.id === '8');
-        if (!harmeetObj || !harmeetObj.name || harmeetObj.name.trim() === '') {
-          const harmeetData: Employee = {
-            id: '8',
-            name: 'Harmeet Kaur',
-            monthlySalary: 10000,
-            workingDays: 26,
-            workingHours: 9.00,
-            fullDaysAbsent: 0,
-            absentHours: 0,
-            absentMinutes: 0,
-            role: 'HR Mgr',
-            designation: 'HR Mgr',
-            department: 'HR',
-            shiftTime: '09:00-18:00',
-            phone: '78767-76550',
-            address: 'Devinagar, Paonta Sahib, Near Priyanshi Hospital, Sirmour (HP)-173025',
-            salaryType: 'fixed',
-            sundayPaid: 'Paid'
-          };
-          try {
-            await setDoc(doc(db, 'employees', '8'), harmeetData);
-            console.log("Self-repaired: Restored Employee Harmeet Kaur to Firestore.");
-            if (harmeetObj) {
-              Object.assign(harmeetObj, harmeetData);
-            } else {
-              firestoreEmployees.push(harmeetData);
-            }
-          } catch (writeErr) {
-            console.error("Failed to automatically restore Harmeet Kaur on load:", writeErr);
-          }
-        }
+        // Disabling auto-restoration of Harmeet Kaur to allow permanent deletion as requested by user
       }
 
       // --- SELF-HEALING / UPGRADE SALARIES FROM JUNE & MAY OVERRIDES ---
@@ -643,60 +572,7 @@ export default function App() {
     seedCustomUser();
   }, []);
 
-  // Instant reactive self-heal for Harmeet Kaur in active state
-  useEffect(() => {
-    const hasHarmeet = employees.some(e => e.id === '8' && e.name && e.name.trim() !== '');
-    if (!hasHarmeet) {
-      const harmeetData: Employee = {
-        id: '8',
-        name: 'Harmeet Kaur',
-        monthlySalary: 10000,
-        workingDays: 26,
-        workingHours: 9.00,
-        fullDaysAbsent: 0,
-        absentHours: 0,
-        absentMinutes: 0,
-        role: 'HR Mgr',
-        designation: 'HR Mgr',
-        department: 'HR',
-        shiftTime: '09:00-18:00',
-        phone: '78767-76550',
-        address: 'Devinagar, Paonta Sahib, Near Priyanshi Hospital, Sirmour (HP)-173025',
-        salaryType: 'fixed',
-        sundayPaid: 'Paid'
-      };
-
-      setEmployees(prev => {
-        if (prev.some(e => e.id === '8' && e.name && e.name.trim() !== '')) return prev;
-        const index8 = prev.findIndex(e => e.id === '8');
-        let updated = [...prev];
-        if (index8 !== -1) {
-          updated[index8] = harmeetData;
-        } else {
-          const tempIndex = updated.findIndex(e => e.id.toUpperCase().startsWith('EMP_TEMP_'));
-          if (tempIndex !== -1) {
-            updated[tempIndex] = harmeetData;
-          } else {
-            updated.push(harmeetData);
-          }
-        }
-        try {
-          localStorage.setItem('salarypro_employees_cache', JSON.stringify(updated));
-        } catch (e) {
-          console.warn("Storage limits reached for employees cache during auto recovery:", e);
-        }
-        return updated;
-      });
-
-      // Write to Firebase too to guarantee sync
-      try {
-        setDoc(doc(db, 'employees', '8'), harmeetData);
-        console.log("Self-repaired reactive: Restored Harmeet Kaur to Firestore.");
-      } catch (err) {
-        console.error("Self-repaired reactive Firestore write failed:", err);
-      }
-    }
-  }, [employees]);
+  // Disabling reactive auto-restoration of Harmeet Kaur
 
   // Google Authentication States
   const [loggedInEmail, setLoggedInEmail] = useState<string | null>(() => {
@@ -904,7 +780,7 @@ export default function App() {
           const hasPunches = clean.length > 0;
           if (hasPunches) {
             const minutes = getWorkMinutes(clean);
-            if (minutes < 420) {
+            if (minutes < 480) {
               partialDaysList.push({ date, minutes });
             }
 

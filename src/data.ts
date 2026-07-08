@@ -1113,7 +1113,7 @@ export const isEmployeePresent = (punchesList: string[]): boolean => {
   }
 
   const minutes = getWorkMinutes(punchesList);
-  if (minutes < 420) {
+  if (minutes < 480) {
     return false;
   }
   return true;
