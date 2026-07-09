@@ -90,6 +90,7 @@ export interface LoomOrderRow {
   remarks?: string;
   productionCompleted?: number;
   status?: 'Pending' | 'Production' | 'Completed';
+  noOfRolls?: number;
 }
 
 export interface LoomOrder {

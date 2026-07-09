@@ -74,6 +74,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [subTotalQuantity, setSubTotalQuantity] = useState<string>('');
   const [subRemarks, setSubRemarks] = useState<string>('');
   const [subItemStatus, setSubItemStatus] = useState<'Pending' | 'Production' | 'Completed'>('Pending');
+  const [subNoOfRolls, setSubNoOfRolls] = useState<string>('');
 
   // --- INLINE SUB-ORDER EDIT STATES ---
   const [editingRowIndex, setEditingRowIndex] = useState<number | null>(null);
@@ -86,6 +87,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [inlineProductionCompleted, setInlineProductionCompleted] = useState<string>('');
   const [inlineRemarks, setInlineRemarks] = useState<string>('');
   const [inlineRowStatus, setInlineRowStatus] = useState<'Pending' | 'Production' | 'Completed'>('Pending');
+  const [inlineNoOfRolls, setInlineNoOfRolls] = useState<string>('');
 
   // --- FILTER & SEARCH STATES ---
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -341,6 +343,43 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
   // --- ACTIONS FOR SUB-ORDERS ---
 
+  // Roll increment/decrement helpers
+  const incrementSubRolls = () => {
+    const current = parseInt(subNoOfRolls, 10);
+    if (isNaN(current)) {
+      setSubNoOfRolls('1');
+    } else {
+      setSubNoOfRolls(String(current + 1));
+    }
+  };
+
+  const decrementSubRolls = () => {
+    const current = parseInt(subNoOfRolls, 10);
+    if (isNaN(current) || current <= 0) {
+      setSubNoOfRolls('0');
+    } else {
+      setSubNoOfRolls(String(current - 1));
+    }
+  };
+
+  const incrementInlineRolls = () => {
+    const current = parseInt(inlineNoOfRolls, 10);
+    if (isNaN(current)) {
+      setInlineNoOfRolls('1');
+    } else {
+      setInlineNoOfRolls(String(current + 1));
+    }
+  };
+
+  const decrementInlineRolls = () => {
+    const current = parseInt(inlineNoOfRolls, 10);
+    if (isNaN(current) || current <= 0) {
+      setInlineNoOfRolls('0');
+    } else {
+      setInlineNoOfRolls(String(current - 1));
+    }
+  };
+
   // Add individual sub-order under the active Modal Order or Selected Order
   const handleAddSubOrder = async (e: React.FormEvent, targetOrder: LoomOrder | null) => {
     e.preventDefault();
@@ -365,6 +404,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       return;
     }
 
+    let rollsVal: number | undefined = undefined;
+    if (subNoOfRolls.trim() !== '') {
+      const parsed = parseInt(subNoOfRolls, 10);
+      if (isNaN(parsed) || parsed < 0) {
+        triggerAlert('warn', 'Number of rolls must be a positive integer.');
+        return;
+      }
+      rollsVal = parsed;
+    }
+
     const newSubOrder: LoomOrderRow = {
       size: subSize.trim(),
       quality: subQuality.trim(),
@@ -374,7 +423,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       totalQuantity: totalQtyVal,
       productionCompleted: 0,
       remarks: subRemarks.trim(),
-      status: subItemStatus
+      status: subItemStatus,
+      noOfRolls: rollsVal
     };
 
     const updatedRows = [...targetOrder.rows, newSubOrder];
@@ -397,6 +447,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       setSubTotalQuantity('');
       setSubRemarks('');
       setSubItemStatus('Pending');
+      setSubNoOfRolls('');
     } catch (err) {
       console.error("Failed to save sub-order", err);
       triggerAlert('warn', 'Failed to append sub-order item.');
@@ -415,6 +466,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     setInlineProductionCompleted(String(row.productionCompleted ?? 0));
     setInlineRemarks(row.remarks || '');
     setInlineRowStatus(row.status || 'Pending');
+    setInlineNoOfRolls(row.noOfRolls !== undefined ? String(row.noOfRolls) : '');
   };
 
   // Save changes to single sub-order item
@@ -446,6 +498,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       return;
     }
 
+    let rollsVal: number | undefined = undefined;
+    if (inlineNoOfRolls.trim() !== '') {
+      const parsed = parseInt(inlineNoOfRolls, 10);
+      if (isNaN(parsed) || parsed < 0) {
+        triggerAlert('warn', 'Number of rolls must be a positive integer.');
+        return;
+      }
+      rollsVal = parsed;
+    }
+
     const updatedRows = [...targetOrder.rows];
     updatedRows[index] = {
       size: inlineSize.trim(),
@@ -456,7 +518,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       totalQuantity: totalQtyVal,
       productionCompleted: completedQtyVal,
       remarks: inlineRemarks.trim(),
-      status: inlineRowStatus
+      status: inlineRowStatus,
+      noOfRolls: rollsVal
     };
 
     try {
@@ -1162,6 +1225,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[70px]">GSM</th>
                           <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[75px]">Denier</th>
                           <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[85px]">Fabric Wt (g)</th>
+                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[125px]">No. of Rolls</th>
                           <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[95px]">Target (Tons)</th>
                           <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[110px]">Completed (Tons)</th>
                           <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[100px]">Status</th>
@@ -1232,6 +1296,33 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                     onChange={(e) => setInlineFabricWeight(e.target.value)}
                                     className="w-full bg-white border border-zinc-300 rounded-lg px-1.5 py-1 text-xs text-center font-mono font-bold"
                                   />
+                                </td>
+
+                                {/* Rolls Input with Plus/Minus buttons */}
+                                <td className="py-2 px-1">
+                                  <div className="flex items-center gap-1 justify-center min-w-[120px]">
+                                    <button
+                                      type="button"
+                                      onClick={decrementInlineRolls}
+                                      className="h-7 w-7 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded border border-zinc-300 flex items-center justify-center font-bold text-xs select-none cursor-pointer"
+                                    >
+                                      -
+                                    </button>
+                                    <input
+                                      type="number"
+                                      value={inlineNoOfRolls}
+                                      onChange={(e) => setInlineNoOfRolls(e.target.value)}
+                                      placeholder="Rolls"
+                                      className="w-12 bg-white border border-zinc-300 rounded-lg px-1 py-1 text-xs text-center font-mono font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={incrementInlineRolls}
+                                      className="h-7 w-7 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded border border-zinc-300 flex items-center justify-center font-bold text-xs select-none cursor-pointer"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
                                 </td>
 
                                 {/* Target Tonnage */}
@@ -1326,6 +1417,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
                               <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-800">
                                 {row.fabricWeight}g
+                              </td>
+
+                              <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-800">
+                                {row.noOfRolls !== undefined ? `${row.noOfRolls} rolls` : '—'}
                               </td>
 
                               <td className="py-3 px-3 text-right font-mono text-xs font-black text-zinc-900">
@@ -1465,7 +1560,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-1 border-t border-zinc-200/50">
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-3 pt-1 border-t border-zinc-200/50">
                     <div>
                       <label className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">GSM <span className="text-amber-600">*</span></label>
                       <input
@@ -1514,7 +1609,33 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                         required
                       />
                     </div>
-                    <div className="col-span-2 md:col-span-1">
+                    <div>
+                      <label className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">No. of Rolls</label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={decrementSubRolls}
+                          className="h-8 w-8 bg-zinc-150 hover:bg-zinc-200 text-zinc-700 rounded-xl border border-zinc-300 flex items-center justify-center font-bold text-xs select-none cursor-pointer"
+                        >
+                          -
+                        </button>
+                        <input
+                          type="number"
+                          value={subNoOfRolls}
+                          onChange={(e) => setSubNoOfRolls(e.target.value)}
+                          placeholder="e.g. 100"
+                          className="w-full bg-white border border-zinc-300 rounded-xl py-1.5 px-2 text-xs font-mono font-bold text-zinc-800 text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={incrementSubRolls}
+                          className="h-8 w-8 bg-zinc-150 hover:bg-zinc-200 text-zinc-700 rounded-xl border border-zinc-300 flex items-center justify-center font-bold text-xs select-none cursor-pointer"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                    <div>
                       <label className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">Remarks</label>
                       <input
                         type="text"
