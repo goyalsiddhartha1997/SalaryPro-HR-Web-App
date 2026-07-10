@@ -348,6 +348,7 @@ export default function EmployeeProfileDetails({
   // Real-time subscribed overtime logs for the selected employee
   const [employeeOvertimeLogs, setEmployeeOvertimeLogs] = useState<any[]>([]);
   const [employeeAdvanceHistory, setEmployeeAdvanceHistory] = useState<any[]>([]);
+  const [monthlyPayrollDocs, setMonthlyPayrollDocs] = useState<Record<string, any>>({});
   const [otFilterMonth, setOtFilterMonth] = useState<number>(() => ledgerMonth ? ledgerMonth - 1 : new Date().getMonth()); // 0-indexed
   const [otFilterYear, setOtFilterYear] = useState<number>(() => ledgerYear || new Date().getFullYear());
 
@@ -386,9 +387,11 @@ export default function EmployeeProfileDetails({
     if (!employee.id) return;
     const q = collection(db, 'employees', employee.id, 'monthlyPayroll');
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docsMap: Record<string, any> = {};
       const list: any[] = [];
       snapshot.forEach(docSnap => {
         const data = docSnap.data();
+        docsMap[docSnap.id] = data;
         if (data.advances && Array.isArray(data.advances) && data.advances.length > 0) {
           data.advances.forEach((adv: any) => {
             list.push({
@@ -411,6 +414,7 @@ export default function EmployeeProfileDetails({
       });
       list.sort((a, b) => b.id.localeCompare(a.id));
       setEmployeeAdvanceHistory(list);
+      setMonthlyPayrollDocs(docsMap);
     }, (err) => {
       console.error("Failed to stream advance history", err);
     });
@@ -446,7 +450,12 @@ export default function EmployeeProfileDetails({
     const otWorkingDays = new Date(otFilterYear, otFilterMonth + 1, 0).getDate();
     const otWorkingHoursPerDay = employee.workingHours || 8;
     const otIsDailyBasis = employee.salaryType === 'daily';
-    const baseSalaryForOt = employee.monthlySalary || 0;
+    
+    const targetMonthYearStr = `${otFilterYear}-${String(otFilterMonth + 1).padStart(2, '0')}`;
+    const activeOverride = monthlyPayrollDocs[targetMonthYearStr] || {};
+    const baseSalaryForOt = activeOverride.monthlySalary !== undefined 
+      ? Number(activeOverride.monthlySalary) 
+      : (employee.monthlySalary || 0);
     
     const otDailyRate = otIsDailyBasis ? baseSalaryForOt : (baseSalaryForOt > 0 && otWorkingDays > 0 ? baseSalaryForOt / otWorkingDays : 0);
     const otHourlyRate = otDailyRate > 0 && otWorkingHoursPerDay > 0 ? otDailyRate / otWorkingHoursPerDay : 0;
@@ -455,7 +464,7 @@ export default function EmployeeProfileDetails({
       hourlyRate: otHourlyRate,
       isDailyBasis: otIsDailyBasis
     };
-  }, [employee.monthlySalary, employee.workingHours, employee.salaryType, otFilterMonth, otFilterYear]);
+  }, [employee.monthlySalary, employee.workingHours, employee.salaryType, otFilterMonth, otFilterYear, monthlyPayrollDocs]);
 
   const totalOtAmount = useMemo(() => {
     let totalAmount = 0;
@@ -578,7 +587,12 @@ export default function EmployeeProfileDetails({
   };
 
   // Calculated Allowances & Benefits
-  const baseSalary = employee.monthlySalary || 0;
+  const targetMonthYearStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}`;
+  const activeMonthOverride = monthlyPayrollDocs[targetMonthYearStr] || {};
+
+  const baseSalary = activeMonthOverride.monthlySalary !== undefined 
+    ? Number(activeMonthOverride.monthlySalary) 
+    : (employee.monthlySalary || 0);
   // Allowances: proportional to base (10% transport, 5% meal, 3% internet) if they are active
   const allowanceTransport = Math.round(baseSalary * 0.08);
   const allowanceMeal = Math.round(baseSalary * 0.05);
@@ -639,11 +653,11 @@ export default function EmployeeProfileDetails({
 
   const absencesCount = uploadedDaysInThisMonth.length > 0 
     ? uploadedFullAbsencesCount 
-    : (isCurrentlyLedgerMonth ? (employee.fullDaysAbsent || 0) : 0);
+    : (activeMonthOverride.fullDaysAbsent !== undefined ? Number(activeMonthOverride.fullDaysAbsent) : (isCurrentlyLedgerMonth ? (employee.fullDaysAbsent || 0) : 0));
 
   const partialDaysList = uploadedDaysInThisMonth.length > 0
     ? uploadedPartialDays
-    : (employee.partialDays || []);
+    : (isCurrentlyLedgerMonth ? (employee.partialDays || []) : []);
 
   // Circular stats dynamic progress
   const leavesTaken = Math.min(20, Math.round(14 - absencesCount));
@@ -677,7 +691,7 @@ export default function EmployeeProfileDetails({
       }
     });
   } else {
-    liveSundayOTDays = employee.sundayOTDays || 0;
+    liveSundayOTDays = isCurrentlyLedgerMonth ? (employee.sundayOTDays || 0) : 0;
   }
 
   const isFixed = employee.salaryType === 'fixed';
@@ -703,7 +717,13 @@ export default function EmployeeProfileDetails({
   }, 0);
   
   const liveDeductionFullDay = dynamicDailyRate * absencesCount;
-  const liveTotalAbsentHours = (employee.absentHours || 0) + ((employee.absentMinutes || 0) / 60);
+  const selectedAbsentHours = activeMonthOverride.absentHours !== undefined
+    ? Number(activeMonthOverride.absentHours)
+    : (isCurrentlyLedgerMonth ? (employee.absentHours || 0) : 0);
+  const selectedAbsentMinutes = activeMonthOverride.absentMinutes !== undefined
+    ? Number(activeMonthOverride.absentMinutes)
+    : (isCurrentlyLedgerMonth ? (employee.absentMinutes || 0) : 0);
+  const liveTotalAbsentHours = selectedAbsentHours + (selectedAbsentMinutes / 60);
   const liveDeductionHourly = dynamicHourlyRate * liveTotalAbsentHours;
 
   let liveDeductionPartialDay = 0;
@@ -715,8 +735,12 @@ export default function EmployeeProfileDetails({
   
   const liveDeductionBiometrics = liveDeductionFullDay + liveDeductionHourly + liveDeductionPartialDay;
   
-  const advance = Number(employee.advancePayment) || 0;
-  const food = Number(employee.foodBalance) || 0;
+  const advance = activeMonthOverride.advancePayment !== undefined
+    ? Number(activeMonthOverride.advancePayment)
+    : (isCurrentlyLedgerMonth ? (Number(employee.advancePayment) || 0) : 0);
+  const food = activeMonthOverride.foodBalance !== undefined
+    ? Number(activeMonthOverride.foodBalance)
+    : (isCurrentlyLedgerMonth ? (Number(employee.foodBalance) || 0) : 0);
   const liveTotalPayCuts = liveDeductionBiometrics + advance + food;
   
   const liveFinalPayable = Math.max(0, grossMonthlyBasis + liveSundayOTAmount + calendarMonthlyOtAmount - liveTotalPayCuts);

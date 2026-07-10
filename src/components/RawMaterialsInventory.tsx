@@ -100,7 +100,10 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
   const [ledgerTab, setLedgerTab] = useState<'additions' | 'deductions'>('additions');
 
   // Daily / Shift-wise Material Audit Ledger States
-  const [ledgerAuditDate, setLedgerAuditDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [ledgerFilterMode, setLedgerFilterMode] = useState<'single' | 'range'>('single');
+  const [ledgerSingleDate, setLedgerSingleDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [ledgerRangeStart, setLedgerRangeStart] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [ledgerRangeEnd, setLedgerRangeEnd] = useState<string>(new Date().toISOString().split('T')[0]);
   const [ledgerAuditShift, setLedgerAuditShift] = useState<'All' | 'Day Shift' | 'Night Shift'>('All');
 
   // Metrics date filters for plant usage overview
@@ -281,9 +284,13 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       consumption: number;
       wastage: number;
       additions: number;
+      correction: number;
       finalStock: number;
       remarks: string;
     }[] = [];
+
+    const ledgerStartDate = ledgerFilterMode === 'single' ? ledgerSingleDate : ledgerRangeStart;
+    const ledgerEndDate = ledgerFilterMode === 'single' ? ledgerSingleDate : ledgerRangeEnd;
 
     items
       .filter(item => item.id !== 'seed_marker')
@@ -304,6 +311,16 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
             stockBefore = runningStock - log.quantity;
           } else if (log.type === 'use_stock') {
             stockBefore = runningStock + log.quantity;
+          } else if (log.type === 'correction') {
+            const match = log.remarks?.match(/Inventory adjustment from ([\d.-]+) to ([\d.-]+)/);
+            if (match) {
+              const fromVal = parseFloat(match[1]);
+              const toVal = parseFloat(match[2]);
+              if (!isNaN(fromVal) && !isNaN(toVal)) {
+                const diff = toVal - fromVal;
+                stockBefore = runningStock - diff;
+              }
+            }
           }
           runningStock = stockBefore;
           return {
@@ -313,12 +330,12 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
           };
         });
 
-        // Compute overall Opening & Final stocks on ledgerAuditDate
-        const logsPriorOrOnDate = logsWithBalance.filter(l => l.date <= ledgerAuditDate);
+        // Compute overall Opening & Final stocks on ledger date/range
+        const logsPriorOrOnDate = logsWithBalance.filter(l => l.date <= ledgerEndDate);
         const latestLogOnOrBefore = logsPriorOrOnDate[0];
         const finalStockOfDay = latestLogOnOrBefore ? latestLogOnOrBefore.stockAfter : runningStock;
 
-        const logsOnDate = logsWithBalance.filter(l => l.date === ledgerAuditDate);
+        const logsOnDate = logsWithBalance.filter(l => l.date >= ledgerStartDate && l.date <= ledgerEndDate);
         const oldestLogOnDate = logsOnDate[logsOnDate.length - 1];
         const openingStockOfDay = oldestLogOnDate ? oldestLogOnDate.stockBefore : finalStockOfDay;
 
@@ -330,12 +347,20 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         const dayConsumed = dayLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + l.quantity, 0);
         const dayWastage = dayLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + (l.wastage || 0), 0);
         const dayAdded = dayLogs.filter(l => l.type === 'add_stock').reduce((sum, l) => sum + l.quantity, 0);
+        const dayCorrection = dayLogs.filter(l => l.type === 'correction').reduce((sum, l) => {
+          const match = l.remarks?.match(/Inventory adjustment from ([\d.-]+) to ([\d.-]+)/);
+          if (match) {
+            const fromVal = parseFloat(match[1]);
+            const toVal = parseFloat(match[2]);
+            if (!isNaN(fromVal) && !isNaN(toVal)) {
+              return sum + (toVal - fromVal);
+            }
+          }
+          return sum;
+        }, 0);
         
         const dayOpeningStock = openingStockOfDay;
-        let dayClosingStock = dayOpeningStock + dayAdded - dayConsumed - dayWastage;
-        if (dayLogs.length > 0) {
-          dayClosingStock = dayLogs[0].stockAfter;
-        }
+        const dayClosingStock = dayOpeningStock + dayAdded - dayConsumed - dayWastage + dayCorrection;
 
         const dayRemarks = dayLogs.map(l => l.remarks).filter(Boolean).join(', ') || (dayLogs.length > 0 ? '' : 'No usage in Day Shift');
 
@@ -343,12 +368,20 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         const nightConsumed = nightLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + l.quantity, 0);
         const nightWastage = nightLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + (l.wastage || 0), 0);
         const nightAdded = nightLogs.filter(l => l.type === 'add_stock').reduce((sum, l) => sum + l.quantity, 0);
+        const nightCorrection = nightLogs.filter(l => l.type === 'correction').reduce((sum, l) => {
+          const match = l.remarks?.match(/Inventory adjustment from ([\d.-]+) to ([\d.-]+)/);
+          if (match) {
+            const fromVal = parseFloat(match[1]);
+            const toVal = parseFloat(match[2]);
+            if (!isNaN(fromVal) && !isNaN(toVal)) {
+              return sum + (toVal - fromVal);
+            }
+          }
+          return sum;
+        }, 0);
 
         const nightOpeningStock = dayClosingStock; // Night shift opening is Day shift closing
-        let nightClosingStock = nightOpeningStock + nightAdded - nightConsumed - nightWastage;
-        if (nightLogs.length > 0) {
-          nightClosingStock = nightLogs[0].stockAfter;
-        }
+        const nightClosingStock = nightOpeningStock + nightAdded - nightConsumed - nightWastage + nightCorrection;
 
         const nightRemarks = nightLogs.map(l => l.remarks).filter(Boolean).join(', ') || (nightLogs.length > 0 ? '' : 'No usage in Night Shift');
 
@@ -365,6 +398,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
             consumption: dayConsumed,
             wastage: dayWastage,
             additions: dayAdded,
+            correction: dayCorrection,
             finalStock: dayClosingStock,
             remarks: dayRemarks
           });
@@ -382,6 +416,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
             consumption: nightConsumed,
             wastage: nightWastage,
             additions: nightAdded,
+            correction: nightCorrection,
             finalStock: nightClosingStock,
             remarks: nightRemarks
           });
@@ -389,7 +424,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       });
 
     return rows;
-  }, [items, ledgerAuditDate, ledgerAuditShift]);
+  }, [items, ledgerFilterMode, ledgerSingleDate, ledgerRangeStart, ledgerRangeEnd, ledgerAuditShift]);
 
   // Compute shift-wise summary for all active materials on ledgerAuditDate
   const ledgerSummary = useMemo(() => {
@@ -397,6 +432,9 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
     let dayClosingTotal = 0;
     let nightOpeningTotal = 0;
     let nightClosingTotal = 0;
+
+    const ledgerStartDate = ledgerFilterMode === 'single' ? ledgerSingleDate : ledgerRangeStart;
+    const ledgerEndDate = ledgerFilterMode === 'single' ? ledgerSingleDate : ledgerRangeEnd;
 
     items
       .filter(item => item.id !== 'seed_marker')
@@ -415,16 +453,26 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
             stockBefore = runningStock - log.quantity;
           } else if (log.type === 'use_stock') {
             stockBefore = runningStock + log.quantity;
+          } else if (log.type === 'correction') {
+            const match = log.remarks?.match(/Inventory adjustment from ([\d.-]+) to ([\d.-]+)/);
+            if (match) {
+              const fromVal = parseFloat(match[1]);
+              const toVal = parseFloat(match[2]);
+              if (!isNaN(fromVal) && !isNaN(toVal)) {
+                const diff = toVal - fromVal;
+                stockBefore = runningStock - diff;
+              }
+            }
           }
           runningStock = stockBefore;
           return { ...log, stockBefore, stockAfter };
         });
 
-        const logsPriorOrOnDate = logsWithBalance.filter(l => l.date <= ledgerAuditDate);
+        const logsPriorOrOnDate = logsWithBalance.filter(l => l.date <= ledgerEndDate);
         const latestLogOnOrBefore = logsPriorOrOnDate[0];
         const finalStockOfDay = latestLogOnOrBefore ? latestLogOnOrBefore.stockAfter : runningStock;
 
-        const logsOnDate = logsWithBalance.filter(l => l.date === ledgerAuditDate);
+        const logsOnDate = logsWithBalance.filter(l => l.date >= ledgerStartDate && l.date <= ledgerEndDate);
         const oldestLogOnDate = logsOnDate[logsOnDate.length - 1];
         const openingStockOfDay = oldestLogOnDate ? oldestLogOnDate.stockBefore : finalStockOfDay;
 
@@ -434,22 +482,38 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         const dayConsumed = dayLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + l.quantity, 0);
         const dayWastage = dayLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + (l.wastage || 0), 0);
         const dayAdded = dayLogs.filter(l => l.type === 'add_stock').reduce((sum, l) => sum + l.quantity, 0);
+        const dayCorrection = dayLogs.filter(l => l.type === 'correction').reduce((sum, l) => {
+          const match = l.remarks?.match(/Inventory adjustment from ([\d.-]+) to ([\d.-]+)/);
+          if (match) {
+            const fromVal = parseFloat(match[1]);
+            const toVal = parseFloat(match[2]);
+            if (!isNaN(fromVal) && !isNaN(toVal)) {
+              return sum + (toVal - fromVal);
+            }
+          }
+          return sum;
+        }, 0);
         
         const dayOpeningStock = openingStockOfDay;
-        let dayClosingStock = dayOpeningStock + dayAdded - dayConsumed - dayWastage;
-        if (dayLogs.length > 0) {
-          dayClosingStock = dayLogs[0].stockAfter;
-        }
+        const dayClosingStock = dayOpeningStock + dayAdded - dayConsumed - dayWastage + dayCorrection;
 
         const nightConsumed = nightLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + l.quantity, 0);
         const nightWastage = nightLogs.filter(l => l.type === 'use_stock').reduce((sum, l) => sum + (l.wastage || 0), 0);
         const nightAdded = nightLogs.filter(l => l.type === 'add_stock').reduce((sum, l) => sum + l.quantity, 0);
+        const nightCorrection = nightLogs.filter(l => l.type === 'correction').reduce((sum, l) => {
+          const match = l.remarks?.match(/Inventory adjustment from ([\d.-]+) to ([\d.-]+)/);
+          if (match) {
+            const fromVal = parseFloat(match[1]);
+            const toVal = parseFloat(match[2]);
+            if (!isNaN(fromVal) && !isNaN(toVal)) {
+              return sum + (toVal - fromVal);
+            }
+          }
+          return sum;
+        }, 0);
 
         const nightOpeningStock = dayClosingStock;
-        let nightClosingStock = nightOpeningStock + nightAdded - nightConsumed - nightWastage;
-        if (nightLogs.length > 0) {
-          nightClosingStock = nightLogs[0].stockAfter;
-        }
+        const nightClosingStock = nightOpeningStock + nightAdded - nightConsumed - nightWastage + nightCorrection;
 
         dayOpeningTotal += dayOpeningStock;
         dayClosingTotal += dayClosingStock;
@@ -463,21 +527,25 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       nightOpeningTotal,
       nightClosingTotal
     };
-  }, [items, ledgerAuditDate]);
+  }, [items, ledgerFilterMode, ledgerSingleDate, ledgerRangeStart, ledgerRangeEnd]);
 
   // Compute visible columns sum
   const visibleTotals = useMemo(() => {
     let opening = 0;
+    let additions = 0;
     let consumption = 0;
     let wastage = 0;
+    let correction = 0;
     let finalStock = 0;
     dailyAuditLedgerData.forEach(row => {
       opening += row.openingStock;
+      additions += row.additions;
       consumption += row.consumption;
       wastage += row.wastage;
+      correction += row.correction;
       finalStock += row.finalStock;
     });
-    return { opening, consumption, wastage, finalStock };
+    return { opening, additions, consumption, wastage, correction, finalStock };
   }, [dailyAuditLedgerData]);
 
   // ----------------- COMPILE & FILTER LOGS FOR MATERIAL AUDIT LEDGERS -----------------
@@ -576,6 +644,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
     let lowStockCount = 0;
     let totalVarieties = items.length;
     let todayUsageKgs = 0;
+    let todayReceivedKgs = 0;
 
     items.forEach(item => {
       // Stock conversion to display equivalent (assume mostly kg)
@@ -584,7 +653,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         lowStockCount++;
       }
 
-      // Usage accumulation based on filters
+      // Usage and Addition accumulation based on filters
       if (item.logs) {
         item.logs.forEach(log => {
           if (log.type === 'use_stock') {
@@ -597,6 +666,16 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                 todayUsageKgs += log.quantity;
               }
             }
+          } else if (log.type === 'add_stock') {
+            if (metricsFilterMode === 'single') {
+              if (log.date === metricsSingleDate) {
+                todayReceivedKgs += log.quantity;
+              }
+            } else {
+              if (log.date >= metricsRangeStart && log.date <= metricsRangeEnd) {
+                todayReceivedKgs += log.quantity;
+              }
+            }
           }
         });
       }
@@ -606,7 +685,8 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       totalStockKgs,
       lowStockCount,
       totalVarieties,
-      todayUsageKgs
+      todayUsageKgs,
+      todayReceivedKgs
     };
   }, [items, metricsFilterMode, metricsSingleDate, metricsRangeStart, metricsRangeEnd]);
 
@@ -1272,19 +1352,24 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
           </div>
         </div>
 
-        {/* Metric 4: Low Stock Warnings */}
-        <div className={`border p-5 rounded-3xl shadow-sm hover:shadow-md transition-all ${metrics.lowStockCount > 0 ? 'bg-amber-50/70 border-amber-200 shadow-amber-100/10' : 'bg-white border-slate-200/85'}`}>
+        {/* Metric 4: Fresh Stock Received */}
+        <div className="bg-white border border-slate-200/85 p-5 rounded-3xl shadow-sm hover:shadow-md transition-all">
           <div className="flex justify-between items-start">
-            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">Restock Warning Alerts</span>
-            <span className={`p-2 rounded-xl ${metrics.lowStockCount > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
-              <AlertCircle size={16} />
+            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">
+              {metricsFilterMode === 'single' ? 'Selected Stock Received' : 'Range Stock Received'}
+            </span>
+            <span className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+              <PlusCircle size={16} />
             </span>
           </div>
           <div className="mt-3 space-y-1">
-            <h3 className={`text-xl sm:text-2xl font-black tracking-tight font-mono ${metrics.lowStockCount > 0 ? 'text-amber-600' : 'text-slate-800'}`}>
-              {metrics.lowStockCount} {metrics.lowStockCount === 1 ? 'Item' : 'Items'}
-            </h3>
-            <p className="text-xs text-slate-450 font-bold uppercase tracking-wider">Below warning threshold (&lt;2t)</p>
+            <h3 className="text-xl sm:text-2xl font-black text-emerald-700 font-mono tracking-tight">{metrics.todayReceivedKgs.toLocaleString()} kg</h3>
+            <p className="text-[10px] text-emerald-600 font-extrabold uppercase tracking-wider">
+              {metricsFilterMode === 'single' 
+                ? `Received on ${formatDateToDMY(metricsSingleDate)}`
+                : `${formatDateToDMY(metricsRangeStart)} to ${formatDateToDMY(metricsRangeEnd)}`
+              }
+            </p>
           </div>
         </div>
       </div>
@@ -1448,7 +1533,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                               <option value="Others">Others</option>
                             </select>
                           ) : (
-                            <span className="px-3 py-1 bg-slate-100 text-slate-700 text-[10px] font-black rounded-full uppercase tracking-widest border border-slate-200">
+                            <span className="px-3 py-1 bg-slate-100 text-slate-700 text-[10px] font-black rounded-full uppercase tracking-widest border border-slate-200 whitespace-nowrap inline-block">
                               {item.category}
                             </span>
                           )}
@@ -1651,22 +1736,106 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                 Daily Material Audit Ledger
               </h3>
               <p className="text-xs text-slate-500">
-                Opening stock, plant consumption, process wastage, and final closing balances for <strong className="text-slate-800 font-mono font-black">{ledgerAuditDate}</strong>
+                Opening stock, plant consumption, process wastage, and final closing balances for <strong className="text-slate-800 font-mono font-black">{ledgerFilterMode === 'single' ? ledgerSingleDate : `${ledgerRangeStart} to ${ledgerRangeEnd}`}</strong>
               </p>
             </div>
             
             {/* Date & Shift Selectors */}
             <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl shadow-2xs">
-                <Calendar size={14} className="text-slate-500" />
-                <span className="text-[10px] font-black text-slate-450 uppercase tracking-wider">Date:</span>
-                <input
-                  type="date"
-                  value={ledgerAuditDate}
-                  onChange={(e) => setLedgerAuditDate(e.target.value)}
-                  className="bg-transparent text-xs font-black text-slate-800 outline-none focus:ring-0 cursor-pointer font-mono"
-                />
+              {/* Mode Selector Toggle Button Group */}
+              <div className="flex bg-slate-100 p-1 rounded-xl">
+                <button
+                  onClick={() => setLedgerFilterMode('single')}
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                    ledgerFilterMode === 'single'
+                      ? 'bg-white text-slate-900 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Single Date
+                </button>
+                <button
+                  onClick={() => setLedgerFilterMode('range')}
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                    ledgerFilterMode === 'range'
+                      ? 'bg-white text-slate-900 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Date Range
+                </button>
               </div>
+
+              {/* Date Picker Controls */}
+              {ledgerFilterMode === 'single' ? (
+                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-1 rounded-xl shadow-2xs">
+                  <button
+                    onClick={() => {
+                      const d = new Date(ledgerSingleDate);
+                      d.setDate(d.getDate() - 1);
+                      setLedgerSingleDate(d.toISOString().split('T')[0]);
+                    }}
+                    className="h-7 w-7 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center justify-center text-slate-600 active:scale-95 transition-all text-xs font-black cursor-pointer"
+                    title="Previous Day"
+                  >
+                    &larr;
+                  </button>
+                  <input
+                    type="date"
+                    value={ledgerSingleDate}
+                    onChange={(e) => setLedgerSingleDate(e.target.value)}
+                    className="h-7 px-1 bg-transparent text-xs font-black text-slate-850 outline-none cursor-pointer font-mono border-none focus:ring-0 focus:outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      const d = new Date(ledgerSingleDate);
+                      d.setDate(d.getDate() + 1);
+                      setLedgerSingleDate(d.toISOString().split('T')[0]);
+                    }}
+                    className="h-7 w-7 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center justify-center text-slate-600 active:scale-95 transition-all text-xs font-black cursor-pointer"
+                    title="Next Day"
+                  >
+                    &rarr;
+                  </button>
+                  <button
+                    onClick={() => setLedgerSingleDate(new Date().toISOString().split('T')[0])}
+                    className="h-7 px-2.5 bg-white hover:bg-slate-100 text-slate-500 border border-slate-200 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer active:scale-95 transition-all"
+                  >
+                    Today
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
+                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl shadow-2xs text-xs font-bold">
+                    <span className="text-[9px] text-slate-400 uppercase tracking-widest font-black pr-1">From</span>
+                    <input
+                      type="date"
+                      value={ledgerRangeStart}
+                      onChange={(e) => setLedgerRangeStart(e.target.value)}
+                      className="bg-transparent outline-none text-slate-800 font-black cursor-pointer border-none p-0 focus:ring-0 text-xs w-28 font-mono"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl shadow-2xs text-xs font-bold">
+                    <span className="text-[9px] text-slate-400 uppercase tracking-widest font-black pr-1">To</span>
+                    <input
+                      type="date"
+                      value={ledgerRangeEnd}
+                      onChange={(e) => setLedgerRangeEnd(e.target.value)}
+                      className="bg-transparent outline-none text-slate-800 font-black cursor-pointer border-none p-0 focus:ring-0 text-xs w-28 font-mono"
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      setLedgerRangeStart(today);
+                      setLedgerRangeEnd(today);
+                    }}
+                    className="h-9 px-2.5 bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 rounded-xl text-[9px] font-black uppercase tracking-wider cursor-pointer active:scale-95 transition-all shadow-2xs"
+                  >
+                    Today
+                  </button>
+                </div>
+              )}
 
               <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl shadow-2xs">
                 <Activity size={14} className="text-slate-500" />
@@ -1721,8 +1890,10 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                   <th className="py-4 px-5">Category</th>
                   <th className="py-4 px-5">Shift</th>
                   <th className="py-4 px-5 text-right">Opening Stock</th>
+                  <th className="py-4 px-5 text-right">Received / Added</th>
                   <th className="py-4 px-5 text-right font-black">Consumption</th>
                   <th className="py-4 px-5 text-right">Wastage</th>
+                  <th className="py-4 px-5 text-right">Adjustments</th>
                   <th className="py-4 px-5 text-right">Closing Stock</th>
                   <th className="py-4 px-5 pl-8">Consumption Remarks / Notes</th>
                 </tr>
@@ -1738,7 +1909,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                     >
                       <td className="py-4 px-5 pl-6 font-black text-slate-800 text-[13px]">{row.name}</td>
                       <td className="py-4 px-5">
-                        <span className="px-3 py-1 text-[10px] font-black text-slate-700 bg-slate-100 rounded-md uppercase tracking-wider border border-slate-200">
+                        <span className="px-3 py-1 text-[10px] font-black text-slate-700 bg-slate-100 rounded-md uppercase tracking-wider border border-slate-200 whitespace-nowrap inline-block">
                           {row.category}
                         </span>
                       </td>
@@ -1754,11 +1925,17 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                       <td className="py-4 px-5 text-right font-mono font-bold text-slate-700 text-[13px]">
                         {row.openingStock.toLocaleString()} {row.unit}
                       </td>
+                      <td className={`py-4 px-5 text-right font-mono font-bold text-[13px] ${row.additions > 0 ? 'text-emerald-600 font-black' : 'text-slate-400'}`}>
+                        {row.additions > 0 ? `+${row.additions.toLocaleString()}` : '0'} {row.unit}
+                      </td>
                       <td className={`py-4 px-5 text-right font-mono font-black text-[13px] ${hasConsumed ? 'text-rose-600' : 'text-slate-400'}`}>
                         {hasConsumed ? `-${row.consumption.toLocaleString()}` : '0'} {row.unit}
                       </td>
                       <td className={`py-4 px-5 text-right font-mono font-bold text-[13px] ${row.wastage > 0 ? 'text-orange-600' : 'text-slate-400'}`}>
                         {row.wastage > 0 ? `${row.wastage.toLocaleString()} kg` : '—'}
+                      </td>
+                      <td className={`py-4 px-5 text-right font-mono font-bold text-[13px] ${row.correction !== 0 ? (row.correction > 0 ? 'text-emerald-600 font-black' : 'text-rose-600 font-black') : 'text-slate-400'}`}>
+                        {row.correction !== 0 ? `${row.correction > 0 ? '+' : ''}${row.correction.toLocaleString()}` : '—'} {row.correction !== 0 ? row.unit : ''}
                       </td>
                       <td className="py-4 px-5 text-right font-mono font-black text-slate-900 text-[13px]">
                         {row.finalStock.toLocaleString()} {row.unit}
@@ -1774,11 +1951,17 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                 <tr>
                   <td className="py-4 px-5 pl-6" colSpan={3}>Grand Total (Current View)</td>
                   <td className="py-4 px-5 text-right font-mono font-black text-[13px]">{visibleTotals.opening.toLocaleString()} kg</td>
+                  <td className="py-4 px-5 text-right font-mono font-black text-[13px] text-emerald-600">
+                    {visibleTotals.additions > 0 ? `+${visibleTotals.additions.toLocaleString()}` : '0'} kg
+                  </td>
                   <td className="py-4 px-5 text-right font-mono font-black text-[13px] text-rose-600">
                     {visibleTotals.consumption > 0 ? `-${visibleTotals.consumption.toLocaleString()}` : '0'} kg
                   </td>
                   <td className="py-4 px-5 text-right font-mono font-black text-[13px] text-orange-600">
                     {visibleTotals.wastage > 0 ? `${visibleTotals.wastage.toLocaleString()} kg` : '—'}
+                  </td>
+                  <td className={`py-4 px-5 text-right font-mono font-black text-[13px] ${visibleTotals.correction !== 0 ? (visibleTotals.correction > 0 ? 'text-emerald-600' : 'text-rose-600') : 'text-slate-400'}`}>
+                    {visibleTotals.correction !== 0 ? `${visibleTotals.correction > 0 ? '+' : ''}${visibleTotals.correction.toLocaleString()}` : '0'} kg
                   </td>
                   <td className="py-4 px-5 text-right font-mono font-black text-[13px]">{visibleTotals.finalStock.toLocaleString()} kg</td>
                   <td className="py-4 px-5 pl-8" />
