@@ -540,7 +540,7 @@ export default function GatePassRecord({
                 </div>
               </div>
 
-              {/* Not returning toggle (converting rest of shift to leave/half-day) */}
+              {/* Not returning toggle (converting rest of shift to leave) */}
               <div className="bg-slate-50 border border-slate-200/50 rounded-2xl p-4 flex flex-col gap-2.5">
                 <label className="flex items-start gap-3 cursor-pointer select-none">
                   <input
@@ -552,11 +552,11 @@ export default function GatePassRecord({
                       if (checked) {
                         setInTime('No Return');
                         if (!remarks.trim()) {
-                          setRemarks('Left early / remaining shift converted to leave (Half-Day)');
+                          setRemarks('Left early / remaining shift converted to leave');
                         }
                       } else {
                         setInTime('13:00');
-                        if (remarks === 'Left early / remaining shift converted to leave (Half-Day)') {
+                        if (remarks === 'Left early / remaining shift converted to leave') {
                           setRemarks('');
                         }
                       }
@@ -565,7 +565,7 @@ export default function GatePassRecord({
                   />
                   <div className="text-xs">
                     <span className="font-extrabold text-slate-800 uppercase block tracking-wider text-[10px]">
-                      Not returning today (Half-Day Leave)
+                      Not returning today
                     </span>
                     <span className="text-[10px] text-slate-400 leading-normal block mt-0.5 font-bold">
                       Check this if the employee left early and will not return for today. The system logs their return as "No Return".
@@ -575,7 +575,7 @@ export default function GatePassRecord({
                 
                 {isNoReturn && (
                   <div className="bg-amber-100/50 border border-amber-200/50 rounded-xl py-2 px-3 text-[10px] text-amber-800 leading-normal font-bold animate-fadeIn">
-                    🚨 Marked as not returning for the rest of today's shift. This effectively logs a Half-Day Leave.
+                    🚨 Marked as not returning for the rest of today's shift.
                   </div>
                 )}
               </div>
@@ -702,7 +702,7 @@ export default function GatePassRecord({
                 <thead>
                   <tr className="border-b border-slate-150 text-[9px] font-black tracking-wider text-slate-400 uppercase">
                     <th 
-                      className="py-2 pr-2 cursor-pointer hover:text-slate-700 transition-colors select-none"
+                      className="py-2 pr-6 cursor-pointer hover:text-slate-700 transition-colors select-none"
                       onClick={() => {
                         if (sortField === 'employeeId') {
                           setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
@@ -722,9 +722,9 @@ export default function GatePassRecord({
                         )}
                       </span>
                     </th>
-                    <th className="py-2 pr-2">Employee Name</th>
+                    <th className="py-2 pr-6">Employee Name</th>
                     <th 
-                      className="py-2 pr-2 cursor-pointer hover:text-slate-700 transition-colors select-none"
+                      className="py-2 pr-10 cursor-pointer hover:text-slate-700 transition-colors select-none"
                       onClick={() => {
                         if (sortField === 'date') {
                           setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
@@ -744,7 +744,7 @@ export default function GatePassRecord({
                         )}
                       </span>
                     </th>
-                    <th className="py-2 pr-2">Out in time</th>
+                    <th className="py-2 pr-6">Out in time</th>
                     <th className="py-2 pr-2">Remarks</th>
                     {!viewOnly && <th className="py-2 text-right">Actions</th>}
                   </tr>
@@ -759,15 +759,15 @@ export default function GatePassRecord({
 
                       return (
                         <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="py-3 font-mono font-black text-slate-600 pr-2">{r.employeeId}</td>
-                          <td className="py-3 font-extrabold text-slate-800 pr-2">{r.employeeName}</td>
-                          <td className="py-3 font-mono font-bold text-slate-500 whitespace-nowrap uppercase text-[10px]" title={r.date}>
+                          <td className="py-3 font-mono font-black text-slate-600 pr-6">{r.employeeId}</td>
+                          <td className="py-3 font-extrabold text-slate-800 pr-6">{r.employeeName}</td>
+                          <td className="py-3 font-mono font-bold text-slate-500 whitespace-nowrap uppercase text-[10px] pr-10" title={r.date}>
                             {formattedDate}
                           </td>
-                          <td className="py-3 pr-2 whitespace-nowrap">
+                          <td className="py-3 pr-6 whitespace-nowrap">
                             {r.inTime === 'No Return' ? (
                               <span className="inline-flex items-center gap-1 font-extrabold bg-rose-50 text-rose-750 px-2.5 py-0.5 rounded-md text-[9px] uppercase tracking-wider border border-rose-150 shadow-sm">
-                                {formatTimeToShow(r.outTime)} → No Return (Half-Day)
+                                {formatTimeToShow(r.outTime)} → No Return
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 font-mono font-black bg-amber-50 text-amber-800 px-2.5 py-0.5 rounded-md text-[10px]">
