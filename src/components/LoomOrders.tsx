@@ -611,22 +611,30 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
   // Aggregate stats for the currently opened Modal Order
   const modalStats = useMemo(() => {
-    if (!modalOrder) return { totalTarget: 0, totalCompleted: 0, completionRate: 0, pendingCount: 0, prodCount: 0, compCount: 0 };
+    if (!modalOrder) return { totalTarget: 0, totalCompleted: 0, completionRate: 0, pendingCount: 0, prodCount: 0, compCount: 0, totalRollsReady: 0, totalRolls: 0 };
     
     let totalTarget = 0;
     let totalCompleted = 0;
     let pendingCount = 0;
     let prodCount = 0;
     let compCount = 0;
+    let totalRollsReady = 0;
+    let totalRolls = 0;
 
     modalOrder.rows.forEach(r => {
       totalTarget += r.totalQuantity;
       totalCompleted += (r.productionCompleted || 0);
       
+      const rolls = r.noOfRolls || 0;
+      totalRolls += rolls;
+
       const itemStatus = r.status || 'Pending';
       if (itemStatus === 'Pending') pendingCount++;
       else if (itemStatus === 'Production') prodCount++;
-      else if (itemStatus === 'Completed') compCount++;
+      else if (itemStatus === 'Completed') {
+        compCount++;
+        totalRollsReady += rolls;
+      }
     });
 
     const completionRate = totalTarget > 0 ? (totalCompleted / totalTarget) * 100 : 0;
@@ -637,7 +645,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       completionRate,
       pendingCount,
       prodCount,
-      compCount
+      compCount,
+      totalRollsReady,
+      totalRolls
     };
   }, [modalOrder]);
 
@@ -1133,10 +1143,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
             <div className="p-6 overflow-y-auto flex-1 space-y-6">
               
               {/* STUNNING INDUSTRIAL METRICS ROW */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 
                 {/* Metric 1: Turnaround target */}
-                <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl flex items-start justify-between shadow-3xs">
+                <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl flex items-start justify-between shadow-3xs col-span-1">
                   <div>
                     <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none">
                       Turnaround Target
@@ -1153,17 +1163,17 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   </div>
                 </div>
 
-                {/* Metric 2: Completion Rate */}
-                <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl flex items-start justify-between shadow-3xs">
+                {/* Metric 2: Completed Fabric */}
+                <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl flex items-start justify-between shadow-3xs col-span-1">
                   <div>
                     <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none">
-                      Completion Rate
+                      Completed Fabric
                     </span>
                     <span className="text-lg font-black text-emerald-600 font-mono block mt-1.5">
-                      {modalStats.completionRate.toFixed(1)}%
+                      {modalStats.totalCompleted.toFixed(2)} Tons
                     </span>
                     <span className="text-[10px] text-zinc-500 font-semibold block mt-0.5">
-                      {modalStats.totalCompleted.toFixed(2)} Tons completed
+                      {modalStats.completionRate.toFixed(1)}% completed
                     </span>
                   </div>
                   <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center text-zinc-950">
@@ -1171,7 +1181,25 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   </div>
                 </div>
 
-                {/* Metric 3: Item Status Breakdown */}
+                {/* Metric 3: Total Rolls Ready */}
+                <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl flex items-start justify-between shadow-3xs col-span-1">
+                  <div>
+                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none">
+                      Total Rolls Ready
+                    </span>
+                    <span className="text-lg font-black text-blue-600 font-mono block mt-1.5">
+                      {modalStats.totalRolls} Rolls
+                    </span>
+                    <span className="text-[10px] text-zinc-500 font-semibold block mt-0.5">
+                      Fully manufactured & prepared
+                    </span>
+                  </div>
+                  <div className="w-9 h-9 rounded-xl bg-zinc-900 flex items-center justify-center text-blue-400 border border-zinc-800">
+                    <Layers size={16} />
+                  </div>
+                </div>
+
+                {/* Metric 4: Item Status Breakdown */}
                 <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl col-span-1 sm:col-span-2 shadow-3xs">
                   <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none mb-2.5">
                     Sub-order Status Breakdown
