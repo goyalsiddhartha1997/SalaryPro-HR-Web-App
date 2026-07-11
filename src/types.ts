@@ -130,3 +130,20 @@ export interface RawMaterialItem {
   registrationDate?: string;
 }
 
+export interface LoomRunningRow {
+  loomNo: string;
+  quality: string;
+  size: string;
+  gsm: number;
+  denier: number;
+  average: number;
+  runningStatus: 'Running' | 'Stopped';
+}
+
+export interface LoomRunningReport {
+  id: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD
+  rows: LoomRunningRow[];
+  createdAt: string;
+}
+

@@ -478,6 +478,30 @@
         }
       },
       "required": ["id", "date", "isStopped"]
+    },
+    "LoomRunningReport": {
+      "title": "Loom Running Report",
+      "description": "Daily running report and ledger of weaving loom configurations",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique report ID, e.g. YYYY-MM-DD"
+        },
+        "date": {
+          "type": "string",
+          "description": "Report date in YYYY-MM-DD"
+        },
+        "rows": {
+          "type": "array",
+          "description": "Loom running rows containing LoomNo, Quality, Size, GSM, Denier, Average, and Status details"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO creation timestamp"
+        }
+      },
+      "required": ["id", "date", "rows", "createdAt"]
     }
   },
   "firestore": {
@@ -520,6 +544,10 @@
     "/loomProductions/{productionId}": {
       "schema": "LoomProduction",
       "description": "Daily logged loom production metrics and plant stop tracking ledger"
+    },
+    "/loomRunningReports/{reportId}": {
+      "schema": "LoomRunningReport",
+      "description": "Daily logged loom running reports with detailed live statuses"
     }
   }
 }

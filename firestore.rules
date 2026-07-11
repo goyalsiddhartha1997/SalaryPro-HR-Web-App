@@ -127,6 +127,13 @@ service cloud.firestore {
         && (!('shift' in data) || data.shift is string);
     }
 
+    function isValidLoomRunningReport(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.date is string && data.date.size() <= 64
+        && data.rows is list && data.rows.size() <= 150
+        && data.createdAt is string && data.createdAt.size() <= 128;
+    }
+
 
 
     match /employees/{employeeId} {
@@ -213,6 +220,12 @@ service cloud.firestore {
       allow read, list: if true;
       allow create, update: if isValidId(productionId) && isValidLoomProduction(incoming()) && incoming().id == productionId;
       allow delete: if isValidId(productionId);
+    }
+
+    match /loomRunningReports/{reportId} {
+      allow read, list: if true;
+      allow create, update: if isValidId(reportId) && isValidLoomRunningReport(incoming()) && incoming().id == reportId;
+      allow delete: if isValidId(reportId);
     }
 
   }

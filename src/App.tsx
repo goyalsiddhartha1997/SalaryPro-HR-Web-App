@@ -17,6 +17,7 @@ import OvertimeLogs from './components/OvertimeLogs';
 import LoomOrders from './components/LoomOrders';
 import RawMaterialsInventory from './components/RawMaterialsInventory';
 import LoomProduction from './components/LoomProduction';
+import LoomRunningReport from './components/LoomRunningReport';
 import SearchEmp from './components/SearchEmp';
 import { 
   collection, 
@@ -681,7 +682,7 @@ export default function App() {
   const [isSignUpMode, setIsSignUpMode] = useState(false);
   const [customLoginLoading, setCustomLoginLoading] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'payroll' | 'calendar' | 'attendance' | 'performance' | 'advance' | 'gatepass' | 'overtime' | 'looms' | 'inventory' | 'loom-production'>(() => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'payroll' | 'calendar' | 'attendance' | 'performance' | 'advance' | 'gatepass' | 'overtime' | 'looms' | 'inventory' | 'loom-production' | 'loom-running'>(() => {
     const email = localStorage.getItem('salarypro_logged_in_email');
     return email === 'hr@fortuneflexipack.com' ? 'gatepass' : 'employees';
   });
@@ -690,7 +691,7 @@ export default function App() {
   
   // Guard observer hr email to only access and use Advances, Gate Pass, and Overtime tabs
   useEffect(() => {
-    if (loggedInEmail === 'hr@fortuneflexipack.com' && activeTab !== 'advance' && activeTab !== 'gatepass' && activeTab !== 'overtime' && activeTab !== 'looms' && activeTab !== 'inventory' && activeTab !== 'loom-production') {
+    if (loggedInEmail === 'hr@fortuneflexipack.com' && activeTab !== 'advance' && activeTab !== 'gatepass' && activeTab !== 'overtime') {
       setActiveTab('gatepass');
     }
   }, [loggedInEmail, activeTab]);
@@ -2292,40 +2293,58 @@ export default function App() {
             </button>
 
             {/* PP Loom Orders Link */}
-            <button
-              onClick={() => { setActiveTab('looms'); setMobileMenuOpen(false); }}
-              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
-                activeTab === 'looms' 
-                  ? 'bg-slate-55 text-slate-850 font-black shadow-sm' 
-                  : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              <Layers size={16} className={activeTab === 'looms' ? 'text-indigo-500 font-extrabold' : ''} />
-              <span>PP Fabric Orders</span>
-            </button>
+            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
+              <button
+                onClick={() => { setActiveTab('looms'); setMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
+                  activeTab === 'looms' 
+                    ? 'bg-slate-55 text-slate-850 font-black shadow-sm' 
+                    : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <Layers size={16} className={activeTab === 'looms' ? 'text-indigo-500 font-extrabold' : ''} />
+                <span>PP Fabric Orders</span>
+              </button>
+            )}
 
             {/* Loom Prod Report Link */}
-            <button
-              onClick={() => { setActiveTab('loom-production'); setMobileMenuOpen(false); }}
-              className="w-full flex items-center justify-start text-left gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all text-slate-400 hover:text-slate-700 hover:bg-slate-50"
-              style={activeTab === 'loom-production' ? { backgroundColor: 'var(--color-slate-55, #f1f5f9)', color: '#1e293b', fontWeight: 900 } : {}}
-            >
-              <FileSpreadsheet size={16} className={activeTab === 'loom-production' ? 'text-amber-500 font-extrabold' : 'text-slate-400'} />
-              <span className="whitespace-nowrap">Loom Prod Report</span>
-            </button>
+            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
+              <button
+                onClick={() => { setActiveTab('loom-production'); setMobileMenuOpen(false); }}
+                className="w-full flex items-center justify-start text-left gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+                style={activeTab === 'loom-production' ? { backgroundColor: 'var(--color-slate-55, #f1f5f9)', color: '#1e293b', fontWeight: 900 } : {}}
+              >
+                <FileSpreadsheet size={16} className={activeTab === 'loom-production' ? 'text-amber-500 font-extrabold' : 'text-slate-400'} />
+                <span className="whitespace-nowrap">Loom Prod Report</span>
+              </button>
+            )}
+
+            {/* Loom Running Report Link */}
+            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
+              <button
+                onClick={() => { setActiveTab('loom-running'); setMobileMenuOpen(false); }}
+                className="w-full flex items-center justify-start text-left gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+                style={activeTab === 'loom-running' ? { backgroundColor: 'var(--color-slate-55, #f1f5f9)', color: '#1e293b', fontWeight: 900 } : {}}
+              >
+                <Sparkles size={16} className={activeTab === 'loom-running' ? 'text-indigo-500 font-extrabold' : 'text-slate-400'} />
+                <span className="whitespace-nowrap">Loom Running Report</span>
+              </button>
+            )}
 
             {/* Raw Materials Stock Inventory Link */}
-            <button
-              onClick={() => { setActiveTab('inventory'); setMobileMenuOpen(false); }}
-              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
-                activeTab === 'inventory' 
-                  ? 'bg-slate-55 text-slate-850 font-black shadow-sm' 
-                  : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              <Package size={16} className={activeTab === 'inventory' ? 'text-amber-500 font-extrabold' : ''} />
-              <span>Raw Materials Stock</span>
-            </button>
+            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
+              <button
+                onClick={() => { setActiveTab('inventory'); setMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
+                  activeTab === 'inventory' 
+                    ? 'bg-slate-55 text-slate-850 font-black shadow-sm' 
+                    : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <Package size={16} className={activeTab === 'inventory' ? 'text-amber-500 font-extrabold' : ''} />
+                <span>Raw Materials Stock</span>
+              </button>
+            )}
 
             {/* Payroll Ledger Link (Our powerful Spreadsheet table!) */}
             {loggedInEmail !== 'hr@fortuneflexipack.com' && (
@@ -2400,6 +2419,7 @@ export default function App() {
                   {activeTab === 'looms' && 'PP Fabric Orders'}
                   {activeTab === 'inventory' && 'Raw Material Stock Inventory'}
                   {activeTab === 'loom-production' && 'Loom Prod Report'}
+                  {activeTab === 'loom-running' && 'Loom Running Report'}
                   {activeTab === 'calendar' && 'Search EMP'}
                   {activeTab === 'attendance' && 'Attendance Logs'}
                   {activeTab === 'performance' && 'Evaluation Overviews'}
@@ -2416,7 +2436,8 @@ export default function App() {
                 {activeTab === 'looms' && 'Weaving details, GSM, denier, weight, and order tonnage logs'}
                 {activeTab === 'inventory' && 'Granules, fillers, modifiers, reception replenishment, and plant auto-deduction logs'}
                 {activeTab === 'loom-production' && 'Daily metrics, looms, and wastage reports for weaving plant'}
-                {activeTab !== 'employees' && activeTab !== 'payroll' && activeTab !== 'dashboard' && activeTab !== 'calendar' && activeTab !== 'looms' && activeTab !== 'inventory' && activeTab !== 'loom-production' && 'HR Portal sandbox and database logs'}
+                {activeTab === 'loom-running' && 'Daily running status tracking ledger, specifications, and handwriting digitisation portal'}
+                {activeTab !== 'employees' && activeTab !== 'payroll' && activeTab !== 'dashboard' && activeTab !== 'calendar' && activeTab !== 'looms' && activeTab !== 'inventory' && activeTab !== 'loom-production' && activeTab !== 'loom-running' && 'HR Portal sandbox and database logs'}
               </p>
             </div>
           </div>
@@ -2894,6 +2915,14 @@ export default function App() {
           {/* ==================== TAB: LOOM PRODUCTION SUMMARY ==================== */}
           {activeTab === 'loom-production' && (
             <LoomProduction 
+              triggerAlert={triggerAlert}
+              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
+            />
+          )}
+
+          {/* ==================== TAB: LOOM RUNNING REPORT ==================== */}
+          {activeTab === 'loom-running' && (
+            <LoomRunningReport 
               triggerAlert={triggerAlert}
               viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
             />
