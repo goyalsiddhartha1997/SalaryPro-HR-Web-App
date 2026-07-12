@@ -75,6 +75,10 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [showSummaryPopup, setShowSummaryPopup] = useState(false);
 
+  // Shutdown and remarks states
+  const [isAllStopped, setIsAllStopped] = useState(false);
+  const [remarks, setRemarks] = useState('');
+
   // Base64 Image reference for preview
   const [uploadedImageBase64, setUploadedImageBase64] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -191,6 +195,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
     setEntryDate(report.date);
     setPreviewRows([...report.rows]);
     setUploadedImageBase64(null);
+    setIsAllStopped(!!report.isAllStopped);
+    setRemarks(report.remarks || '');
     setShowAddModal(true);
   };
 
@@ -206,8 +212,13 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       return;
     }
 
-    if (previewRows.length === 0) {
-      triggerAlert('warn', 'The report ledger cannot be submitted empty. Please add rows or upload an image.');
+    if (!isAllStopped && previewRows.length === 0) {
+      triggerAlert('warn', 'The report ledger cannot be submitted empty. Please add rows, upload an image, or mark the plant looms as stopped.');
+      return;
+    }
+
+    if (isAllStopped && !remarks.trim()) {
+      triggerAlert('warn', 'Please provide a remark/reason for why the looms were stopped.');
       return;
     }
 
@@ -216,8 +227,10 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       const payload: LoomRunningReport = {
         id: entryDate,
         date: entryDate,
-        rows: previewRows,
-        createdAt: new Date().toISOString()
+        rows: isAllStopped ? [] : previewRows,
+        createdAt: new Date().toISOString(),
+        isAllStopped: isAllStopped,
+        remarks: isAllStopped ? remarks.trim() : ''
       };
 
       await setDoc(doc(db, 'loomRunningReports', entryDate), payload);
@@ -357,6 +370,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
     setPreviewRows([]);
     setEditingReportId(null);
     setUploadedImageBase64(null);
+    setIsAllStopped(false);
+    setRemarks('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -734,53 +749,78 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                   )}
                 </div>
 
-                <table className="w-full text-left border-collapse border border-slate-150 rounded-2xl overflow-hidden shadow-xs">
-                  <thead>
-                    <tr className="bg-slate-900 text-slate-100 text-[11px] md:text-[12px] font-black uppercase tracking-wider select-none border-b border-slate-800">
-                      <th className="py-3 px-4 border-r border-slate-800">Loom Number</th>
-                      <th className="py-3 px-4 border-r border-slate-800">Quality</th>
-                      <th className="py-3 px-4 border-r border-slate-800 text-center">Size</th>
-                      <th className="py-3 px-4 border-r border-slate-800 text-center">GSM</th>
-                      <th className="py-3 px-4 border-r border-slate-800 text-center">Denier</th>
-                      <th className="py-3 px-4 border-r border-slate-800 text-center">Average Weight</th>
-                      <th className="py-3 px-4 text-center">Running Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-150 text-[12px] md:text-[13px] font-bold text-slate-800">
-                    {report.rows.map((row, rIdx) => (
-                      <tr key={rIdx} className="hover:bg-indigo-50/5 transition-colors">
-                        <td className="py-3 px-4 border-r border-slate-150 text-slate-900 font-extrabold">
-                          Loom #{row.loomNo}
-                        </td>
-                        <td className="py-3 px-4 border-r border-slate-150">
-                          {row.quality}
-                        </td>
-                        <td className="py-3 px-4 border-r border-slate-150 text-center">
-                          {row.size}
-                        </td>
-                        <td className="py-3 px-4 border-r border-slate-150 text-center font-mono">
-                          {row.gsm} <span className="text-[9px] text-slate-400 font-semibold uppercase">gsm</span>
-                        </td>
-                        <td className="py-3 px-4 border-r border-slate-150 text-center font-mono text-indigo-900">
-                          {row.denier}
-                        </td>
-                        <td className="py-3 px-4 border-r border-slate-150 text-center font-mono">
-                          {row.average} <span className="text-[9px] text-slate-400 font-semibold uppercase">g</span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                            row.runningStatus === 'Running'
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-150'
-                              : 'bg-red-50 text-red-700 border border-red-150'
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${row.runningStatus === 'Running' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
-                            {row.runningStatus}
-                          </span>
-                        </td>
+                {report.isAllStopped ? (
+                  <div className="bg-rose-50/50 border border-rose-150 rounded-2xl p-6 mb-2 flex flex-col md:flex-row items-start md:items-center gap-4 animate-fade-in">
+                    <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 border border-rose-150 shadow-2xs">
+                      <AlertTriangle size={24} />
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping"></span>
+                        <h4 className="text-sm font-black uppercase text-rose-800 tracking-wide">
+                          Loom Plant Shut Down / Stopped for the Day
+                        </h4>
+                      </div>
+                      <p className="text-[11px] text-slate-450 font-bold uppercase tracking-wider">
+                        No looms were running on this date.
+                      </p>
+                      {report.remarks && (
+                        <div className="mt-3 bg-white/80 border border-rose-100/85 p-4 rounded-xl text-xs font-semibold text-slate-700 whitespace-pre-wrap leading-relaxed shadow-3xs max-w-2xl">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-rose-700 block mb-1">Reason for shutdown:</span>
+                          {report.remarks}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <table className="w-full text-left border-collapse border border-slate-150 rounded-2xl overflow-hidden shadow-xs">
+                    <thead>
+                      <tr className="bg-slate-900 text-slate-100 text-[11px] md:text-[12px] font-black uppercase tracking-wider select-none border-b border-slate-800">
+                        <th className="py-3 px-4 border-r border-slate-800">Loom Number</th>
+                        <th className="py-3 px-4 border-r border-slate-800">Quality</th>
+                        <th className="py-3 px-4 border-r border-slate-800 text-center">Size</th>
+                        <th className="py-3 px-4 border-r border-slate-800 text-center">GSM</th>
+                        <th className="py-3 px-4 border-r border-slate-800 text-center">Denier</th>
+                        <th className="py-3 px-4 border-r border-slate-800 text-center">Average Weight</th>
+                        <th className="py-3 px-4 text-center">Running Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-150 text-[12px] md:text-[13px] font-bold text-slate-800">
+                      {report.rows.map((row, rIdx) => (
+                        <tr key={rIdx} className="hover:bg-indigo-50/5 transition-colors">
+                          <td className="py-3 px-4 border-r border-slate-150 text-slate-900 font-extrabold">
+                            Loom #{row.loomNo}
+                          </td>
+                          <td className="py-3 px-4 border-r border-slate-150">
+                            {row.quality}
+                          </td>
+                          <td className="py-3 px-4 border-r border-slate-150 text-center">
+                            {row.size}
+                          </td>
+                          <td className="py-3 px-4 border-r border-slate-150 text-center font-mono">
+                            {row.gsm} <span className="text-[9px] text-slate-400 font-semibold uppercase">gsm</span>
+                          </td>
+                          <td className="py-3 px-4 border-r border-slate-150 text-center font-mono text-indigo-900">
+                            {row.denier}
+                          </td>
+                          <td className="py-3 px-4 border-r border-slate-150 text-center font-mono">
+                            {row.average} <span className="text-[9px] text-slate-400 font-semibold uppercase">g</span>
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              row.runningStatus === 'Running'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-150'
+                                : 'bg-red-50 text-red-700 border border-red-150'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${row.runningStatus === 'Running' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+                              {row.runningStatus}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             ))}
           </div>
@@ -835,42 +875,93 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                   />
                 </div>
 
-                {/* Upload Section */}
-                <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-5 flex flex-col items-center justify-center text-center">
-                  <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500 mb-3 shadow-2xs">
-                    {isExtracting ? (
-                      <RefreshCw className="animate-spin" size={20} />
-                    ) : (
-                      <Upload size={20} />
-                    )}
-                  </div>
-                  <h5 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-1">Handwritten OCR Pipeline</h5>
-                  <p className="text-[10px] text-slate-450 font-medium mb-4 max-w-[200px]">
-                    {isExtracting ? 'Synthesizing handwriting characters...' : 'Upload daily handwritten notes for automatic machine data extraction'}
-                  </p>
-                  
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    accept="image/*"
-                    onChange={handleImageFileChange}
-                    className="hidden"
-                    id="image-file-selector"
-                    disabled={isExtracting}
-                  />
-                  
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isExtracting}
-                    className={`px-4 h-9 ${isExtracting ? 'bg-slate-200 text-slate-400' : 'bg-slate-900 hover:bg-slate-850 text-white'} rounded-xl font-bold text-[10px] tracking-wider uppercase cursor-pointer active:scale-95 transition-all w-full flex items-center justify-center gap-1.5`}
-                  >
-                    {isExtracting ? 'Processing API...' : 'Select Report Image'}
-                  </button>
+                {/* All Stopped Checkbox */}
+                <div className="bg-rose-50/30 border border-rose-150 rounded-2xl p-4 space-y-3">
+                  <label className="flex items-start gap-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={isAllStopped}
+                      onChange={(e) => {
+                        setIsAllStopped(e.target.checked);
+                        if (e.target.checked) {
+                          setPreviewRows([]);
+                        }
+                      }}
+                      className="mt-0.5 h-4 w-4 text-rose-600 border-rose-300 rounded-sm focus:ring-rose-500 cursor-pointer"
+                    />
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-black text-rose-850 uppercase tracking-wide">
+                        Loom Plant Not Running / Stopped
+                      </span>
+                      <p className="text-[10px] text-slate-500 font-medium leading-tight">
+                        Check this if all looms were shut down or stopped for the day
+                      </p>
+                    </div>
+                  </label>
+
+                  {isAllStopped && (
+                    <div className="space-y-1.5 animate-fade-in">
+                      <label className="block text-[9px] font-black text-rose-800 uppercase tracking-wider">
+                        Shutdown Reason / Remarks <span className="text-red-500 font-black">*</span>
+                      </label>
+                      <textarea
+                        required
+                        value={remarks}
+                        onChange={(e) => setRemarks(e.target.value)}
+                        placeholder="Please input the reason for shutdown (e.g., Power failure, Maintenance, Holiday...)"
+                        rows={3}
+                        className="w-full bg-white border border-rose-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                      />
+                    </div>
+                  )}
                 </div>
 
+                {/* Upload Section */}
+                {!isAllStopped ? (
+                  <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-5 flex flex-col items-center justify-center text-center">
+                    <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500 mb-3 shadow-2xs">
+                      {isExtracting ? (
+                        <RefreshCw className="animate-spin" size={20} />
+                      ) : (
+                        <Upload size={20} />
+                      )}
+                    </div>
+                    <h5 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-1">Handwritten OCR Pipeline</h5>
+                    <p className="text-[10px] text-slate-450 font-medium mb-4 max-w-[200px]">
+                      {isExtracting ? 'Synthesizing handwriting characters...' : 'Upload daily handwritten notes for automatic machine data extraction'}
+                    </p>
+                    
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      accept="image/*"
+                      onChange={handleImageFileChange}
+                      className="hidden"
+                      id="image-file-selector"
+                      disabled={isExtracting}
+                    />
+                    
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isExtracting}
+                      className={`px-4 h-9 ${isExtracting ? 'bg-slate-200 text-slate-400' : 'bg-slate-900 hover:bg-slate-850 text-white'} rounded-xl font-bold text-[10px] tracking-wider uppercase cursor-pointer active:scale-95 transition-all w-full flex items-center justify-center gap-1.5`}
+                    >
+                      {isExtracting ? 'Processing API...' : 'Select Report Image'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-rose-50/10 border border-dashed border-rose-200 rounded-2xl p-5 text-center flex flex-col items-center justify-center">
+                    <Info className="text-rose-500 mb-2" size={24} />
+                    <span className="text-[10px] font-black text-rose-800 uppercase tracking-wider">Note Upload Skipped</span>
+                    <p className="text-[9px] text-slate-450 mt-1 max-w-[180px]">
+                      Since the plant was stopped, no handwritten paper logs or image files are required.
+                    </p>
+                  </div>
+                )}
+
                 {/* Document Preview Thumbnail if available */}
-                {uploadedImageBase64 && (
+                {!isAllStopped && uploadedImageBase64 && (
                   <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
                     <div className="bg-slate-100 p-2.5 border-b border-slate-200 flex justify-between items-center">
                       <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1">
@@ -897,121 +988,143 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
 
               {/* Right column: Interactive Preview Ledger */}
               <div className="lg:col-span-8 flex flex-col h-full min-h-[300px]">
-                <div className="flex items-center justify-between mb-2">
-                  <h5 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                    <Database size={13} className="text-slate-400" />
-                    Interactive Ledger Preview
-                  </h5>
-                  <button
-                    type="button"
-                    onClick={handleAddEmptyRow}
-                    className="px-3 h-7 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-black text-[9px] tracking-wider uppercase transition-colors inline-flex items-center gap-1 border border-indigo-100 cursor-pointer"
-                  >
-                    <Plus size={11} />
-                    Add Manual Row
-                  </button>
-                </div>
-
-                {previewRows.length === 0 ? (
-                  <div className="flex-1 border border-slate-150 rounded-2xl bg-slate-50/50 flex flex-col items-center justify-center p-8 text-center select-none min-h-[250px]">
-                    <Info className="text-slate-350 mb-2" size={32} />
-                    <span className="text-xs font-extrabold text-slate-500 uppercase tracking-widest">Preview Ledger Empty</span>
-                    <p className="text-[10px] text-slate-400 max-w-[280px] mt-1 font-medium">
-                      Upload an image file of the handwritten paper report to parse, or click "Add Manual Row" to populate rows manually
+                {isAllStopped ? (
+                  <div className="flex-1 border border-rose-150 rounded-3xl bg-rose-50/10 flex flex-col items-center justify-center p-8 text-center select-none min-h-[300px]">
+                    <AlertTriangle className="text-rose-500 mb-3" size={48} />
+                    <span className="text-sm font-black text-rose-800 uppercase tracking-wider">Plant Looms Stopped Mode</span>
+                    <p className="text-xs text-slate-500 max-w-[400px] mt-2 font-medium leading-relaxed">
+                      You have selected that the plant was stopped for the day. Saving this ledger will record a 0% utilization status with your specified remarks.
                     </p>
+                    {remarks.trim() ? (
+                      <div className="mt-4 p-4 bg-white border border-rose-200 rounded-2xl max-w-md text-left w-full shadow-2xs">
+                        <span className="text-[9px] font-black text-rose-800 uppercase tracking-widest block mb-1">Configured Shutdown Reason:</span>
+                        <p className="text-xs font-bold text-slate-700 whitespace-pre-wrap">{remarks}</p>
+                      </div>
+                    ) : (
+                      <div className="mt-4 text-[10px] text-rose-600 font-extrabold uppercase tracking-wider animate-pulse">
+                        ⚠️ Please fill in the Shutdown Reason / Remarks in the left panel to proceed.
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="flex-1 overflow-x-auto border border-slate-150 rounded-2xl shadow-inner max-h-[350px]">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-slate-900 text-slate-100 text-[10px] font-black uppercase tracking-wider border-b border-slate-800">
-                          <th className="py-2.5 px-3 border-r border-slate-800">Loom #</th>
-                          <th className="py-2.5 px-3 border-r border-slate-800">Quality</th>
-                          <th className="py-2.5 px-3 border-r border-slate-800 text-center">Size</th>
-                          <th className="py-2.5 px-3 border-r border-slate-800 text-center">GSM</th>
-                          <th className="py-2.5 px-3 border-r border-slate-800 text-center">Denier</th>
-                          <th className="py-2.5 px-3 border-r border-slate-800 text-center">Average</th>
-                          <th className="py-2.5 px-3 border-r border-slate-800 text-center">Status</th>
-                          <th className="py-2.5 px-3 text-center">Delete</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-150 text-xs font-bold text-slate-700">
-                        {previewRows.map((row, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                            <td className="py-1.5 px-2.5 border-r border-slate-150 w-16">
-                              <input
-                                type="text"
-                                value={row.loomNo}
-                                onChange={(e) => handleUpdatePreviewCell(idx, 'loomNo', e.target.value)}
-                                className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-850 font-black focus:outline-none focus:bg-white text-center"
-                              />
-                            </td>
-                            <td className="py-1.5 px-2.5 border-r border-slate-150">
-                              <input
-                                type="text"
-                                value={row.quality}
-                                onChange={(e) => handleUpdatePreviewCell(idx, 'quality', e.target.value)}
-                                className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-850 focus:outline-none focus:bg-white"
-                              />
-                            </td>
-                            <td className="py-1.5 px-2.5 border-r border-slate-150 w-20 text-center">
-                              <input
-                                type="text"
-                                value={row.size}
-                                onChange={(e) => handleUpdatePreviewCell(idx, 'size', e.target.value)}
-                                className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-850 focus:outline-none focus:bg-white text-center"
-                              />
-                            </td>
-                            <td className="py-1.5 px-2.5 border-r border-slate-150 w-16 text-center">
-                              <input
-                                type="number"
-                                step="0.1"
-                                value={row.gsm === 0 ? '' : row.gsm}
-                                onChange={(e) => handleUpdatePreviewCell(idx, 'gsm', parseFloat(e.target.value) || 0)}
-                                className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-850 focus:outline-none focus:bg-white font-mono text-center"
-                              />
-                            </td>
-                            <td className="py-1.5 px-2.5 border-r border-slate-150 w-20 text-center">
-                              <input
-                                type="number"
-                                value={row.denier === 0 ? '' : row.denier}
-                                onChange={(e) => handleUpdatePreviewCell(idx, 'denier', parseInt(e.target.value) || 0)}
-                                className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-850 focus:outline-none focus:bg-white font-mono text-center"
-                              />
-                            </td>
-                            <td className="py-1.5 px-2.5 border-r border-slate-150 w-20 text-center">
-                              <input
-                                type="number"
-                                step="0.1"
-                                value={row.average === 0 ? '' : row.average}
-                                onChange={(e) => handleUpdatePreviewCell(idx, 'average', parseFloat(e.target.value) || 0)}
-                                className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-850 focus:outline-none focus:bg-white font-mono text-center"
-                              />
-                            </td>
-                            <td className="py-1.5 px-2.5 border-r border-slate-150 w-28 text-center">
-                              <select
-                                value={row.runningStatus}
-                                onChange={(e) => handleUpdatePreviewCell(idx, 'runningStatus', e.target.value)}
-                                className="bg-transparent border-none text-xs font-black uppercase text-slate-850 focus:outline-none cursor-pointer"
-                              >
-                                <option value="Running">🟢 Running</option>
-                                <option value="Stopped">🔴 Stopped</option>
-                              </select>
-                            </td>
-                            <td className="py-1.5 px-2.5 text-center w-12">
-                              <button
-                                type="button"
-                                onClick={() => handleDeletePreviewRow(idx)}
-                                className="text-slate-450 hover:text-red-500 p-0.5 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <h5 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <Database size={13} className="text-slate-400" />
+                        Interactive Ledger Preview
+                      </h5>
+                      <button
+                        type="button"
+                        onClick={handleAddEmptyRow}
+                        className="px-3 h-7 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-black text-[9px] tracking-wider uppercase transition-colors inline-flex items-center gap-1 border border-indigo-100 cursor-pointer"
+                      >
+                        <Plus size={11} />
+                        Add Manual Row
+                      </button>
+                    </div>
+
+                    {previewRows.length === 0 ? (
+                      <div className="flex-1 border border-slate-150 rounded-2xl bg-slate-50/50 flex flex-col items-center justify-center p-8 text-center select-none min-h-[250px]">
+                        <Info className="text-slate-350 mb-2" size={32} />
+                        <span className="text-xs font-extrabold text-slate-500 uppercase tracking-widest">Preview Ledger Empty</span>
+                        <p className="text-[10px] text-slate-450 max-w-[280px] mt-1 font-medium">
+                          Upload an image file of the handwritten paper report to parse, or click "Add Manual Row" to populate rows manually
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex-1 overflow-x-auto border border-slate-150 rounded-2xl shadow-inner max-h-[350px]">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-slate-900 text-slate-100 text-[10px] font-black uppercase tracking-wider border-b border-slate-800">
+                              <th className="py-2.5 px-3 border-r border-slate-800">Loom #</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800">Quality</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center">Size</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center">GSM</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center">Denier</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center">Average</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center">Status</th>
+                              <th className="py-2.5 px-3 text-center">Delete</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-150 text-xs font-bold text-slate-700">
+                            {previewRows.map((row, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                <td className="py-1.5 px-2.5 border-r border-slate-150 w-16">
+                                  <input
+                                    type="text"
+                                    value={row.loomNo}
+                                    onChange={(e) => handleUpdatePreviewCell(idx, 'loomNo', e.target.value)}
+                                    className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-850 font-black focus:outline-none focus:bg-white text-center"
+                                  />
+                                </td>
+                                <td className="py-1.5 px-2.5 border-r border-slate-150">
+                                  <input
+                                    type="text"
+                                    value={row.quality}
+                                    onChange={(e) => handleUpdatePreviewCell(idx, 'quality', e.target.value)}
+                                    className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-850 focus:outline-none focus:bg-white"
+                                  />
+                                </td>
+                                <td className="py-1.5 px-2.5 border-r border-slate-150 w-20 text-center">
+                                  <input
+                                    type="text"
+                                    value={row.size}
+                                    onChange={(e) => handleUpdatePreviewCell(idx, 'size', e.target.value)}
+                                    className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-850 focus:outline-none focus:bg-white text-center"
+                                  />
+                                </td>
+                                <td className="py-1.5 px-2.5 border-r border-slate-150 w-16 text-center">
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    value={row.gsm === 0 ? '' : row.gsm}
+                                    onChange={(e) => handleUpdatePreviewCell(idx, 'gsm', parseFloat(e.target.value) || 0)}
+                                    className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-855 focus:outline-none focus:bg-white font-mono text-center"
+                                  />
+                                </td>
+                                <td className="py-1.5 px-2.5 border-r border-slate-150 w-20 text-center">
+                                  <input
+                                    type="number"
+                                    value={row.denier === 0 ? '' : row.denier}
+                                    onChange={(e) => handleUpdatePreviewCell(idx, 'denier', parseInt(e.target.value) || 0)}
+                                    className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-855 focus:outline-none focus:bg-white font-mono text-center"
+                                  />
+                                </td>
+                                <td className="py-1.5 px-2.5 border-r border-slate-150 w-20 text-center">
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    value={row.average === 0 ? '' : row.average}
+                                    onChange={(e) => handleUpdatePreviewCell(idx, 'average', parseFloat(e.target.value) || 0)}
+                                    className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-855 focus:outline-none focus:bg-white font-mono text-center"
+                                  />
+                                </td>
+                                <td className="py-1.5 px-2.5 border-r border-slate-150 w-28 text-center">
+                                  <select
+                                    value={row.runningStatus}
+                                    onChange={(e) => handleUpdatePreviewCell(idx, 'runningStatus', e.target.value)}
+                                    className="bg-transparent border-none text-xs font-black uppercase text-slate-855 focus:outline-none cursor-pointer"
+                                  >
+                                    <option value="Running">🟢 Running</option>
+                                    <option value="Stopped">🔴 Stopped</option>
+                                  </select>
+                                </td>
+                                <td className="py-1.5 px-2.5 text-center w-12">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeletePreviewRow(idx)}
+                                    className="text-slate-450 hover:text-red-500 p-0.5 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -1033,8 +1146,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
               <button
                 type="button"
                 onClick={handleSubmitReport}
-                disabled={isSubmitting || previewRows.length === 0}
-                className={`px-5 h-10 ${previewRows.length === 0 ? 'bg-indigo-300 text-indigo-50 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'} rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer`}
+                disabled={isSubmitting || (!isAllStopped && previewRows.length === 0) || (isAllStopped && !remarks.trim())}
+                className={`px-5 h-10 ${((!isAllStopped && previewRows.length === 0) || (isAllStopped && !remarks.trim())) ? 'bg-indigo-300 text-indigo-50 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'} rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer`}
               >
                 {isSubmitting ? (
                   <RefreshCw className="animate-spin" size={14} />

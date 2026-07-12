@@ -1095,7 +1095,46 @@ export const getWorkMinutes = (punches: string[]): number => {
   return totalMinutes;
 };
 
-export const isEmployeePresent = (punchesList: string[]): boolean => {
+export const getShiftTimingDurationHours = (shiftTime?: string, fallbackWorkingHours?: number): number => {
+  if (!shiftTime || !shiftTime.trim()) {
+    return fallbackWorkingHours || 8;
+  }
+  const parts = shiftTime.split(/[-—–]/).map(s => s.trim());
+  if (parts.length !== 2) {
+    return fallbackWorkingHours || 8;
+  }
+
+  const parsePart = (p: string) => {
+    const clean = p.replace(/\./g, ':').replace(/\s/g, '');
+    const match = clean.match(/^(\d{1,2}):(\d{2})$/);
+    if (match) {
+      return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+    }
+    const singleHourMatch = clean.match(/^(\d{1,2})$/);
+    if (singleHourMatch) {
+      return parseInt(singleHourMatch[1], 10) * 60;
+    }
+    return null;
+  };
+
+  const startMins = parsePart(parts[0]);
+  const endMins = parsePart(parts[1]);
+  if (startMins === null || endMins === null) {
+    return fallbackWorkingHours || 8;
+  }
+
+  let diff = endMins - startMins;
+  if (diff <= 0) {
+    diff += 1440;
+  }
+  return diff / 60;
+};
+
+export const isEmployeePresent = (
+  punchesList: string[],
+  shiftTime?: string,
+  workingHours?: number
+): boolean => {
   if (!punchesList || punchesList.length === 0) return false;
   const allZero = punchesList.every(p => {
     const parts = p.trim().split(' ');
@@ -1113,7 +1152,9 @@ export const isEmployeePresent = (punchesList: string[]): boolean => {
   }
 
   const minutes = getWorkMinutes(punchesList);
-  if (minutes < 480) {
+  const shiftHours = getShiftTimingDurationHours(shiftTime, workingHours || 8);
+  const threshold = shiftHours * 60 * 0.85;
+  if (minutes < threshold) {
     return false;
   }
   return true;

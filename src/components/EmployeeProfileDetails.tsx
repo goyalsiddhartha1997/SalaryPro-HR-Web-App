@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { ComputedEmployee, Employee } from '../types';
-import { isEmployeePresent, getWorkMinutes, getAdjustedPunches, getNextDateStr } from '../data';
+import { isEmployeePresent, getWorkMinutes, getAdjustedPunches, getNextDateStr, getShiftTimingDurationHours } from '../data';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, collectionGroup, query, where, getDocs } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { 
@@ -643,7 +643,9 @@ export default function EmployeeProfileDetails({
     const dayPunches = getAdjustedPunchesForDate(d);
     if (dayPunches.length > 0) {
       const minutes = getWorkMinutes(dayPunches);
-      return minutes < 480;
+      const shiftHours = getShiftTimingDurationHours(employee.shiftTime, employee.workingHours || 8);
+      const thresholdMinutes = shiftHours * 60 * 0.85;
+      return minutes < thresholdMinutes;
     }
     return false;
   }).map(d => {
@@ -1292,7 +1294,7 @@ export default function EmployeeProfileDetails({
                       <div>
                         <span className="text-xs font-semibold text-slate-500 block">Partial Present Deductions</span>
                         <span className="text-[9px] text-rose-500 font-bold ml-0">
-                          {partialDaysList.length} day(s) &lt; 8 hrs (worked {partialDaysList.reduce((acc, pd) => acc + (pd.minutes / 60), 0).toFixed(1)} hrs total)
+                          {partialDaysList.length} day(s) &lt; {(getShiftTimingDurationHours(employee.shiftTime, employee.workingHours || 8) * 0.85).toFixed(1)} hrs (worked {partialDaysList.reduce((acc, pd) => acc + (pd.minutes / 60), 0).toFixed(1)} hrs total)
                         </span>
                       </div>
                       <span className="text-xs font-bold text-rose-600 font-mono">- {formatINR(liveDeductionPartialDay)}</span>
@@ -1626,7 +1628,9 @@ export default function EmployeeProfileDetails({
                 const workMinutes = getWorkMinutes(dayPunches);
 
                 const absent = isAbsentDay(slot.day, slot.isCurrentMonth);
-                const isPartialPresent = hasPunches && (workMinutes < 480);
+                const shiftHours = getShiftTimingDurationHours(employee.shiftTime, employee.workingHours || 8);
+                const thresholdMinutes = shiftHours * 60 * 0.85;
+                const isPartialPresent = hasPunches && (workMinutes < thresholdMinutes);
                 const late = isLateDay(slot.day, slot.isCurrentMonth);
                 const isSelected = slot.isCurrentMonth && slot.day === selectedDay;
 

@@ -145,5 +145,7 @@ export interface LoomRunningReport {
   date: string; // YYYY-MM-DD
   rows: LoomRunningRow[];
   createdAt: string;
+  isAllStopped?: boolean;
+  remarks?: string;
 }
 

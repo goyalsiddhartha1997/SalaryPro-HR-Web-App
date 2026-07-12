@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Employee, ComputedEmployee, SalarySettings } from './types';
-import { INITIAL_EMPLOYEES, calculateSalary, isEmployeePresent, getWorkMinutes } from './data';
+import { INITIAL_EMPLOYEES, calculateSalary, isEmployeePresent, getWorkMinutes, getShiftTimingDurationHours } from './data';
 import { ROSTER_MAP_CSV } from './rosterData';
 import Dashboard from './components/Dashboard';
 import ExcelTable from './components/ExcelTable';
@@ -781,7 +781,9 @@ export default function App() {
           const hasPunches = clean.length > 0;
           if (hasPunches) {
             const minutes = getWorkMinutes(clean);
-            if (minutes < 480) {
+            const shiftHours = getShiftTimingDurationHours(emp.shiftTime, emp.workingHours || 8);
+            const thresholdMinutes = shiftHours * 60 * 0.85;
+            if (minutes < thresholdMinutes) {
               partialDaysList.push({ date, minutes });
             }
 
