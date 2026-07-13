@@ -199,6 +199,7 @@ export default function EmployeeProfileDetails({
   const [editedSalaryType, setEditedSalaryType] = useState<'fixed' | 'daily'>('fixed');
   const [editedSundayPaid, setEditedSundayPaid] = useState<'Paid' | 'Not Paid'>('Not Paid');
   const [editedMonthlySalary, setEditedMonthlySalary] = useState<number>(0);
+  const [editedContractor, setEditedContractor] = useState('');
 
   // Interactive local states for Notes & Documents
   const [newNote, setNewNote] = useState('');
@@ -494,6 +495,7 @@ export default function EmployeeProfileDetails({
     setEditedSalaryType(employee.salaryType || 'fixed');
     setEditedSundayPaid(employee.sundayPaid || 'Not Paid');
     setEditedMonthlySalary(employee.monthlySalary || 0);
+    setEditedContractor(employee.contractor || '');
     setIsEditingProfile(true);
   };
 
@@ -512,7 +514,8 @@ export default function EmployeeProfileDetails({
       designation: editedDesignation,
       salaryType: editedSalaryType,
       sundayPaid: editedSundayPaid,
-      monthlySalary: editedMonthlySalary
+      monthlySalary: editedMonthlySalary,
+      contractor: editedContractor
     });
     setIsEditingProfile(false);
   };
@@ -1038,6 +1041,12 @@ export default function EmployeeProfileDetails({
                 <span className="text-slate-400 font-medium">Salary Rate</span>
                 <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">
                   ₹{employee.monthlySalary || 0}{employee.salaryType === 'daily' ? '/day' : '/mo'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-medium">Contractor</span>
+                <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">
+                  {employee.contractor || ''}
                 </span>
               </div>
             </div>
@@ -2176,6 +2185,17 @@ export default function EmployeeProfileDetails({
                   <option value="Paid">Sunday PAID</option>
                   <option value="Not Paid">Sunday NOT Paid</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block mb-1 text-slate-400">Contractor Name</label>
+                <input 
+                  type="text" 
+                  value={editedContractor} 
+                  onChange={(e) => setEditedContractor(e.target.value)}
+                  placeholder="e.g. Agency A"
+                  className="w-full bg-slate-50 border-0 focus:ring-1 focus:ring-teal-500 rounded-xl p-2.5 text-slate-800 font-semibold"
+                />
               </div>
 
             </div>

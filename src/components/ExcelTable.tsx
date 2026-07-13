@@ -177,7 +177,10 @@ export default function ExcelTable({
       let valB: any = b[filterOpts.sortBy];
 
       // Handle custom sorting keys
-      if (filterOpts.sortBy === 'salary') {
+      if (filterOpts.sortBy === 'contractor') {
+        valA = a.contractor || '';
+        valB = b.contractor || '';
+      } else if (filterOpts.sortBy === 'salary') {
         valA = a.monthlySalary;
         valB = b.monthlySalary;
       } else if (filterOpts.sortBy === 'deduction') {
@@ -281,6 +284,12 @@ export default function ExcelTable({
       return;
     }
 
+    if (field === 'contractor') {
+      const trimmedVal = value.trim();
+      onUpdateEmployee(id, { contractor: trimmedVal });
+      return;
+    }
+
     if (field === 'department') {
       const trimmedVal = value.trim();
       onUpdateEmployee(id, { department: trimmedVal });
@@ -342,6 +351,7 @@ export default function ExcelTable({
       'S.No': index + 1,
       'Employee ID': emp.id,
       'Employee Name': emp.name,
+      'Contractor Name': emp.contractor || '',
       'Department': emp.department || '',
       'Designation': emp.designation || emp.role || '',
       'Shift': String(emp.shift || 'DAY'),
@@ -384,6 +394,7 @@ export default function ExcelTable({
       'S.No': '',
       'Employee ID': 'TOTAL ROWS: ' + employees.length,
       'Employee Name': 'Summary Ledger Sums',
+      'Contractor Name': '',
       'Department': '',
       'Designation': '',
       'Shift': '',
@@ -465,6 +476,7 @@ export default function ExcelTable({
 
         const name = String(findFuzzyValue(row, ['Employee Name', 'name', 'Name', 'FullName', 'StaffName']) || 'Imported Staff');
         const department = String(findFuzzyValue(row, ['Department', 'department', 'Dept', 'Dept.', 'Section', 'Division']) || '');
+        const contractor = String(findFuzzyValue(row, ['Contractor Name', 'Contractor', 'contractor', 'ContractorName', 'Agent']) || '');
         const designation = String(findFuzzyValue(row, ['Designation', 'designation', 'Role', 'role', 'Post', 'Job Title']) || '');
         const rawShiftStr = String(findFuzzyValue(row, ['Shift', 'shift', 'Shift [DAY/NIGHT]']) || 'DAY').toUpperCase();
         const shift = rawShiftStr.includes('NIGHT') ? 'NIGHT' : 'DAY';
@@ -483,6 +495,7 @@ export default function ExcelTable({
           id: rawId.toString(),
           name,
           department,
+          contractor,
           designation,
           role: designation || String(findFuzzyValue(row, ['role', 'Role']) || ''),
           shift,
@@ -841,6 +854,15 @@ export default function ExcelTable({
                 </div>
               </th>
 
+              <th className="w-40 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 text-[11px]">
+                <div className="flex items-center justify-between px-1">
+                  <span>Contractor</span>
+                  <button onClick={() => triggerSort('contractor')} className="cursor-pointer text-slate-400 hover:text-slate-650 transition-colors">
+                    <ArrowUpDown size={11} />
+                  </button>
+                </div>
+              </th>
+
               <th className="w-36 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 text-[11px]">
                 Department
               </th>
@@ -996,6 +1018,17 @@ export default function ExcelTable({
                       onBlur={(val) => handleCellBlur(emp.id, 'name', val)}
                       disabled={viewOnly}
                       className="w-full h-7 border-0 px-2 bg-transparent text-left font-medium rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:shadow-xs uppercase disabled:text-slate-500"
+                    />
+                  </td>
+
+                  <td className="bg-sky-50 text-slate-800 text-left align-middle border-r border-slate-150 px-1 pr-2">
+                    <CellInput 
+                      type="text" 
+                      value={emp.contractor || ''} 
+                      onBlur={(val) => handleCellBlur(emp.id, 'contractor', val)}
+                      disabled={viewOnly}
+                      placeholder="e.g. Agency A"
+                      className="w-full h-7 border-0 px-2 bg-transparent text-left font-medium rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:shadow-xs disabled:text-slate-500"
                     />
                   </td>
 
@@ -1217,7 +1250,7 @@ export default function ExcelTable({
             {/* Zero state display */}
             {totalItems === 0 && (
               <tr>
-                <td colSpan={22} className="h-44 text-center text-slate-400 text-xs">
+                <td colSpan={23} className="h-44 text-center text-slate-400 text-xs">
                   <div className="flex flex-col items-center justify-center space-y-2">
                     <AlertTriangle size={24} className="text-slate-300" />
                     <span>No employee records found matching current query or search criteria.</span>
@@ -1246,8 +1279,8 @@ export default function ExcelTable({
                   {totalItems} rows
                 </td>
                 <td className="sticky left-40 bg-slate-900 border-r border-slate-700 z-15 h-full"></td>
-                <td className="bg-slate-800 border-r border-slate-700"></td>
-                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td> {/* Contractor */}
+                <td className="bg-slate-800 border-r border-slate-700"></td> {/* Department */}
                 <td className="bg-slate-800 border-r border-slate-700"></td>
                 <td className="bg-slate-800 border-r border-slate-700"></td>
                 <td className="bg-slate-800 border-r border-slate-700"></td>

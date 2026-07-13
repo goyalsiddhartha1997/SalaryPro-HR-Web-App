@@ -25,6 +25,7 @@ export interface Employee {
   shiftTime?: string;
   shift?: 'DAY' | 'NIGHT';
   sundayPaid?: 'Paid' | 'Not Paid';
+  contractor?: string;
   notes?: string[];
   documents?: { name: string; size: string; date: string }[];
   
@@ -69,7 +70,7 @@ export interface FilterOptions {
   maxSalary: string;
   hasAbsenceOnly: boolean;
   highDeductionsOnly: boolean;
-  sortBy: 'id' | 'name' | 'salary' | 'deduction' | 'finalPay';
+  sortBy: 'id' | 'name' | 'salary' | 'deduction' | 'finalPay' | 'contractor';
   sortOrder: 'asc' | 'desc';
 }
 

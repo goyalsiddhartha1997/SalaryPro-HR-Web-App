@@ -2196,7 +2196,11 @@ export default function AttendanceImport({
     setParsedRows([]);
     setRawHeaders([]);
     setPreviewData([]);
-    setImportDate('2026-05-25');
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    setImportDate(`${yyyy}-${mm}-${dd}`);
     setImportShift('Day Shift');
     setViewShift('All Shifts');
     setRowLayout('single');
@@ -2505,14 +2509,21 @@ export default function AttendanceImport({
       }
     });
 
-    // Sort employees numerically by ID for a professional, ordered spreadsheet
+    // Sort employees in ascending order based on the designation column
     const sortedEmployees = [...activeEmployees].sort((a, b) => {
-      const idA = parseInt(a.id, 10);
-      const idB = parseInt(b.id, 10);
-      if (isNaN(idA) || isNaN(idB)) {
-        return a.id.localeCompare(b.id);
+      const desA = (a.designation || a.role || '').trim();
+      const desB = (b.designation || b.role || '').trim();
+      const comp = desA.localeCompare(desB, undefined, { sensitivity: 'base' });
+      if (comp !== 0) {
+        return comp;
       }
-      return idA - idB;
+      const nameA = a.name || '';
+      const nameB = b.name || '';
+      const nameComp = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+      if (nameComp !== 0) {
+        return nameComp;
+      }
+      return a.id.localeCompare(b.id, undefined, { numeric: true });
     });
 
     sortedEmployees.forEach((emp) => {
