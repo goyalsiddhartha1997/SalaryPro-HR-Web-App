@@ -41,6 +41,10 @@
           "type": "string",
           "description": "Departmental role of the employee"
         },
+        "contractor": {
+          "type": "string",
+          "description": "The name of the contractor agency providing the employee"
+        },
         "email": {
           "type": "string",
           "description": "Company or personal email"

@@ -33,7 +33,8 @@ service cloud.firestore {
         && data.workingHours is number && data.workingHours >= 0 && data.workingHours <= 24
         && data.fullDaysAbsent is number && data.fullDaysAbsent >= 0 && data.fullDaysAbsent <= 31
         && data.absentHours is number && data.absentHours >= 0 && data.absentHours <= 24
-        && data.absentMinutes is number && data.absentMinutes >= 0 && data.absentMinutes <= 59;
+        && data.absentMinutes is number && data.absentMinutes >= 0 && data.absentMinutes <= 59
+        && (!('contractor' in data) || data.contractor is string && data.contractor.size() <= 256);
     }
 
     function isValidPunchLog(data) {

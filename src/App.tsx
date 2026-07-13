@@ -1068,6 +1068,7 @@ export default function App() {
       updatedFields.monthlySalary !== undefined ||
       updatedFields.notes !== undefined ||
       updatedFields.documents !== undefined ||
+      updatedFields.contractor !== undefined ||
       updatedFields.id !== undefined;
 
     const isMonthlyFieldOnly = isMonthlyField && !hasProfileFields;
@@ -1235,6 +1236,7 @@ export default function App() {
     if (targetEmployee.department !== undefined) sanitized.department = targetEmployee.department;
     if (targetEmployee.designation !== undefined) sanitized.designation = targetEmployee.designation;
     if (targetEmployee.role !== undefined) sanitized.role = targetEmployee.role;
+    if (targetEmployee.contractor !== undefined) sanitized.contractor = targetEmployee.contractor;
     if (targetEmployee.email !== undefined) sanitized.email = targetEmployee.email;
     if (targetEmployee.phone !== undefined) sanitized.phone = targetEmployee.phone;
     if (targetEmployee.gender !== undefined) sanitized.gender = targetEmployee.gender;
