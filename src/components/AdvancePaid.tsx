@@ -727,9 +727,27 @@ export default function AdvancePaid({
       return isNaN(t) ? 0 : t;
     };
 
+    const getMealOrderIndex = (type?: string): number => {
+      if (!type) return 999;
+      const t = type.trim().toLowerCase();
+      if (t === 'breakfast') return 0;
+      if (t === 'morning tea' || t === 'morningtea') return 1;
+      if (t === 'lunch') return 2;
+      if (t === 'evening tea' || t === 'eveningtea') return 3;
+      if (t === 'dinner') return 4;
+      if (t === 'snacks') return 5;
+      if (t === 'night tea' || t === 'nighttea') return 6;
+      return 999;
+    };
+
     return list.sort((a, b) => {
       const comp = getTimestamp(a.date) - getTimestamp(b.date);
-      return foodSortDirection === 'asc' ? comp : -comp;
+      if (comp !== 0) {
+        return foodSortDirection === 'asc' ? comp : -comp;
+      }
+      const orderA = getMealOrderIndex(a.mealType);
+      const orderB = getMealOrderIndex(b.mealType);
+      return orderA - orderB;
     });
   }, [canteenFoodBills, foodSortDirection]);
 

@@ -111,6 +111,67 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
   const [metricsSingleDate, setMetricsSingleDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [metricsRangeStart, setMetricsRangeStart] = useState<string>(new Date().toISOString().split('T')[0]);
   const [metricsRangeEnd, setMetricsRangeEnd] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [metricsAuditShift, setMetricsAuditShift] = useState<'All' | 'Day Shift' | 'Night Shift'>('All');
+
+  // Sync filter mode
+  useEffect(() => {
+    if (ledgerFilterMode !== metricsFilterMode) {
+      setLedgerFilterMode(metricsFilterMode);
+    }
+  }, [metricsFilterMode]);
+  useEffect(() => {
+    if (metricsFilterMode !== ledgerFilterMode) {
+      setMetricsFilterMode(ledgerFilterMode);
+    }
+  }, [ledgerFilterMode]);
+
+  // Sync single date
+  useEffect(() => {
+    if (ledgerSingleDate !== metricsSingleDate) {
+      setLedgerSingleDate(metricsSingleDate);
+    }
+  }, [metricsSingleDate]);
+  useEffect(() => {
+    if (metricsSingleDate !== ledgerSingleDate) {
+      setMetricsSingleDate(ledgerSingleDate);
+    }
+  }, [ledgerSingleDate]);
+
+  // Sync range start
+  useEffect(() => {
+    if (ledgerRangeStart !== metricsRangeStart) {
+      setLedgerRangeStart(metricsRangeStart);
+    }
+  }, [metricsRangeStart]);
+  useEffect(() => {
+    if (metricsRangeStart !== ledgerRangeStart) {
+      setMetricsRangeStart(ledgerRangeStart);
+    }
+  }, [ledgerRangeStart]);
+
+  // Sync range end
+  useEffect(() => {
+    if (ledgerRangeEnd !== metricsRangeEnd) {
+      setLedgerRangeEnd(metricsRangeEnd);
+    }
+  }, [metricsRangeEnd]);
+  useEffect(() => {
+    if (metricsRangeEnd !== ledgerRangeEnd) {
+      setMetricsRangeEnd(ledgerRangeEnd);
+    }
+  }, [ledgerRangeEnd]);
+
+  // Sync audit shift
+  useEffect(() => {
+    if (ledgerAuditShift !== metricsAuditShift) {
+      setLedgerAuditShift(metricsAuditShift);
+    }
+  }, [metricsAuditShift]);
+  useEffect(() => {
+    if (metricsAuditShift !== ledgerAuditShift) {
+      setMetricsAuditShift(ledgerAuditShift);
+    }
+  }, [ledgerAuditShift]);
 
   // Popup History Modals States
   const [showAddHistoryModal, setShowAddHistoryModal] = useState<boolean>(false);
@@ -656,6 +717,11 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       // Usage and Addition accumulation based on filters
       if (item.logs) {
         item.logs.forEach(log => {
+          // If a shift is selected, only process logs matching that shift
+          if (metricsAuditShift !== 'All' && log.shift !== metricsAuditShift) {
+            return;
+          }
+
           if (log.type === 'use_stock') {
             if (metricsFilterMode === 'single') {
               if (log.date === metricsSingleDate) {
@@ -688,7 +754,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       todayUsageKgs,
       todayReceivedKgs
     };
-  }, [items, metricsFilterMode, metricsSingleDate, metricsRangeStart, metricsRangeEnd]);
+  }, [items, metricsFilterMode, metricsSingleDate, metricsRangeStart, metricsRangeEnd, metricsAuditShift]);
 
   // Add New Material Submission
   const handleAddNewMaterial = async (e: React.FormEvent) => {
@@ -1298,6 +1364,21 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
               </div>
             </div>
           )}
+
+          {/* Shift Filter for Top Usage Metrics */}
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 h-9 rounded-xl shadow-2xs w-full sm:w-auto">
+            <Activity size={14} className="text-slate-500" />
+            <span className="text-[10px] font-black text-slate-450 uppercase tracking-wider">Shift:</span>
+            <select
+              value={metricsAuditShift}
+              onChange={(e) => setMetricsAuditShift(e.target.value as 'All' | 'Day Shift' | 'Night Shift')}
+              className="bg-transparent text-xs font-black text-slate-850 outline-none focus:ring-0 cursor-pointer border-none p-0 pr-6"
+            >
+              <option value="All">All Shifts</option>
+              <option value="Day Shift">Day Shift</option>
+              <option value="Night Shift">Night Shift</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -1467,263 +1548,513 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
               <p className="text-xs text-slate-400">Try adjusting your search queries or category filters above.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-900 text-slate-100 text-[11px] font-black uppercase tracking-wider select-none border-b border-slate-800">
-                    <th className="py-4.5 px-6">Material Details</th>
-                    <th className="py-4.5 px-6">Category</th>
-                    <th className="py-4.5 px-6 text-right whitespace-nowrap min-w-[170px]">In-Store Stock</th>
-                    <th className="py-4.5 px-6 text-center">Quick Stock Log</th>
-                    <th className="py-4.5 px-6 min-w-[200px] max-w-[320px]">Remarks</th>
-                    <th className="py-4.5 px-6 pr-6 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-150 text-xs">
-                  {filteredItems.map((item) => {
-                    const isEditing = editingItemId === item.id;
-                    const isLow = item.currentStock < 2000;
-                    const isSelected = selectedItemForLogs?.id === item.id;
+            <>
+              {/* Desktop View Table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-900 text-slate-100 text-[11px] font-black uppercase tracking-wider select-none border-b border-slate-800">
+                      <th className="py-4.5 px-6">Material Details</th>
+                      <th className="py-4.5 px-6">Category</th>
+                      <th className="py-4.5 px-6 text-right whitespace-nowrap min-w-[170px]">In-Store Stock</th>
+                      <th className="py-4.5 px-6 text-center">Quick Stock Log</th>
+                      <th className="py-4.5 px-6 min-w-[200px] max-w-[320px]">Remarks</th>
+                      <th className="py-4.5 px-6 pr-6 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-150 text-xs">
+                    {filteredItems.map((item) => {
+                      const isEditing = editingItemId === item.id;
+                      const isLow = item.currentStock < 2000;
+                      const isSelected = selectedItemForLogs?.id === item.id;
 
-                    return (
-                      <tr 
-                        key={item.id} 
-                        className={`hover:bg-slate-50/50 transition-colors ${isSelected ? 'bg-amber-50/20' : ''}`}
-                      >
-                        {/* Column 1: Material Details */}
-                        <td className="py-4.5 px-6">
-                          {isEditing ? (
+                      return (
+                        <tr 
+                          key={item.id} 
+                          className={`hover:bg-slate-50/50 transition-colors ${isSelected ? 'bg-amber-50/20' : ''}`}
+                        >
+                          {/* Column 1: Material Details */}
+                          <td className="py-4.5 px-6">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editName}
+                                onChange={(e) => setEditName(e.target.value)}
+                                className="w-full h-9 px-2.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
+                              />
+                            ) : (
+                              <div className="space-y-1">
+                                <span 
+                                  onClick={() => setSelectedItemForLogs(item)}
+                                  className="font-extrabold text-slate-900 text-[13px] hover:text-amber-600 hover:underline cursor-pointer block leading-snug"
+                                >
+                                  {item.name}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[9px] text-slate-400 font-mono font-bold uppercase tracking-wider">ID: {item.id}</span>
+                                  <span className="text-[9.5px] text-indigo-500 font-bold block" id={`reg-date-${item.id}`}>
+                                    Setup: {formatDateToDMY(item.registrationDate || (item.logs && item.logs.length > 0 ? item.logs[item.logs.length - 1].date : item.lastUpdated?.split('T')[0]))}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Column 2: Category */}
+                          <td className="py-4.5 px-6">
+                            {isEditing ? (
+                              <select
+                                value={editCategory}
+                                onChange={(e) => setEditCategory(e.target.value)}
+                                className="h-9 px-2.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
+                              >
+                                <option value="PP Granules">PP Granules</option>
+                                <option value="Filler">Filler</option>
+                                <option value="LDPE">LDPE</option>
+                                <option value="TPT">TPT</option>
+                                <option value="UV Stabilizer">UV Stabilizer</option>
+                                <option value="Others">Others</option>
+                              </select>
+                            ) : (
+                              <span className="px-3 py-1 bg-slate-100 text-slate-700 text-[10px] font-black rounded-full uppercase tracking-widest border border-slate-200 whitespace-nowrap inline-block">
+                                {item.category}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Column 3: In-Store Stock */}
+                          <td className="py-4.5 px-6 text-right whitespace-nowrap">
+                            {isEditing ? (
+                              <div className="space-y-1.5 flex flex-col items-end">
+                                <div className="flex items-center justify-end gap-1">
+                                  <input
+                                    type="number"
+                                    value={editStock}
+                                    onChange={(e) => setEditStock(e.target.value)}
+                                    className="w-20 h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs text-right font-bold"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={editUnit}
+                                    onChange={(e) => setEditUnit(e.target.value)}
+                                    className="w-12 h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
+                                  />
+                                </div>
+                                <div className="flex items-center justify-end gap-1 text-[10px]">
+                                  <input
+                                    type="number"
+                                    placeholder="Bags"
+                                    value={editNoOfBags}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setEditNoOfBags(val);
+                                      const bags = parseFloat(val);
+                                      const kg = parseFloat(editKgPerBag);
+                                      if (!isNaN(bags) && !isNaN(kg) && bags > 0 && kg > 0) {
+                                        setEditStock(String(bags * kg));
+                                      }
+                                    }}
+                                    className="w-14 h-6 px-1.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded text-right font-semibold"
+                                    title="Number of Bags"
+                                  />
+                                  <span className="text-slate-400">×</span>
+                                  <input
+                                    type="number"
+                                    placeholder="kg/bag"
+                                    value={editKgPerBag}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setEditKgPerBag(val);
+                                      const bags = parseFloat(editNoOfBags);
+                                      const kg = parseFloat(val);
+                                      if (!isNaN(bags) && !isNaN(kg) && bags > 0 && kg > 0) {
+                                        setEditStock(String(bags * kg));
+                                      }
+                                    }}
+                                    className="w-14 h-6 px-1.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded text-right font-semibold"
+                                    title="Kg per Bag"
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                <div className="flex items-baseline justify-end gap-1.5">
+                                  <span className={`text-[15px] font-black font-mono tracking-tight ${isLow ? 'text-amber-600' : 'text-slate-900'}`}>
+                                    {item.currentStock.toLocaleString()} {item.unit}
+                                  </span>
+                                  {item.noOfBags !== undefined && item.noOfBags > 0 && item.kgPerBag !== undefined && item.kgPerBag > 0 && (
+                                    <span className="text-[11px] text-slate-500 font-extrabold font-mono">
+                                      ({item.noOfBags} bags × {item.kgPerBag} kg)
+                                    </span>
+                                  )}
+                                </div>
+                                {isLow && (
+                                  <span className="text-[9px] font-black uppercase text-amber-600 bg-amber-50 px-2 py-0.5 border border-amber-200 rounded inline-block text-center ml-auto">
+                                    LOW STOCK
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Column 4: Quick Stock Log Operations */}
+                          <td className="py-4.5 px-6 text-center">
+                            {!isEditing && (
+                              <div className="flex justify-center items-center gap-2">
+                                <button
+                                  onClick={() => {
+                                    setActiveActionItem(item);
+                                    setActionType('add');
+                                    setActionQty('');
+                                    setActionDate(new Date().toISOString().split('T')[0]);
+                                    setActionRemarks('');
+                                    setActionReconciliation('Balanced');
+                                  }}
+                                  className="h-8 px-3 hover:bg-emerald-50 text-emerald-600 hover:text-emerald-700 font-extrabold uppercase tracking-wider rounded-xl transition-all border border-slate-200 hover:border-emerald-200 cursor-pointer flex items-center gap-1 text-[10px] shadow-2xs"
+                                  title="Replenish stock"
+                                >
+                                  <PlusCircle size={14} />
+                                  <span>Add</span>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setActiveActionItem(item);
+                                    setActionType('deduct');
+                                    setActionQty('');
+                                    setActionDate(new Date().toISOString().split('T')[0]);
+                                    setActionShift('Day Shift');
+                                    setActionRemarks('');
+                                    setActionStage('Extrusion / Tape Line');
+                                    setActionWastage('');
+                                    setActionReconciliation('Balanced');
+                                  }}
+                                  className="h-8 px-3 hover:bg-rose-50 text-rose-500 hover:text-rose-600 font-extrabold uppercase tracking-wider rounded-xl transition-all border border-slate-200 hover:border-rose-200 cursor-pointer flex items-center gap-1 text-[10px] shadow-2xs"
+                                  title="Log today's usage/disbursal"
+                                >
+                                  <MinusCircle size={14} />
+                                  <span>Use</span>
+                                </button>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Column 5: Remarks */}
+                          <td className="py-4.5 px-6 min-w-[200px] max-w-[320px] whitespace-normal break-words">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editRemarks}
+                                onChange={(e) => setEditRemarks(e.target.value)}
+                                className="w-full h-9 px-2.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs"
+                              />
+                            ) : (
+                              <span className="text-slate-600 text-xs leading-relaxed block font-medium">
+                                {item.remarks || <span className="text-slate-350 italic">No remarks recorded</span>}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Column 6: Actions */}
+                          <td className="py-4.5 px-6 pr-6 text-right">
+                            <div className="flex justify-end items-center gap-1.5">
+                              {isEditing ? (
+                                <>
+                                  <button
+                                    onClick={() => saveInlineEdit(item)}
+                                    className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-all border border-emerald-100 cursor-pointer"
+                                    title="Save material details"
+                                  >
+                                    <Check size={14} strokeWidth={2.5} />
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingItemId(null)}
+                                    className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg transition-all border border-slate-200 cursor-pointer"
+                                    title="Cancel edit"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => setSelectedItemForLogs(item)}
+                                    className={`p-1.5 rounded-lg transition-all border cursor-pointer ${isSelected ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-450'}`}
+                                    title="View audit logs"
+                                  >
+                                    <History size={13} />
+                                  </button>
+                                  <button
+                                    onClick={() => startInlineEdit(item)}
+                                    className="p-1.5 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-100 text-slate-500 hover:text-indigo-600 rounded-lg transition-all cursor-pointer"
+                                    title="Edit Specifications"
+                                  >
+                                    <Edit3 size={13} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteMaterial(item)}
+                                    className="p-1.5 bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-100 text-slate-500 hover:text-rose-600 rounded-lg transition-all cursor-pointer"
+                                    title="Delete material variety"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile View Card List */}
+              <div className="block md:hidden p-4.5 space-y-4">
+                {filteredItems.map((item) => {
+                  const isEditing = editingItemId === item.id;
+                  const isLow = item.currentStock < 2000;
+                  const isSelected = selectedItemForLogs?.id === item.id;
+
+                  return (
+                    <div key={item.id}>
+                      {isEditing ? (
+                        <div className="bg-slate-50 border border-slate-250 rounded-2xl p-4 space-y-4 shadow-sm animate-fade-in">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Material Name</label>
                             <input
                               type="text"
                               value={editName}
                               onChange={(e) => setEditName(e.target.value)}
-                              className="w-full h-9 px-2.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
+                              className="w-full h-9 px-3 bg-white border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold focus:outline-none"
                             />
-                          ) : (
-                            <div className="space-y-1">
-                              <span 
-                                onClick={() => setSelectedItemForLogs(item)}
-                                className="font-extrabold text-slate-900 text-[13px] hover:text-amber-600 hover:underline cursor-pointer block leading-snug"
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Category</label>
+                              <select
+                                value={editCategory}
+                                onChange={(e) => setEditCategory(e.target.value)}
+                                className="w-full h-9 px-2 bg-white border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold focus:outline-none"
                               >
-                                {item.name}
-                              </span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[9px] text-slate-400 font-mono font-bold uppercase tracking-wider">ID: {item.id}</span>
-                                <span className="text-[9.5px] text-indigo-500 font-bold block" id={`reg-date-${item.id}`}>
-                                  Setup: {formatDateToDMY(item.registrationDate || (item.logs && item.logs.length > 0 ? item.logs[item.logs.length - 1].date : item.lastUpdated?.split('T')[0]))}
-                                </span>
-                              </div>
+                                <option value="PP Granules">PP Granules</option>
+                                <option value="Filler">Filler</option>
+                                <option value="LDPE">LDPE</option>
+                                <option value="TPT">TPT</option>
+                                <option value="UV Stabilizer">UV Stabilizer</option>
+                                <option value="Others">Others</option>
+                              </select>
                             </div>
-                          )}
-                        </td>
 
-                        {/* Column 2: Category */}
-                        <td className="py-4.5 px-6">
-                          {isEditing ? (
-                            <select
-                              value={editCategory}
-                              onChange={(e) => setEditCategory(e.target.value)}
-                              className="h-9 px-2.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
-                            >
-                              <option value="PP Granules">PP Granules</option>
-                              <option value="Filler">Filler</option>
-                              <option value="LDPE">LDPE</option>
-                              <option value="TPT">TPT</option>
-                              <option value="UV Stabilizer">UV Stabilizer</option>
-                              <option value="Others">Others</option>
-                            </select>
-                          ) : (
-                            <span className="px-3 py-1 bg-slate-100 text-slate-700 text-[10px] font-black rounded-full uppercase tracking-widest border border-slate-200 whitespace-nowrap inline-block">
-                              {item.category}
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Column 3: In-Store Stock */}
-                        <td className="py-4.5 px-6 text-right whitespace-nowrap">
-                          {isEditing ? (
-                            <div className="space-y-1.5 flex flex-col items-end">
-                              <div className="flex items-center justify-end gap-1">
-                                <input
-                                  type="number"
-                                  value={editStock}
-                                  onChange={(e) => setEditStock(e.target.value)}
-                                  className="w-20 h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs text-right font-bold"
-                                />
-                                <input
-                                  type="text"
-                                  value={editUnit}
-                                  onChange={(e) => setEditUnit(e.target.value)}
-                                  className="w-12 h-8 px-2 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold"
-                                />
-                              </div>
-                              <div className="flex items-center justify-end gap-1 text-[10px]">
-                                <input
-                                  type="number"
-                                  placeholder="Bags"
-                                  value={editNoOfBags}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setEditNoOfBags(val);
-                                    const bags = parseFloat(val);
-                                    const kg = parseFloat(editKgPerBag);
-                                    if (!isNaN(bags) && !isNaN(kg) && bags > 0 && kg > 0) {
-                                      setEditStock(String(bags * kg));
-                                    }
-                                  }}
-                                  className="w-14 h-6 px-1.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded text-right font-semibold"
-                                  title="Number of Bags"
-                                />
-                                <span className="text-slate-400">×</span>
-                                <input
-                                  type="number"
-                                  placeholder="kg/bag"
-                                  value={editKgPerBag}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setEditKgPerBag(val);
-                                    const bags = parseFloat(editNoOfBags);
-                                    const kg = parseFloat(val);
-                                    if (!isNaN(bags) && !isNaN(kg) && bags > 0 && kg > 0) {
-                                      setEditStock(String(bags * kg));
-                                    }
-                                  }}
-                                  className="w-14 h-6 px-1.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded text-right font-semibold"
-                                  title="Kg per Bag"
-                                />
-                              </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Unit</label>
+                              <input
+                                type="text"
+                                value={editUnit}
+                                onChange={(e) => setEditUnit(e.target.value)}
+                                className="w-full h-9 px-3 bg-white border border-slate-200 focus:border-amber-400 rounded-lg text-xs font-bold focus:outline-none"
+                              />
                             </div>
-                          ) : (
-                            <div className="space-y-1">
-                              <div className="flex items-baseline justify-end gap-1.5">
-                                <span className={`text-[15px] font-black font-mono tracking-tight ${isLow ? 'text-amber-600' : 'text-slate-900'}`}>
-                                  {item.currentStock.toLocaleString()} {item.unit}
-                                </span>
-                                {item.noOfBags !== undefined && item.noOfBags > 0 && item.kgPerBag !== undefined && item.kgPerBag > 0 && (
-                                  <span className="text-[11px] text-slate-500 font-extrabold font-mono">
-                                    ({item.noOfBags} bags × {item.kgPerBag} kg)
-                                  </span>
-                                )}
-                              </div>
-                              {isLow && (
-                                <span className="text-[9px] font-black uppercase text-amber-600 bg-amber-50 px-2 py-0.5 border border-amber-200 rounded inline-block text-center ml-auto">
-                                  LOW STOCK
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </td>
+                          </div>
 
-                        {/* Column 4: Quick Stock Log Operations */}
-                        <td className="py-4.5 px-6 text-center">
-                          {!isEditing && (
-                            <div className="flex justify-center items-center gap-2">
-                              <button
-                                onClick={() => {
-                                  setActiveActionItem(item);
-                                  setActionType('add');
-                                  setActionQty('');
-                                  setActionDate(new Date().toISOString().split('T')[0]);
-                                  setActionRemarks('');
-                                  setActionReconciliation('Balanced');
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="space-y-1.5 col-span-1">
+                              <label className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Stock Qty</label>
+                              <input
+                                type="number"
+                                value={editStock}
+                                onChange={(e) => setEditStock(e.target.value)}
+                                className="w-full h-9 px-2 bg-white border border-slate-200 focus:border-amber-400 rounded-lg text-xs text-right font-bold focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1.5 col-span-1">
+                              <label className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Bags</label>
+                              <input
+                                type="number"
+                                placeholder="Bags"
+                                value={editNoOfBags}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setEditNoOfBags(val);
+                                  const bags = parseFloat(val);
+                                  const kg = parseFloat(editKgPerBag);
+                                  if (!isNaN(bags) && !isNaN(kg) && bags > 0 && kg > 0) {
+                                    setEditStock(String(bags * kg));
+                                  }
                                 }}
-                                className="h-8 px-3 hover:bg-emerald-50 text-emerald-600 hover:text-emerald-700 font-extrabold uppercase tracking-wider rounded-xl transition-all border border-slate-200 hover:border-emerald-200 cursor-pointer flex items-center gap-1 text-[10px] shadow-2xs"
-                                title="Replenish stock"
-                              >
-                                <PlusCircle size={14} />
-                                <span>Add</span>
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setActiveActionItem(item);
-                                  setActionType('deduct');
-                                  setActionQty('');
-                                  setActionDate(new Date().toISOString().split('T')[0]);
-                                  setActionShift('Day Shift');
-                                  setActionRemarks('');
-                                  setActionStage('Extrusion / Tape Line');
-                                  setActionWastage('');
-                                  setActionReconciliation('Balanced');
-                                }}
-                                className="h-8 px-3 hover:bg-rose-50 text-rose-500 hover:text-rose-600 font-extrabold uppercase tracking-wider rounded-xl transition-all border border-slate-200 hover:border-rose-200 cursor-pointer flex items-center gap-1 text-[10px] shadow-2xs"
-                                title="Log today's usage/disbursal"
-                              >
-                                <MinusCircle size={14} />
-                                <span>Use</span>
-                              </button>
+                                className="w-full h-9 px-2 bg-white border border-slate-200 focus:border-amber-400 rounded-lg text-xs text-right font-semibold focus:outline-none"
+                              />
                             </div>
-                          )}
-                        </td>
 
-                        {/* Column 5: Remarks */}
-                        <td className="py-4.5 px-6 min-w-[200px] max-w-[320px] whitespace-normal break-words">
-                          {isEditing ? (
+                            <div className="space-y-1.5 col-span-1">
+                              <label className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">kg/bag</label>
+                              <input
+                                type="number"
+                                placeholder="kg/bag"
+                                value={editKgPerBag}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setEditKgPerBag(val);
+                                  const bags = parseFloat(editNoOfBags);
+                                  const kg = parseFloat(val);
+                                  if (!isNaN(bags) && !isNaN(kg) && bags > 0 && kg > 0) {
+                                    setEditStock(String(bags * kg));
+                                  }
+                                }}
+                                className="w-full h-9 px-2 bg-white border border-slate-200 focus:border-amber-400 rounded-lg text-xs text-right font-semibold focus:outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Remarks</label>
                             <input
                               type="text"
                               value={editRemarks}
                               onChange={(e) => setEditRemarks(e.target.value)}
-                              className="w-full h-9 px-2.5 bg-slate-50 border border-slate-200 focus:border-amber-400 rounded-lg text-xs"
+                              className="w-full h-9 px-3 bg-white border border-slate-200 focus:border-amber-400 rounded-lg text-xs focus:outline-none"
                             />
-                          ) : (
-                            <span className="text-slate-600 text-xs leading-relaxed block font-medium">
-                              {item.remarks || <span className="text-slate-350 italic">No remarks recorded</span>}
-                            </span>
-                          )}
-                        </td>
+                          </div>
 
-                        {/* Column 6: Actions */}
-                        <td className="py-4.5 px-6 pr-6 text-right">
-                          <div className="flex justify-end items-center gap-1.5">
-                            {isEditing ? (
-                              <>
-                                <button
-                                  onClick={() => saveInlineEdit(item)}
-                                  className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-all border border-emerald-100 cursor-pointer"
-                                  title="Save material details"
-                                >
-                                  <Check size={14} strokeWidth={2.5} />
-                                </button>
-                                <button
-                                  onClick={() => setEditingItemId(null)}
-                                  className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg transition-all border border-slate-200 cursor-pointer"
-                                  title="Cancel edit"
-                                >
-                                  <X size={14} />
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <button
-                                  onClick={() => setSelectedItemForLogs(item)}
-                                  className={`p-1.5 rounded-lg transition-all border cursor-pointer ${isSelected ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-450'}`}
-                                  title="View audit logs"
-                                >
-                                  <History size={13} />
-                                </button>
-                                <button
-                                  onClick={() => startInlineEdit(item)}
-                                  className="p-1.5 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-100 text-slate-500 hover:text-indigo-600 rounded-lg transition-all cursor-pointer"
-                                  title="Edit Specifications"
-                                >
-                                  <Edit3 size={13} />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteMaterial(item)}
-                                  className="p-1.5 bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-100 text-slate-500 hover:text-rose-600 rounded-lg transition-all cursor-pointer"
-                                  title="Delete material variety"
-                                >
-                                  <Trash2 size={13} />
-                                </button>
-                              </>
+                          <div className="flex justify-end gap-2 pt-2 border-t border-slate-150">
+                            <button
+                              onClick={() => saveInlineEdit(item)}
+                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                            >
+                              <Check size={14} strokeWidth={2.5} />
+                              <span>Save</span>
+                            </button>
+                            <button
+                              onClick={() => setEditingItemId(null)}
+                              className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-black text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                            >
+                              <X size={14} />
+                              <span>Cancel</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className={`bg-white border ${isSelected ? 'border-amber-400 bg-amber-50/5 shadow-xs' : 'border-slate-200'} rounded-2xl p-4 space-y-4 shadow-2xs hover:shadow-xs transition-all`}>
+                          <div className="flex justify-between items-start gap-2">
+                            <div className="space-y-1 flex-1">
+                              <span 
+                                onClick={() => setSelectedItemForLogs(item)}
+                                className="font-extrabold text-slate-900 text-sm hover:text-amber-600 hover:underline cursor-pointer block leading-snug"
+                              >
+                                {item.name}
+                              </span>
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                                <span>ID: {item.id}</span>
+                                <span className="text-slate-300">•</span>
+                                <span className="text-indigo-500">
+                                  Setup: {formatDateToDMY(item.registrationDate || (item.logs && item.logs.length > 0 ? item.logs[item.logs.length - 1].date : item.lastUpdated?.split('T')[0]))}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="px-2.5 py-1 bg-slate-100 text-slate-700 text-[9px] font-black rounded-md uppercase tracking-wider border border-slate-200 whitespace-nowrap shrink-0">
+                              {item.category}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-150 rounded-xl">
+                            <div className="space-y-0.5">
+                              <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block">In-Store Stock</span>
+                              <span className={`text-base font-black font-mono tracking-tight block ${isLow ? 'text-amber-600 animate-pulse' : 'text-slate-900'}`}>
+                                {item.currentStock.toLocaleString()} {item.unit}
+                              </span>
+                            </div>
+                            {item.noOfBags !== undefined && item.noOfBags > 0 && item.kgPerBag !== undefined && item.kgPerBag > 0 && (
+                              <span className="text-[10px] text-slate-500 font-extrabold font-mono bg-white border border-slate-150 px-2.5 py-1 rounded-lg shrink-0">
+                                {item.noOfBags} bags × {item.kgPerBag} kg
+                              </span>
                             )}
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+
+                          {isLow && (
+                            <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-2.5 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-wider">
+                              <AlertCircle size={14} className="text-amber-600" />
+                              Low Stock (below 2,000 kg safety threshold)
+                            </div>
+                          )}
+
+                          {item.remarks && (
+                            <div className="space-y-0.5 bg-slate-50/40 p-2.5 rounded-xl border border-slate-150/60 text-[11px] font-medium text-slate-600">
+                              <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block mb-0.5">Remarks</span>
+                              <p className="leading-relaxed">{item.remarks}</p>
+                            </div>
+                          )}
+
+                          {/* Quick Stock Log Buttons */}
+                          <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-100">
+                            <button
+                              onClick={() => {
+                                setActiveActionItem(item);
+                                actionType && setActionType('add');
+                                setActionType('add');
+                                setActionQty('');
+                                setActionDate(new Date().toISOString().split('T')[0]);
+                                setActionRemarks('');
+                                setActionReconciliation('Balanced');
+                              }}
+                              className="h-9 hover:bg-emerald-50 text-emerald-600 font-extrabold uppercase tracking-wider rounded-xl transition-all border border-slate-200 hover:border-emerald-200 cursor-pointer flex items-center justify-center gap-1.5 text-xs shadow-2xs"
+                            >
+                              <PlusCircle size={15} />
+                              <span>Add Stock</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                setActiveActionItem(item);
+                                setActionType('deduct');
+                                setActionQty('');
+                                setActionDate(new Date().toISOString().split('T')[0]);
+                                setActionShift('Day Shift');
+                                setActionRemarks('');
+                                setActionStage('Extrusion / Tape Line');
+                                setActionWastage('');
+                                setActionReconciliation('Balanced');
+                              }}
+                              className="h-9 hover:bg-rose-50 text-rose-500 font-extrabold uppercase tracking-wider rounded-xl transition-all border border-slate-200 hover:border-rose-200 cursor-pointer flex items-center justify-center gap-1.5 text-xs shadow-2xs"
+                            >
+                              <MinusCircle size={15} />
+                              <span>Use Stock</span>
+                            </button>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex justify-end items-center gap-2 pt-2 border-t border-slate-100 mt-2">
+                            <button
+                              onClick={() => setSelectedItemForLogs(item)}
+                              className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${isSelected ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'}`}
+                              title="View audit logs"
+                            >
+                              <History size={13} />
+                              <span>Logs</span>
+                            </button>
+                            <button
+                              onClick={() => startInlineEdit(item)}
+                              className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 hover:bg-indigo-50 border border-slate-200 text-slate-500 hover:text-indigo-600 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                              title="Edit Specifications"
+                            >
+                              <Edit3 size={13} />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              onClick={() => handleDeleteMaterial(item)}
+                              className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 hover:bg-rose-50 border border-slate-200 text-slate-500 hover:text-rose-600 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                              title="Delete material variety"
+                            >
+                              <Trash2 size={13} />
+                              <span>Delete</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
 
@@ -1882,7 +2213,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
           </div>
 
           {/* Ledger Table */}
-          <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+          <div className="hidden md:block overflow-x-auto border border-slate-200 rounded-2xl">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-900 border-b border-slate-800 text-[11px] font-black text-slate-100 uppercase tracking-wider select-none">
@@ -1968,6 +2299,118 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                 </tr>
               </tfoot>
             </table>
+          </div>
+
+          {/* Mobile View Ledger Card List */}
+          <div className="block md:hidden space-y-4 pt-1">
+            {dailyAuditLedgerData.map((row) => {
+              if (!row) return null;
+              const hasConsumed = row.consumption > 0;
+              return (
+                <div 
+                  key={row.id} 
+                  className={`border border-slate-200 rounded-2xl p-4 space-y-3.5 shadow-2xs hover:shadow-xs transition-shadow ${
+                    hasConsumed ? 'bg-amber-50/5 border-amber-200/60' : 'bg-white'
+                  }`}
+                >
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="space-y-1">
+                      <span className="font-extrabold text-slate-900 text-sm block leading-tight">
+                        {row.name}
+                      </span>
+                      <span className="px-2 py-0.5 text-[9px] font-black text-slate-700 bg-slate-100 rounded border border-slate-200 uppercase tracking-wider inline-block">
+                        {row.category}
+                      </span>
+                    </div>
+                    <span className={`px-2.5 py-1 text-[9px] font-black rounded-md border uppercase tracking-wider shrink-0 ${
+                      row.shift === 'Day Shift' 
+                        ? 'bg-amber-50 text-amber-700 border-amber-200' 
+                        : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                    }`}>
+                      {row.shift}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-2.5 border-t border-dashed border-slate-150 text-xs">
+                    <div>
+                      <span className="text-[9px] text-slate-450 font-black uppercase tracking-widest block leading-none mb-1">Opening Stock</span>
+                      <span className="font-bold text-slate-700 font-mono">{row.openingStock.toLocaleString()} {row.unit}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-450 font-black uppercase tracking-widest block leading-none mb-1">Received / Added</span>
+                      <span className={`font-mono font-bold ${row.additions > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                        {row.additions > 0 ? `+${row.additions.toLocaleString()}` : '0'} {row.unit}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-450 font-black uppercase tracking-widest block leading-none mb-1">Consumption</span>
+                      <span className={`font-mono font-bold ${hasConsumed ? 'text-rose-600' : 'text-slate-400'}`}>
+                        {hasConsumed ? `-${row.consumption.toLocaleString()}` : '0'} {row.unit}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-450 font-black uppercase tracking-widest block leading-none mb-1">Wastage</span>
+                      <span className={`font-mono font-bold ${row.wastage > 0 ? 'text-orange-600' : 'text-slate-400'}`}>
+                        {row.wastage > 0 ? `${row.wastage.toLocaleString()} kg` : '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-450 font-black uppercase tracking-widest block leading-none mb-1">Adjustments</span>
+                      <span className={`font-mono font-bold ${row.correction !== 0 ? (row.correction > 0 ? 'text-emerald-600' : 'text-rose-600') : 'text-slate-400'}`}>
+                        {row.correction !== 0 ? `${row.correction > 0 ? '+' : ''}${row.correction.toLocaleString()}` : '—'} {row.correction !== 0 ? row.unit : ''}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-450 font-black uppercase tracking-widest block leading-none mb-1">Closing Stock</span>
+                      <span className="font-extrabold text-slate-900 font-mono">{row.finalStock.toLocaleString()} {row.unit}</span>
+                    </div>
+                  </div>
+
+                  {row.remarks && (
+                    <div className="bg-slate-50 border border-slate-150 rounded-xl p-2.5 text-[11px] font-medium text-slate-600 italic">
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider not-italic block mb-0.5">Consumption Remarks</span>
+                      {row.remarks}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Mobile View Ledger Summary Totals */}
+            <div className="bg-slate-100 p-4.5 flex flex-col gap-3 rounded-2xl border border-slate-200 font-bold">
+              <div className="flex items-center gap-1.5 text-slate-800 font-black uppercase text-xs tracking-wider">
+                <FileSpreadsheet size={16} className="text-slate-500" />
+                <span>Ledger Grand Totals</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-3xs">
+                  <span className="text-[8.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Opening</span>
+                  <span className="font-black text-slate-800 font-mono text-sm block mt-0.5">{visibleTotals.opening.toLocaleString()} kg</span>
+                </div>
+                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-3xs">
+                  <span className="text-[8.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Added</span>
+                  <span className="font-black text-emerald-700 font-mono text-sm block mt-0.5">+{visibleTotals.additions.toLocaleString()} kg</span>
+                </div>
+                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-3xs">
+                  <span className="text-[8.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Consumption</span>
+                  <span className="font-black text-rose-600 font-mono text-sm block mt-0.5">-{visibleTotals.consumption.toLocaleString()} kg</span>
+                </div>
+                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-3xs">
+                  <span className="text-[8.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Wastage</span>
+                  <span className="font-black text-orange-600 font-mono text-sm block mt-0.5">{visibleTotals.wastage.toLocaleString()} kg</span>
+                </div>
+                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-3xs">
+                  <span className="text-[8.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Adjustments</span>
+                  <span className={`font-black font-mono text-sm block mt-0.5 ${visibleTotals.correction >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                    {visibleTotals.correction >= 0 ? '+' : ''}{visibleTotals.correction.toLocaleString()} kg
+                  </span>
+                </div>
+                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-3xs">
+                  <span className="text-[8.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Closing</span>
+                  <span className="font-black text-slate-900 font-mono text-sm block mt-0.5">{visibleTotals.finalStock.toLocaleString()} kg</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Shift-Wise Summary Cards */}

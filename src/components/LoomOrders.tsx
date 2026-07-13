@@ -851,7 +851,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
           {/* Payroll Ledger Style Grid layout (Option A) */}
           <div className="bg-white rounded-3xl border border-zinc-200 shadow-md overflow-hidden flex-1 flex flex-col">
-            <div className="overflow-x-auto">
+            {/* Desktop View Table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-zinc-950 text-zinc-200 border-b border-zinc-800">
@@ -1016,6 +1017,131 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile View Card List */}
+            <div className="block md:hidden divide-y divide-zinc-200">
+              {loading ? (
+                <div className="py-12 text-center text-zinc-450 uppercase tracking-widest text-[10px] font-bold">
+                  <Clock className="animate-spin text-amber-500 mx-auto mb-2.5" size={24} />
+                  Syncing active loom ledger...
+                </div>
+              ) : filteredOrders.length === 0 ? (
+                <div className="py-16 text-center select-none px-4">
+                  <FileSpreadsheet className="text-zinc-300 mx-auto mb-3" size={40} />
+                  <p className="text-xs font-black text-zinc-400 uppercase tracking-widest font-mono">No Active Ledger Logs</p>
+                  <p className="text-[10px] text-zinc-500 max-w-sm mx-auto mt-0.5">
+                    Configure a new parent order code in the left console to get started.
+                  </p>
+                </div>
+              ) : (
+                filteredOrders.map((order) => {
+                  const totalTarget = order.rows.reduce((sum, r) => sum + r.totalQuantity, 0);
+                  const totalCompleted = order.rows.reduce((sum, r) => sum + (r.productionCompleted || 0), 0);
+                  const completionPercent = totalTarget > 0 ? Math.min(100, (totalCompleted / totalTarget) * 100) : 0;
+
+                  const statusStyles = {
+                    Pending: 'bg-amber-50 text-amber-800 border border-amber-250 font-bold',
+                    Production: 'bg-orange-50 text-orange-800 border border-orange-250 font-extrabold ring-1 ring-orange-500/20 animate-pulse',
+                    Completed: 'bg-emerald-50 text-emerald-800 border border-emerald-200 font-extrabold'
+                  };
+
+                  let displayDate = order.date;
+                  try {
+                    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                    const [yr, mo, dy] = order.date.split('-');
+                    if (yr && mo && dy) {
+                      displayDate = `${dy} ${months[parseInt(mo, 10) - 1]} ${yr}`;
+                    }
+                  } catch (e) {}
+
+                  return (
+                    <div key={order.id} className="p-4 flex flex-col gap-3 hover:bg-zinc-50/50 transition-colors">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex flex-col">
+                          <span className="inline-block bg-zinc-900 border border-zinc-800 text-amber-400 text-xs font-black font-mono px-2.5 py-1 rounded-lg uppercase tracking-wide w-fit">
+                            {order.orderNo}
+                          </span>
+                          <div className="flex items-center gap-1 mt-1 text-[10px] text-zinc-500 font-bold">
+                            <CalendarIcon size={10} className="text-zinc-400" />
+                            <span>{displayDate}</span>
+                          </div>
+                        </div>
+                        <span className={`inline-block text-[9px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-full ${statusStyles[order.status] || 'bg-zinc-100'}`}>
+                          {order.status}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 bg-zinc-50 border border-zinc-150 rounded-xl p-2 text-xs">
+                        <div>
+                          <p className="text-[9px] text-zinc-400 font-black uppercase tracking-wider">Total Specs</p>
+                          <p className="font-bold text-zinc-800 font-mono mt-0.5">{order.rows.length} items</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] text-zinc-400 font-black uppercase tracking-wider">Tonnage Target</p>
+                          <p className="font-bold text-zinc-800 font-mono mt-0.5">{totalCompleted.toFixed(2)} / {totalTarget.toFixed(2)} Tons</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4 mt-1">
+                        {/* Progress Bar */}
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="text-[10px] font-black text-zinc-700 font-mono">
+                            {completionPercent.toFixed(0)}%
+                          </span>
+                          <div className="flex-1 bg-zinc-150 rounded-full h-1.5 overflow-hidden border border-zinc-200">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                completionPercent >= 100 ? 'bg-emerald-500' :
+                                completionPercent >= 50 ? 'bg-orange-500' :
+                                completionPercent > 0 ? 'bg-amber-500' : 'bg-zinc-300'
+                              }`}
+                              style={{ width: `${completionPercent}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => {
+                              setActiveModalOrderId(order.id);
+                              setEditingRowIndex(null);
+                            }}
+                            className="bg-zinc-900 hover:bg-zinc-850 text-amber-400 border border-zinc-800 text-[10px] font-black uppercase tracking-wider py-1.5 px-3 rounded-lg transition-all flex items-center gap-1"
+                          >
+                            Manage <ExternalLink size={10} className="stroke-[2.5]" />
+                          </button>
+
+                          {deleteConfirmId === order.id ? (
+                            <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 rounded-lg p-0.5 animate-fadeIn">
+                              <button
+                                onClick={() => handleDeleteOrder(order.id, order.orderNo)}
+                                className="bg-rose-500 text-white font-black text-[9px] px-2 py-0.5 rounded-md uppercase tracking-wider"
+                              >
+                                Del
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirmId(null)}
+                                className="text-zinc-500 p-0.5"
+                              >
+                                <X size={10} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setDeleteConfirmId(order.id)}
+                              className="bg-zinc-50 hover:bg-rose-50 text-zinc-400 hover:text-rose-600 p-1.5 rounded-lg border border-zinc-200 transition-colors"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 
@@ -1243,96 +1369,380 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                     </p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-zinc-50/80 text-zinc-500 border-b border-zinc-200">
-                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[40px]">#</th>
-                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[140px]">Weave Quality</th>
-                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[100px]">Size</th>
-                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[70px]">GSM</th>
-                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[75px]">Denier</th>
-                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[85px]">Fabric Wt (g)</th>
-                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[125px]">No. of Rolls</th>
-                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[95px]">Target (Tons)</th>
-                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[110px]">Completed (Tons)</th>
-                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[100px]">Status</th>
-                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[150px]">Remarks</th>
-                          <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right min-w-[110px]">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-200">
-                        {sortedModalRows.map(({ row, originalIndex }, displayIdx) => {
-                          const isRowEditing = editingRowIndex === originalIndex;
+                  <>
+                    {/* Desktop View Table */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-zinc-50/80 text-zinc-500 border-b border-zinc-200">
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[40px]">#</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[140px]">Weave Quality</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[100px]">Size</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[70px]">GSM</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[75px]">Denier</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[85px]">Fabric Wt (g)</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[125px]">No. of Rolls</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[95px]">Target (Tons)</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[110px]">Completed (Tons)</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[100px]">Status</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[150px]">Remarks</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right min-w-[110px]">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-200">
+                          {sortedModalRows.map(({ row, originalIndex }, displayIdx) => {
+                            const isRowEditing = editingRowIndex === originalIndex;
 
-                          if (isRowEditing) {
+                            if (isRowEditing) {
+                              return (
+                                /* DETAILED SPREADSHEET ROW IN EDIT MODE */
+                                <tr key={originalIndex} className="bg-amber-50/20">
+                                  <td className="py-2 px-1 text-center font-mono text-xs font-bold text-zinc-400">
+                                    {displayIdx + 1}
+                                  </td>
+                                  
+                                  {/* Quality Input */}
+                                  <td className="py-2 px-1.5">
+                                    <input
+                                      type="text"
+                                      value={inlineQuality}
+                                      onChange={(e) => setInlineQuality(e.target.value)}
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs font-extrabold text-zinc-800"
+                                    />
+                                  </td>
+
+                                  {/* Size Input */}
+                                  <td className="py-2 px-1.5">
+                                    <input
+                                      type="text"
+                                      value={inlineSize}
+                                      onChange={(e) => setInlineSize(e.target.value)}
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs font-bold text-zinc-700"
+                                    />
+                                  </td>
+
+                                  {/* GSM Input */}
+                                  <td className="py-2 px-1">
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      value={inlineGsm}
+                                      onChange={(e) => setInlineGsm(e.target.value)}
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-1.5 py-1 text-xs text-center font-mono font-bold"
+                                    />
+                                  </td>
+
+                                  {/* Denier Input */}
+                                  <td className="py-2 px-1">
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      value={inlineDenier}
+                                      onChange={(e) => setInlineDenier(e.target.value)}
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-1.5 py-1 text-xs text-center font-mono font-bold"
+                                    />
+                                  </td>
+
+                                  {/* Weight Input */}
+                                  <td className="py-2 px-1">
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      value={inlineFabricWeight}
+                                      onChange={(e) => setInlineFabricWeight(e.target.value)}
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-1.5 py-1 text-xs text-center font-mono font-bold"
+                                    />
+                                  </td>
+
+                                  {/* Rolls Input with Plus/Minus buttons */}
+                                  <td className="py-2 px-1">
+                                    <div className="flex items-center gap-1 justify-center min-w-[120px]">
+                                      <button
+                                        type="button"
+                                        onClick={decrementInlineRolls}
+                                        className="h-7 w-7 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded border border-zinc-300 flex items-center justify-center font-bold text-xs select-none cursor-pointer"
+                                      >
+                                        -
+                                      </button>
+                                      <input
+                                        type="number"
+                                        value={inlineNoOfRolls}
+                                        onChange={(e) => setInlineNoOfRolls(e.target.value)}
+                                        placeholder="Rolls"
+                                        className="w-12 bg-white border border-zinc-300 rounded-lg px-1 py-1 text-xs text-center font-mono font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={incrementInlineRolls}
+                                        className="h-7 w-7 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded border border-zinc-300 flex items-center justify-center font-bold text-xs select-none cursor-pointer"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                  </td>
+
+                                  {/* Target Tonnage */}
+                                  <td className="py-2 px-1.5">
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      value={inlineTotalQuantity}
+                                      onChange={(e) => setInlineTotalQuantity(e.target.value)}
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs text-right font-mono font-black"
+                                    />
+                                  </td>
+
+                                  {/* Completed Tonnage */}
+                                  <td className="py-2 px-1.5">
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      value={inlineProductionCompleted}
+                                      onChange={(e) => setInlineProductionCompleted(e.target.value)}
+                                      className="w-full bg-emerald-50 border border-emerald-300 rounded-lg px-2 py-1 text-xs text-right text-emerald-800 font-mono font-black"
+                                    />
+                                  </td>
+
+                                  {/* Status Select */}
+                                  <td className="py-2 px-1">
+                                    <select
+                                      value={inlineRowStatus}
+                                      onChange={(e) => setInlineRowStatus(e.target.value as any)}
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-1 py-1 text-[11px] font-bold text-zinc-700 cursor-pointer"
+                                    >
+                                      <option value="Pending">Pending</option>
+                                      <option value="Production">Production</option>
+                                      <option value="Completed">Completed</option>
+                                    </select>
+                                  </td>
+
+                                  {/* Remarks Input */}
+                                  <td className="py-2 px-1.5">
+                                    <input
+                                      type="text"
+                                      value={inlineRemarks}
+                                      onChange={(e) => setInlineRemarks(e.target.value)}
+                                      placeholder="Roll instructions..."
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs text-zinc-700"
+                                    />
+                                  </td>
+
+                                  {/* Inline Actions */}
+                                  <td className="py-2 px-3 text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <button
+                                        onClick={() => handleSaveInlineSubOrder(originalIndex, modalOrder)}
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-0.5"
+                                      >
+                                        <Check size={11} className="stroke-[2.5]" /> Save
+                                      </button>
+                                      <button
+                                        onClick={() => setEditingRowIndex(null)}
+                                        className="bg-zinc-200 hover:bg-zinc-350 text-zinc-600 px-2 py-1 rounded-md text-[10px] font-bold"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            // STATIC SPREADSHEET ROW
                             return (
-                              /* DETAILED SPREADSHEET ROW IN EDIT MODE */
-                              <tr key={originalIndex} className="bg-amber-50/20">
-                                <td className="py-2 px-1 text-center font-mono text-xs font-bold text-zinc-400">
+                              <tr key={originalIndex} className="hover:bg-zinc-50/50 transition-colors">
+                                <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-400 border-r border-zinc-100">
                                   {displayIdx + 1}
                                 </td>
                                 
-                                {/* Quality Input */}
-                                <td className="py-2 px-1.5">
+                                <td className="py-3 px-3 font-black text-zinc-900 text-xs uppercase">
+                                  {row.quality}
+                                </td>
+
+                                <td className="py-3 px-3 font-semibold text-zinc-700 text-xs">
+                                  {row.size}
+                                </td>
+
+                                <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-800">
+                                  {row.gsm}
+                                </td>
+
+                                <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-800">
+                                  {row.denier}
+                                </td>
+
+                                <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-800">
+                                  {row.fabricWeight}g
+                                </td>
+
+                                <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-800">
+                                  {row.noOfRolls !== undefined ? `${row.noOfRolls} rolls` : '—'}
+                                </td>
+
+                                <td className="py-3 px-3 text-right font-mono text-xs font-black text-zinc-900">
+                                  {row.totalQuantity.toFixed(2)}T
+                                </td>
+
+                                <td className="py-3 px-3 text-right font-mono text-xs font-black text-emerald-600 bg-emerald-50/20">
+                                  {(row.productionCompleted || 0).toFixed(2)}T
+                                </td>
+
+                                <td className="py-3 px-3 text-center">
+                                  <span className={`inline-block text-[8px] uppercase tracking-wide px-2 py-0.5 border rounded-full font-black ${
+                                    row.status === 'Completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                    row.status === 'Production' ? 'bg-orange-50 text-orange-800 border-orange-250 animate-pulse' :
+                                    'bg-zinc-100 text-zinc-600 border-zinc-250'
+                                  }`}>
+                                    {row.status || 'Pending'}
+                                  </span>
+                                </td>
+
+                                <td className="py-3 px-3 text-zinc-500 text-[11px] leading-relaxed italic max-w-[200px] truncate" title={row.remarks}>
+                                  {row.remarks || '—'}
+                                </td>
+
+                                <td className="py-3 px-3 text-right">
+                                  {deleteConfirmSubIdx === originalIndex ? (
+                                    <div className="flex items-center justify-end gap-1.5 animate-fade-in">
+                                      <span className="text-[10px] font-black text-rose-600 uppercase tracking-wider mr-1">
+                                        Delete?
+                                      </span>
+                                      <button
+                                        onClick={() => {
+                                          handleDeleteSubOrder(originalIndex, modalOrder);
+                                          setDeleteConfirmSubIdx(null);
+                                        }}
+                                        className="px-2 py-1 text-[10px] font-black bg-rose-600 hover:bg-rose-700 text-white rounded-md uppercase tracking-wider transition-all shadow-xs flex items-center gap-0.5"
+                                        title="Yes, delete this row"
+                                      >
+                                        ✅ Yes
+                                      </button>
+                                      <button
+                                        onClick={() => setDeleteConfirmSubIdx(null)}
+                                        className="px-2 py-1 text-[10px] font-black bg-zinc-200 hover:bg-zinc-300 text-zinc-800 rounded-md uppercase tracking-wider transition-all flex items-center gap-0.5"
+                                        title="No, cancel deletion"
+                                      >
+                                        ❌ No
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center justify-end gap-3">
+                                      <button
+                                        onClick={() => {
+                                          setDeleteConfirmSubIdx(null);
+                                          handleStartInlineEdit(originalIndex, row);
+                                        }}
+                                        className="p-1.5 rounded bg-amber-50 border border-amber-200 text-amber-600 hover:bg-amber-100/50 hover:text-amber-700 hover:border-amber-300 transition-colors shadow-2xs flex items-center gap-1 font-bold text-xs"
+                                        title="Edit Specification Row"
+                                      >
+                                        <span className="text-sm">✏️</span>
+                                        <Edit size={14} className="stroke-[2.5]" />
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setEditingRowIndex(null);
+                                          setDeleteConfirmSubIdx(originalIndex);
+                                        }}
+                                        className="p-1.5 rounded bg-rose-50 border border-rose-200 text-rose-500 hover:bg-rose-100/50 hover:text-rose-600 hover:border-rose-300 transition-colors shadow-2xs flex items-center gap-1 font-bold text-xs"
+                                        title="Delete Specification Row"
+                                      >
+                                        <span className="text-sm">🗑️</span>
+                                        <Trash2 size={14} className="stroke-[2.5]" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile View Card List */}
+                    <div className="block md:hidden divide-y divide-zinc-200">
+                      {sortedModalRows.map(({ row, originalIndex }, displayIdx) => {
+                        const isRowEditing = editingRowIndex === originalIndex;
+
+                        if (isRowEditing) {
+                          return (
+                            <div key={originalIndex} className="p-4 bg-amber-50/20 space-y-3">
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-black text-amber-600 uppercase font-mono">
+                                  Editing Entry #{displayIdx + 1}
+                                </span>
+                                <div className="flex gap-1.5">
+                                  <button
+                                    onClick={() => handleSaveInlineSubOrder(originalIndex, modalOrder)}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1"
+                                  >
+                                    <Check size={11} className="stroke-[2.5]" /> Save
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingRowIndex(null)}
+                                    className="bg-zinc-200 hover:bg-zinc-300 text-zinc-600 px-2.5 py-1 rounded-lg text-[10px] font-bold"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-3 text-xs">
+                                <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Quality</label>
                                   <input
                                     type="text"
                                     value={inlineQuality}
                                     onChange={(e) => setInlineQuality(e.target.value)}
-                                    className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs font-extrabold text-zinc-800"
+                                    className="w-full bg-white border border-zinc-350 rounded-lg px-2.5 py-1.5 text-xs font-bold"
                                   />
-                                </td>
-
-                                {/* Size Input */}
-                                <td className="py-2 px-1.5">
+                                </div>
+                                <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Size</label>
                                   <input
                                     type="text"
                                     value={inlineSize}
                                     onChange={(e) => setInlineSize(e.target.value)}
-                                    className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs font-bold text-zinc-700"
+                                    className="w-full bg-white border border-zinc-350 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
                                   />
-                                </td>
-
-                                {/* GSM Input */}
-                                <td className="py-2 px-1">
+                                </div>
+                                <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">GSM</label>
                                   <input
                                     type="number"
                                     step="any"
                                     value={inlineGsm}
                                     onChange={(e) => setInlineGsm(e.target.value)}
-                                    className="w-full bg-white border border-zinc-300 rounded-lg px-1.5 py-1 text-xs text-center font-mono font-bold"
+                                    className="w-full bg-white border border-zinc-350 rounded-lg px-2.5 py-1.5 text-xs font-mono font-semibold text-center"
                                   />
-                                </td>
-
-                                {/* Denier Input */}
-                                <td className="py-2 px-1">
+                                </div>
+                                <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Denier</label>
                                   <input
                                     type="number"
                                     step="any"
                                     value={inlineDenier}
                                     onChange={(e) => setInlineDenier(e.target.value)}
-                                    className="w-full bg-white border border-zinc-300 rounded-lg px-1.5 py-1 text-xs text-center font-mono font-bold"
+                                    className="w-full bg-white border border-zinc-350 rounded-lg px-2.5 py-1.5 text-xs font-mono font-semibold text-center"
                                   />
-                                </td>
-
-                                {/* Weight Input */}
-                                <td className="py-2 px-1">
+                                </div>
+                                <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Fabric Wt (g)</label>
                                   <input
                                     type="number"
                                     step="any"
                                     value={inlineFabricWeight}
                                     onChange={(e) => setInlineFabricWeight(e.target.value)}
-                                    className="w-full bg-white border border-zinc-300 rounded-lg px-1.5 py-1 text-xs text-center font-mono font-bold"
+                                    className="w-full bg-white border border-zinc-350 rounded-lg px-2.5 py-1.5 text-xs font-mono font-semibold text-center"
                                   />
-                                </td>
-
-                                {/* Rolls Input with Plus/Minus buttons */}
-                                <td className="py-2 px-1">
-                                  <div className="flex items-center gap-1 justify-center min-w-[120px]">
+                                </div>
+                                <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">No. of Rolls</label>
+                                  <div className="flex items-center gap-1 justify-center">
                                     <button
                                       type="button"
                                       onClick={decrementInlineRolls}
-                                      className="h-7 w-7 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded border border-zinc-300 flex items-center justify-center font-bold text-xs select-none cursor-pointer"
+                                      className="h-7 w-7 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded border border-zinc-300 flex items-center justify-center font-bold text-xs"
                                     >
                                       -
                                     </button>
@@ -1340,196 +1750,176 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       type="number"
                                       value={inlineNoOfRolls}
                                       onChange={(e) => setInlineNoOfRolls(e.target.value)}
-                                      placeholder="Rolls"
-                                      className="w-12 bg-white border border-zinc-300 rounded-lg px-1 py-1 text-xs text-center font-mono font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                      className="w-12 bg-white border border-zinc-350 rounded-lg py-1 text-xs text-center font-mono font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
                                     />
                                     <button
                                       type="button"
                                       onClick={incrementInlineRolls}
-                                      className="h-7 w-7 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded border border-zinc-300 flex items-center justify-center font-bold text-xs select-none cursor-pointer"
+                                      className="h-7 w-7 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded border border-zinc-300 flex items-center justify-center font-bold text-xs"
                                     >
                                       +
                                     </button>
                                   </div>
-                                </td>
-
-                                {/* Target Tonnage */}
-                                <td className="py-2 px-1.5">
+                                </div>
+                                <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Target (Tons)</label>
                                   <input
                                     type="number"
                                     step="any"
                                     value={inlineTotalQuantity}
                                     onChange={(e) => setInlineTotalQuantity(e.target.value)}
-                                    className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs text-right font-mono font-black"
+                                    className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs font-mono font-black text-right"
                                   />
-                                </td>
-
-                                {/* Completed Tonnage */}
-                                <td className="py-2 px-1.5">
+                                </div>
+                                <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Completed (Tons)</label>
                                   <input
                                     type="number"
                                     step="any"
                                     value={inlineProductionCompleted}
                                     onChange={(e) => setInlineProductionCompleted(e.target.value)}
-                                    className="w-full bg-emerald-50 border border-emerald-300 rounded-lg px-2 py-1 text-xs text-right text-emerald-800 font-mono font-black"
+                                    className="w-full bg-emerald-50 border border-emerald-300 rounded-lg px-2.5 py-1.5 text-xs text-emerald-800 font-mono font-black text-right"
                                   />
-                                </td>
-
-                                {/* Status Select */}
-                                <td className="py-2 px-1">
+                                </div>
+                                <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Status</label>
                                   <select
                                     value={inlineRowStatus}
                                     onChange={(e) => setInlineRowStatus(e.target.value as any)}
-                                    className="w-full bg-white border border-zinc-300 rounded-lg px-1 py-1 text-[11px] font-bold text-zinc-700 cursor-pointer"
+                                    className="w-full bg-white border border-zinc-350 rounded-lg px-2.5 py-1.5 text-xs font-bold"
                                   >
                                     <option value="Pending">Pending</option>
                                     <option value="Production">Production</option>
                                     <option value="Completed">Completed</option>
                                   </select>
-                                </td>
-
-                                {/* Remarks Input */}
-                                <td className="py-2 px-1.5">
+                                </div>
+                                <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Remarks</label>
                                   <input
                                     type="text"
                                     value={inlineRemarks}
                                     onChange={(e) => setInlineRemarks(e.target.value)}
-                                    placeholder="Roll instructions..."
-                                    className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs text-zinc-700"
+                                    className="w-full bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs"
                                   />
-                                </td>
-
-                                {/* Inline Actions */}
-                                <td className="py-2 px-3 text-right">
-                                  <div className="flex items-center justify-end gap-1">
-                                    <button
-                                      onClick={() => handleSaveInlineSubOrder(originalIndex, modalOrder)}
-                                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-0.5"
-                                    >
-                                      <Check size={11} className="stroke-[2.5]" /> Save
-                                    </button>
-                                    <button
-                                      onClick={() => setEditingRowIndex(null)}
-                                      className="bg-zinc-200 hover:bg-zinc-350 text-zinc-600 px-2 py-1 rounded-md text-[10px] font-bold"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          }
-
-                          // STATIC SPREADSHEET ROW
-                          return (
-                            <tr key={originalIndex} className="hover:bg-zinc-50/50 transition-colors">
-                              <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-400 border-r border-zinc-100">
-                                {displayIdx + 1}
-                              </td>
-                              
-                              <td className="py-3 px-3 font-black text-zinc-900 text-xs uppercase">
-                                {row.quality}
-                              </td>
-
-                              <td className="py-3 px-3 font-semibold text-zinc-700 text-xs">
-                                {row.size}
-                              </td>
-
-                              <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-800">
-                                {row.gsm}
-                              </td>
-
-                              <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-800">
-                                {row.denier}
-                              </td>
-
-                              <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-800">
-                                {row.fabricWeight}g
-                              </td>
-
-                              <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-800">
-                                {row.noOfRolls !== undefined ? `${row.noOfRolls} rolls` : '—'}
-                              </td>
-
-                              <td className="py-3 px-3 text-right font-mono text-xs font-black text-zinc-900">
-                                {row.totalQuantity.toFixed(2)}T
-                              </td>
-
-                              <td className="py-3 px-3 text-right font-mono text-xs font-black text-emerald-600 bg-emerald-50/20">
-                                {(row.productionCompleted || 0).toFixed(2)}T
-                              </td>
-
-                              <td className="py-3 px-3 text-center">
-                                <span className={`inline-block text-[8px] uppercase tracking-wide px-2 py-0.5 border rounded-full font-black ${
-                                  row.status === 'Completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                                  row.status === 'Production' ? 'bg-orange-50 text-orange-800 border-orange-250 animate-pulse' :
-                                  'bg-zinc-100 text-zinc-600 border-zinc-250'
-                                }`}>
-                                  {row.status || 'Pending'}
-                                </span>
-                              </td>
-
-                              <td className="py-3 px-3 text-zinc-500 text-[11px] leading-relaxed italic max-w-[200px] truncate" title={row.remarks}>
-                                {row.remarks || '—'}
-                              </td>
-
-                              <td className="py-3 px-3 text-right">
-                                {deleteConfirmSubIdx === originalIndex ? (
-                                  <div className="flex items-center justify-end gap-1.5 animate-fade-in">
-                                    <span className="text-[10px] font-black text-rose-600 uppercase tracking-wider mr-1">
-                                      Delete?
-                                    </span>
-                                    <button
-                                      onClick={() => {
-                                        handleDeleteSubOrder(originalIndex, modalOrder);
-                                        setDeleteConfirmSubIdx(null);
-                                      }}
-                                      className="px-2 py-1 text-[10px] font-black bg-rose-600 hover:bg-rose-700 text-white rounded-md uppercase tracking-wider transition-all shadow-xs flex items-center gap-0.5"
-                                      title="Yes, delete this row"
-                                    >
-                                      ✅ Yes
-                                    </button>
-                                    <button
-                                      onClick={() => setDeleteConfirmSubIdx(null)}
-                                      className="px-2 py-1 text-[10px] font-black bg-zinc-200 hover:bg-zinc-300 text-zinc-800 rounded-md uppercase tracking-wider transition-all flex items-center gap-0.5"
-                                      title="No, cancel deletion"
-                                    >
-                                      ❌ No
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center justify-end gap-3">
-                                    <button
-                                      onClick={() => {
-                                        setDeleteConfirmSubIdx(null);
-                                        handleStartInlineEdit(originalIndex, row);
-                                      }}
-                                      className="p-1.5 rounded bg-amber-50 border border-amber-200 text-amber-600 hover:bg-amber-100/50 hover:text-amber-700 hover:border-amber-300 transition-colors shadow-2xs flex items-center gap-1 font-bold text-xs"
-                                      title="Edit Specification Row"
-                                    >
-                                      <span className="text-sm">✏️</span>
-                                      <Edit size={14} className="stroke-[2.5]" />
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        setEditingRowIndex(null);
-                                        setDeleteConfirmSubIdx(originalIndex);
-                                      }}
-                                      className="p-1.5 rounded bg-rose-50 border border-rose-200 text-rose-500 hover:bg-rose-100/50 hover:text-rose-600 hover:border-rose-300 transition-colors shadow-2xs flex items-center gap-1 font-bold text-xs"
-                                      title="Delete Specification Row"
-                                    >
-                                      <span className="text-sm">🗑️</span>
-                                      <Trash2 size={14} className="stroke-[2.5]" />
-                                    </button>
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
+                                </div>
+                              </div>
+                            </div>
                           );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                        }
+
+                        return (
+                          <div key={originalIndex} className="p-4 space-y-3 hover:bg-zinc-50/50 transition-colors">
+                            <div className="flex justify-between items-center">
+                              <span className="font-mono text-xs font-bold text-zinc-400">
+                                Entry #{displayIdx + 1}
+                              </span>
+                              <span className={`inline-block text-[8px] uppercase tracking-wide px-2 py-0.5 border rounded-full font-black ${
+                                row.status === 'Completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                row.status === 'Production' ? 'bg-orange-50 text-orange-800 border-orange-250 animate-pulse' :
+                                'bg-zinc-100 text-zinc-600 border-zinc-250'
+                              }`}>
+                                {row.status || 'Pending'}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div>
+                                <span className="text-[8px] font-black text-zinc-400 uppercase tracking-wider block">Quality</span>
+                                <span className="font-bold text-zinc-900 uppercase block mt-0.5">{row.quality}</span>
+                              </div>
+                              <div>
+                                <span className="text-[8px] font-black text-zinc-400 uppercase tracking-wider block">Size / Width</span>
+                                <span className="font-semibold text-zinc-700 block mt-0.5">{row.size}</span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-4 gap-1 bg-zinc-50 border border-zinc-200/60 rounded-xl p-2 text-center text-[11px]">
+                              <div>
+                                <span className="text-[7.5px] font-bold text-zinc-400 uppercase block">GSM</span>
+                                <span className="font-bold text-zinc-800 font-mono">{row.gsm}</span>
+                              </div>
+                              <div>
+                                <span className="text-[7.5px] font-bold text-zinc-400 uppercase block">Denier</span>
+                                <span className="font-bold text-zinc-800 font-mono">{row.denier}</span>
+                              </div>
+                              <div>
+                                <span className="text-[7.5px] font-bold text-zinc-400 uppercase block">Wt (g)</span>
+                                <span className="font-bold text-zinc-800 font-mono">{row.fabricWeight}g</span>
+                              </div>
+                              <div>
+                                <span className="text-[7.5px] font-bold text-zinc-400 uppercase block">Rolls</span>
+                                <span className="font-bold text-zinc-800 font-mono">{row.noOfRolls || '—'}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex justify-between items-center gap-2 bg-emerald-50/20 border border-emerald-500/10 rounded-xl p-2 text-xs font-mono">
+                              <div>
+                                <span className="text-[8px] text-zinc-400 font-black uppercase tracking-wider block">Target</span>
+                                <span className="font-black text-zinc-900">{row.totalQuantity.toFixed(2)}T</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-[8px] text-zinc-400 font-black uppercase tracking-wider block">Completed</span>
+                                <span className="font-black text-emerald-600">{(row.productionCompleted || 0).toFixed(2)}T</span>
+                              </div>
+                            </div>
+
+                            {row.remarks && (
+                              <div className="text-[10px] text-zinc-500 italic bg-zinc-50 px-2 py-1.5 rounded-lg border border-zinc-200/50">
+                                <span className="font-bold text-[8px] uppercase tracking-wide text-zinc-400 block not-italic">Remarks:</span>
+                                {row.remarks}
+                              </div>
+                            )}
+
+                            <div className="flex justify-end pt-1 border-t border-zinc-150">
+                              {deleteConfirmSubIdx === originalIndex ? (
+                                <div className="flex items-center gap-1.5 animate-fade-in">
+                                  <span className="text-[10px] font-black text-rose-600 uppercase tracking-wider mr-1">
+                                    Delete?
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      handleDeleteSubOrder(originalIndex, modalOrder);
+                                      setDeleteConfirmSubIdx(null);
+                                    }}
+                                    className="px-2.5 py-1 text-[10px] font-black bg-rose-600 text-white rounded-lg uppercase tracking-wider transition-all"
+                                  >
+                                    Yes, Delete
+                                  </button>
+                                  <button
+                                    onClick={() => setDeleteConfirmSubIdx(null)}
+                                    className="px-2.5 py-1 text-[10px] font-black bg-zinc-200 text-zinc-800 rounded-lg uppercase"
+                                  >
+                                    No
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => {
+                                      setDeleteConfirmSubIdx(null);
+                                      handleStartInlineEdit(originalIndex, row);
+                                    }}
+                                    className="p-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-600 hover:bg-amber-100/50 hover:text-amber-700 transition-colors flex items-center gap-1 font-bold text-[11px]"
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setEditingRowIndex(null);
+                                      setDeleteConfirmSubIdx(originalIndex);
+                                    }}
+                                    className="p-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-500 hover:bg-rose-100/50 hover:text-rose-600 transition-colors flex items-center gap-1 font-bold text-[11px]"
+                                  >
+                                    🗑️ Delete
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
               </div>
 

@@ -67,6 +67,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
   const [entryDate, setEntryDate] = useState<string>(() => {
     return new Date().toISOString().split('T')[0];
   });
+  const [entryShift, setEntryShift] = useState<'DAY' | 'NIGHT'>('DAY');
   
   // Running preview ledger rows
   const [previewRows, setPreviewRows] = useState<LoomRunningRow[]>([]);
@@ -193,6 +194,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
   const handleEditClick = (report: LoomRunningReport) => {
     setEditingReportId(report.id);
     setEntryDate(report.date);
+    setEntryShift(report.shift || 'DAY');
     setPreviewRows([...report.rows]);
     setUploadedImageBase64(null);
     setIsAllStopped(!!report.isAllStopped);
@@ -224,23 +226,25 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
 
     setIsSubmitting(true);
     try {
+      const docId = `${entryDate}_${entryShift}`;
       const payload: LoomRunningReport = {
-        id: entryDate,
+        id: docId,
         date: entryDate,
+        shift: entryShift,
         rows: isAllStopped ? [] : previewRows,
         createdAt: new Date().toISOString(),
         isAllStopped: isAllStopped,
         remarks: isAllStopped ? remarks.trim() : ''
       };
 
-      await setDoc(doc(db, 'loomRunningReports', entryDate), payload);
+      await setDoc(doc(doc(db, 'loomRunningReports', docId).firestore, 'loomRunningReports', docId), payload);
 
-      // If we edited an old record and renamed its date (key), delete the original document ID
-      if (editingReportId && editingReportId !== entryDate) {
+      // If we edited an old record and renamed its ID, delete the original document ID
+      if (editingReportId && editingReportId !== docId) {
         await deleteDoc(doc(db, 'loomRunningReports', editingReportId));
       }
 
-      triggerAlert('success', `Loom Running Report for ${formatDateLabel(entryDate)} has been successfully saved.`);
+      triggerAlert('success', `Loom Running Report for ${formatDateLabel(entryDate)} (${entryShift === 'NIGHT' ? 'Night Shift' : 'Day Shift'}) has been successfully saved.`);
       setShowAddModal(false);
       resetModalState();
     } catch (err) {
@@ -367,6 +371,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
 
   const resetModalState = () => {
     setEntryDate(new Date().toISOString().split('T')[0]);
+    setEntryShift('DAY');
     setPreviewRows([]);
     setEditingReportId(null);
     setUploadedImageBase64(null);
@@ -589,11 +594,11 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
           </div>
 
           {/* Right: Actions */}
-          <div className="flex gap-3 shrink-0">
+          <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setShowSummaryPopup(true)}
-              className="px-5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center gap-2 cursor-pointer shadow-sm shadow-indigo-600/5 border border-indigo-100"
+              className="px-5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-indigo-600/5 border border-indigo-100 w-full sm:w-auto"
               id="view-summary-btn"
             >
               <BarChart3 size={16} />
@@ -602,7 +607,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
             <button
               type="button"
               onClick={handleExportToExcel}
-              className="px-5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center gap-2 cursor-pointer shadow-sm shadow-emerald-600/5 border border-emerald-100"
+              className="px-5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-emerald-600/5 border border-emerald-100 w-full sm:w-auto"
               id="export-running-report"
             >
               <FileSpreadsheet size={16} />
@@ -615,7 +620,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                   resetModalState();
                   setShowAddModal(true);
                 }}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center gap-2 cursor-pointer shadow-md shadow-indigo-600/10"
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-indigo-600/10 w-full sm:w-auto"
                 id="add-running-report-btn"
               >
                 <Plus size={16} />
@@ -724,6 +729,13 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                   <div className="flex items-center gap-2">
                     <CalendarIcon className="text-indigo-500" size={16} />
                     <span className="text-sm font-extrabold text-slate-900">{formatDateLabel(report.date)} Report Ledger</span>
+                    {report.shift && (
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                        report.shift === 'NIGHT' ? 'bg-slate-950 text-slate-100 border border-slate-800' : 'bg-amber-100 text-amber-800 border border-amber-200'
+                      }`}>
+                        {report.shift === 'NIGHT' ? '🌙 Night Shift' : '☀️ Day Shift'}
+                      </span>
+                    )}
                   </div>
                   {!viewOnly && (
                     <div className="flex gap-2 mt-2 sm:mt-0">
@@ -773,41 +785,65 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                     </div>
                   </div>
                 ) : (
-                  <table className="w-full text-left border-collapse border border-slate-150 rounded-2xl overflow-hidden shadow-xs">
-                    <thead>
-                      <tr className="bg-slate-900 text-slate-100 text-[11px] md:text-[12px] font-black uppercase tracking-wider select-none border-b border-slate-800">
-                        <th className="py-3 px-4 border-r border-slate-800">Loom Number</th>
-                        <th className="py-3 px-4 border-r border-slate-800">Quality</th>
-                        <th className="py-3 px-4 border-r border-slate-800 text-center">Size</th>
-                        <th className="py-3 px-4 border-r border-slate-800 text-center">GSM</th>
-                        <th className="py-3 px-4 border-r border-slate-800 text-center">Denier</th>
-                        <th className="py-3 px-4 border-r border-slate-800 text-center">Average Weight</th>
-                        <th className="py-3 px-4 text-center">Running Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-150 text-[12px] md:text-[13px] font-bold text-slate-800">
+                  <>
+                    {/* Desktop View Table */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left border-collapse border border-slate-150 rounded-2xl overflow-hidden shadow-xs">
+                        <thead>
+                          <tr className="bg-slate-900 text-slate-100 text-[11px] md:text-[12px] font-black uppercase tracking-wider select-none border-b border-slate-800">
+                            <th className="py-3 px-4 border-r border-slate-800">Loom Number</th>
+                            <th className="py-3 px-4 border-r border-slate-800">Quality</th>
+                            <th className="py-3 px-4 border-r border-slate-800 text-center">Size</th>
+                            <th className="py-3 px-4 border-r border-slate-800 text-center">GSM</th>
+                            <th className="py-3 px-4 border-r border-slate-800 text-center">Denier</th>
+                            <th className="py-3 px-4 border-r border-slate-800 text-center">Average Weight</th>
+                            <th className="py-3 px-4 text-center">Running Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-150 text-[12px] md:text-[13px] font-bold text-slate-800">
+                          {report.rows.map((row, rIdx) => (
+                            <tr key={rIdx} className="hover:bg-indigo-50/5 transition-colors">
+                              <td className="py-3 px-4 border-r border-slate-150 text-slate-900 font-extrabold">
+                                Loom #{row.loomNo}
+                              </td>
+                              <td className="py-3 px-4 border-r border-slate-150">
+                                {row.quality}
+                              </td>
+                              <td className="py-3 px-4 border-r border-slate-150 text-center">
+                                {row.size}
+                              </td>
+                              <td className="py-3 px-4 border-r border-slate-150 text-center font-mono">
+                                {row.gsm} <span className="text-[9px] text-slate-400 font-semibold uppercase">gsm</span>
+                              </td>
+                              <td className="py-3 px-4 border-r border-slate-150 text-center font-mono text-indigo-900">
+                                {row.denier}
+                              </td>
+                              <td className="py-3 px-4 border-r border-slate-150 text-center font-mono">
+                                {row.average} <span className="text-[9px] text-slate-400 font-semibold uppercase">g</span>
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                  row.runningStatus === 'Running'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-150'
+                                    : 'bg-red-50 text-red-700 border border-red-150'
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${row.runningStatus === 'Running' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+                                  {row.runningStatus}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile View Card List */}
+                    <div className="block md:hidden grid grid-cols-1 gap-4">
                       {report.rows.map((row, rIdx) => (
-                        <tr key={rIdx} className="hover:bg-indigo-50/5 transition-colors">
-                          <td className="py-3 px-4 border-r border-slate-150 text-slate-900 font-extrabold">
-                            Loom #{row.loomNo}
-                          </td>
-                          <td className="py-3 px-4 border-r border-slate-150">
-                            {row.quality}
-                          </td>
-                          <td className="py-3 px-4 border-r border-slate-150 text-center">
-                            {row.size}
-                          </td>
-                          <td className="py-3 px-4 border-r border-slate-150 text-center font-mono">
-                            {row.gsm} <span className="text-[9px] text-slate-400 font-semibold uppercase">gsm</span>
-                          </td>
-                          <td className="py-3 px-4 border-r border-slate-150 text-center font-mono text-indigo-900">
-                            {row.denier}
-                          </td>
-                          <td className="py-3 px-4 border-r border-slate-150 text-center font-mono">
-                            {row.average} <span className="text-[9px] text-slate-400 font-semibold uppercase">g</span>
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                        <div key={rIdx} className="bg-slate-50/50 border border-slate-150 rounded-2xl p-4 space-y-3.5 shadow-2xs hover:shadow-xs transition-shadow">
+                          <div className="flex justify-between items-center pb-2.5 border-b border-slate-150">
+                            <span className="text-slate-900 font-extrabold text-sm">Loom #{row.loomNo}</span>
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                               row.runningStatus === 'Running'
                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-150'
                                 : 'bg-red-50 text-red-700 border border-red-150'
@@ -815,11 +851,35 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                               <span className={`w-1.5 h-1.5 rounded-full ${row.runningStatus === 'Running' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
                               {row.runningStatus}
                             </span>
-                          </td>
-                        </tr>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Quality</span>
+                            <span className="text-xs font-bold text-slate-800 leading-snug block">{row.quality}</span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3.5 pt-2.5 border-t border-dashed border-slate-150">
+                            <div>
+                              <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none mb-1">Size</span>
+                              <span className="text-xs font-black text-slate-800 font-mono">{row.size}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none mb-1">GSM</span>
+                              <span className="text-xs font-black text-slate-800 font-mono">{row.gsm} <span className="text-[9px] text-slate-400 font-semibold uppercase">gsm</span></span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none mb-1">Denier</span>
+                              <span className="text-xs font-black text-indigo-900 font-mono">{row.denier}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none mb-1">Avg Weight</span>
+                              <span className="text-xs font-black text-slate-800 font-mono">{row.average} <span className="text-[9px] text-slate-400 font-semibold uppercase">g</span></span>
+                            </div>
+                          </div>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  </>
                 )}
               </div>
             ))}
@@ -873,6 +933,19 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                     onChange={(e) => setEntryDate(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs font-bold text-slate-700 focus:bg-white focus:outline-hidden"
                   />
+                </div>
+
+                {/* Shift select */}
+                <div>
+                  <label className="block mb-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Shift</label>
+                  <select
+                    value={entryShift}
+                    onChange={(e) => setEntryShift(e.target.value as 'DAY' | 'NIGHT')}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs font-bold text-slate-700 focus:bg-white focus:outline-hidden cursor-pointer"
+                  >
+                    <option value="DAY">☀️ Day Shift</option>
+                    <option value="NIGHT">🌙 Night Shift</option>
+                  </select>
                 </div>
 
                 {/* All Stopped Checkbox */}
@@ -1167,16 +1240,16 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="summary-popup-overlay">
           <div className="bg-white rounded-3xl w-full max-w-2xl shadow-xl overflow-hidden border border-slate-200 animate-slide-up flex flex-col max-h-[90vh]">
             {/* Header */}
-            <div className="p-6 border-b border-slate-150 bg-slate-50 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+            <div className="p-4 sm:p-6 border-b border-slate-150 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
                   <BarChart3 size={18} />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-slate-800 uppercase tracking-wide">
+                  <h3 className="text-sm sm:text-base font-black text-slate-800 uppercase tracking-wide">
                     Ledger Summary Report
                   </h3>
-                  <p className="text-xs text-slate-500 font-medium">
+                  <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
                     Summarized for {filterMode === 'single' ? formatDateLabel(singleDate) : 'Selected Period'}
                   </p>
                 </div>
@@ -1184,50 +1257,81 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
               <button
                 type="button"
                 onClick={() => setShowSummaryPopup(false)}
-                className="h-8 w-8 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95"
+                className="h-8 w-8 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
               >
                 <X size={16} />
               </button>
             </div>
 
             {/* Content / Scrollable area */}
-            <div className="p-6 overflow-y-auto flex-1">
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
               {summaryData.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 font-bold uppercase tracking-wider text-xs">
                   No active running loom entries found for this period.
                 </div>
               ) : (
-                <div className="border border-slate-150 rounded-2xl overflow-hidden shadow-xs">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-150 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                        <th className="px-5 py-3.5">Quality</th>
-                        <th className="px-5 py-3.5">Size</th>
-                        <th className="px-5 py-3.5">GSM</th>
-                        <th className="px-5 py-3.5 text-right">No. of Looms Running</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {summaryData.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/50 transition-colors text-xs font-bold text-slate-700">
-                          <td className="px-5 py-4 font-extrabold text-slate-800">{item.quality || '-'}</td>
-                          <td className="px-5 py-4">{item.size || '-'}</td>
-                          <td className="px-5 py-4 font-mono">{item.gsm || '-'}</td>
-                          <td className="px-5 py-4 text-right">
-                            <span className="inline-block px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full font-black">
-                              {item.runningCount} Running
-                            </span>
-                          </td>
+                <>
+                  {/* Desktop View Table */}
+                  <div className="hidden sm:block border border-slate-150 rounded-2xl overflow-hidden shadow-xs">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-150 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                          <th className="px-5 py-3.5">Quality</th>
+                          <th className="px-5 py-3.5">Size</th>
+                          <th className="px-5 py-3.5">GSM</th>
+                          <th className="px-5 py-3.5 text-right">No. of Looms Running</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {summaryData.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/50 transition-colors text-xs font-bold text-slate-700">
+                            <td className="px-5 py-4 font-extrabold text-slate-800">{item.quality || '-'}</td>
+                            <td className="px-5 py-4">{item.size || '-'}</td>
+                            <td className="px-5 py-4 font-mono">{item.gsm || '-'}</td>
+                            <td className="px-5 py-4 text-right">
+                              <span className="inline-block px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full font-black">
+                                {item.runningCount} Running
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile View Card List */}
+                  <div className="block sm:hidden space-y-3">
+                    {summaryData.map((item, idx) => (
+                      <div key={idx} className="bg-slate-50/50 border border-slate-150 rounded-2xl p-4 space-y-3 shadow-2xs">
+                        <div className="flex justify-between items-start gap-2 border-b border-slate-150 pb-2.5">
+                          <div className="space-y-1">
+                            <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Quality</span>
+                            <span className="text-xs font-black text-slate-800 leading-snug block">{item.quality || '-'}</span>
+                          </div>
+                          <span className="inline-flex items-center px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full font-black text-[10px] uppercase tracking-wider shrink-0">
+                            {item.runningCount} Running
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div>
+                            <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none mb-1">Size</span>
+                            <span className="text-xs font-bold text-slate-800 font-mono">{item.size || '-'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none mb-1">GSM</span>
+                            <span className="text-xs font-bold text-slate-800 font-mono">{item.gsm || '-'} <span className="text-[9px] text-slate-400 font-semibold uppercase">gsm</span></span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
 
             {/* Footer */}
-            <div className="p-5 border-t border-slate-150 bg-slate-50 flex justify-end gap-3">
+            <div className="p-4 sm:p-5 border-t border-slate-150 bg-slate-50 flex justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setShowSummaryPopup(false)}

@@ -423,7 +423,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
     <div className="w-full flex flex-col font-sans text-slate-700 animate-fade-in pb-10" id="loom-production-panel">
       
       {/* 🌟 1. LOOM PRODUCTION REPORT EXECUTIVE HEADER */}
-      <div className="bg-slate-900 text-white border border-slate-850 rounded-3xl p-8 mb-8 shadow-md relative overflow-hidden select-none">
+      <div className="bg-slate-900 text-white border border-slate-850 rounded-3xl p-6 md:p-8 mb-8 shadow-md relative overflow-hidden select-none">
         <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/10 rounded-full translate-x-12 -translate-y-12 blur-2xl"></div>
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-emerald-600/5 rounded-full -translate-x-12 translate-y-12 blur-xl"></div>
         
@@ -453,19 +453,19 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
       </div>
 
       {/* 🎛️ 2. FILTER & ACTION DASHBOARD TOOLBAR */}
-      <div className="bg-white border border-slate-150 rounded-3xl p-6 mb-8 shadow-xs">
+      <div className="bg-white border border-slate-150 rounded-3xl p-4 md:p-6 mb-8 shadow-xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           
           {/* Left: Filter Controls */}
-          <div className="flex-1 flex flex-col sm:flex-row sm:items-end gap-4">
+          <div className="flex-1 flex flex-col sm:flex-row sm:items-end gap-4 w-full">
             
-            <div className="flex-1">
+            <div className="w-full sm:flex-1">
               <label className="block mb-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Filter Mode</label>
-              <div className="inline-flex rounded-xl bg-slate-50 p-1 border border-slate-100">
+              <div className="flex w-full sm:inline-flex rounded-xl bg-slate-50 p-1 border border-slate-100">
                 <button
                   type="button"
                   onClick={() => setFilterMode('month')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  className={`flex-1 sm:flex-initial text-center justify-center px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
                     filterMode === 'month' 
                       ? 'bg-slate-900 text-white shadow-sm' 
                       : 'text-slate-400 hover:text-slate-700'
@@ -476,32 +476,32 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
                 <button
                   type="button"
                   onClick={() => setFilterMode('range')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  className={`flex-1 sm:flex-initial text-center justify-center px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
                     filterMode === 'range' 
                       ? 'bg-slate-900 text-white shadow-sm' 
                       : 'text-slate-400 hover:text-slate-700'
                   }`}
                 >
-                  Date Range
+                  Range
                 </button>
                 <button
                   type="button"
                   onClick={() => setFilterMode('all')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  className={`flex-1 sm:flex-initial text-center justify-center px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
                     filterMode === 'all' 
                       ? 'bg-slate-900 text-white shadow-sm' 
                       : 'text-slate-400 hover:text-slate-700'
                   }`}
                 >
-                  All Reports
+                  All
                 </button>
               </div>
             </div>
 
             {/* Dynamic input fields based on active filter mode */}
             {filterMode === 'month' && (
-              <div className="flex gap-2">
-                <div className="w-36">
+              <div className="flex gap-2 w-full sm:w-auto">
+                <div className="flex-1 sm:w-36">
                   <label className="block mb-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Select Month</label>
                   <select
                     value={selectedMonth}
@@ -513,7 +513,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
                     ))}
                   </select>
                 </div>
-                <div className="w-24">
+                <div className="flex-1 sm:w-24">
                   <label className="block mb-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Select Year</label>
                   <select
                     value={selectedYear}
@@ -529,8 +529,8 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
             )}
 
             {filterMode === 'range' && (
-              <div className="flex gap-2 items-center">
-                <div className="w-36">
+              <div className="flex gap-2 items-center w-full sm:w-auto">
+                <div className="flex-1 sm:w-36">
                   <label className="block mb-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">From Date</label>
                   <input
                     type="date"
@@ -540,7 +540,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
                   />
                 </div>
                 <span className="text-slate-300 font-bold text-xs mt-4">to</span>
-                <div className="w-36">
+                <div className="flex-1 sm:w-36">
                   <label className="block mb-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">To Date</label>
                   <input
                     type="date"
@@ -555,11 +555,11 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
           </div>
 
           {/* Right: Quick Action Buttons */}
-          <div className="flex gap-3 shrink-0">
+          <div className="flex gap-3 shrink-0 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setShowExportModal(true)}
-              className="px-5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center gap-2 cursor-pointer shadow-sm shadow-emerald-600/5 border border-emerald-100"
+              className="flex-1 sm:flex-initial justify-center px-5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center gap-2 cursor-pointer shadow-sm shadow-emerald-600/5 border border-emerald-100"
             >
               <FileSpreadsheet size={16} />
               Export Excel
@@ -571,7 +571,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
                   resetForm();
                   setShowAddModal(true);
                 }}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center gap-2 cursor-pointer shadow-md shadow-indigo-600/10"
+                className="flex-1 sm:flex-initial justify-center px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center gap-2 cursor-pointer shadow-md shadow-indigo-600/10"
               >
                 <Plus size={16} />
                 New Entry
@@ -683,7 +683,9 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
             <p className="text-[11px] text-slate-400 lowercase font-normal">Use the "+ New Entry" button to record daily production data</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            {/* Desktop View Table */}
+            <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-900 text-slate-100 text-[12px] md:text-[13px] font-black uppercase tracking-wider select-none border-b border-slate-800">
@@ -837,6 +839,103 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
               </tbody>
             </table>
           </div>
+
+          {/* Mobile View Card List */}
+          <div className="block md:hidden divide-y divide-slate-150">
+            {filteredReports.map((r) => {
+              const dateLabel = formatDateLabel(r.date);
+              return (
+                <div key={r.id} className="p-5 flex flex-col gap-3 hover:bg-slate-50/40 transition-colors">
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-1.5 text-slate-800 font-extrabold text-sm font-mono">
+                        <Lock size={12} className="text-slate-400" />
+                        <span>{dateLabel}</span>
+                      </div>
+                    </div>
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                      (r.shift || 'day') === 'day' 
+                        ? 'bg-amber-50 text-amber-800 border border-amber-200' 
+                        : 'bg-indigo-50 text-indigo-800 border border-indigo-200'
+                    }`}>
+                      {(r.shift || 'day') === 'day' ? <Sun size={12} /> : <Moon size={12} />}
+                      {r.shift || 'day'}
+                    </span>
+                  </div>
+
+                  {r.isStopped ? (
+                    <div className="bg-red-50 border border-red-150 rounded-2xl p-3 flex items-center justify-center gap-2 text-[11px] font-black text-red-800 uppercase tracking-wider">
+                      <AlertTriangle size={14} className="text-red-500 shrink-0" />
+                      Weaving Plant Stopped
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2.5 bg-slate-50/50 border border-slate-150 rounded-2xl p-3 text-xs">
+                      <div>
+                        <p className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest">Active Looms</p>
+                        <p className="font-extrabold text-slate-800 font-mono mt-0.5">{r.looms} Looms</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest">Total Production</p>
+                        <p className="font-black text-emerald-700 font-mono mt-0.5">{r.production?.toLocaleString()} M</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest">Average / Loom</p>
+                        <p className="font-extrabold text-indigo-700 font-mono mt-0.5">{r.average?.toLocaleString()} M</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest">Wastage</p>
+                        <p className="font-extrabold text-amber-700 font-mono mt-0.5">{r.wastage} KG</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {!viewOnly && (
+                    <div className="flex justify-end gap-2 pt-1 border-t border-slate-100 mt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleEditClick(r)}
+                        className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-100 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                      >
+                        <Edit2 size={13} />
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteEntry(r.id, dateLabel)}
+                        className="flex items-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                      >
+                        <Trash2 size={13} />
+                        <span>Delete</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Mobile View Totals Summary Card */}
+            <div className="bg-slate-100/90 p-5 flex flex-col gap-3 font-bold border-t-2 border-slate-200">
+              <div className="flex items-center gap-1.5 text-slate-800 font-black uppercase text-xs tracking-wider">
+                <Activity size={16} className="text-slate-500" />
+                <span>Ledger Summary Totals</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="bg-white border border-slate-200 rounded-xl p-2.5">
+                  <span className="text-[8px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Looms</span>
+                  <span className="font-black text-slate-800 font-mono text-sm block mt-0.5">{totals.looms}</span>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-xl p-2.5">
+                  <span className="text-[8px] text-slate-400 font-extrabold uppercase tracking-wider block">Production</span>
+                  <span className="font-black text-emerald-800 font-mono text-sm block mt-0.5">{totals.production.toLocaleString()}M</span>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-xl p-2.5">
+                  <span className="text-[8px] text-slate-400 font-extrabold uppercase tracking-wider block">Wastage</span>
+                  <span className="font-black text-amber-800 font-mono text-sm block mt-0.5">{totals.wastage.toLocaleString()}K</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          </>
         )}
       </div>
 

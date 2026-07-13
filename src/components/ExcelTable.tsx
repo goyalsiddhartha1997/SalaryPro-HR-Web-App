@@ -828,7 +828,7 @@ export default function ExcelTable({
       </div>
 
       {/* Spreadsheet grid container */}
-      <div className="overflow-x-auto w-full max-w-full relative scrollbar-thin max-h-[580px]" id="excel-grid-viewport">
+      <div className="hidden lg:block overflow-x-auto w-full max-w-full relative scrollbar-thin max-h-[580px]" id="excel-grid-viewport">
         <table className="w-full text-left border-collapse table-fixed select-text">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[11px] font-bold tracking-wider text-center h-11 uppercase sticky top-0 z-10 shadow-xs">
@@ -1271,41 +1271,83 @@ export default function ExcelTable({
           {/* Table Totals double underlined summary Row, sticky at bottom */}
           {totalItems > 0 && (
             <tfoot>
-              <tr className="bg-slate-800 text-white font-bold text-[11.5px] tracking-wide text-center uppercase h-11 sticky bottom-0 z-10 border-t-2 border-slate-300 relative shadow-md">
-                <td className="sticky left-0 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold select-none h-full text-slate-200">
-                  SUMS:
-                </td>
-                <td className="sticky left-16 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold text-slate-200 font-mono text-[10px] select-none uppercase">
-                  {totalItems} rows
-                </td>
-                <td className="sticky left-40 bg-slate-900 border-r border-slate-700 z-15 h-full"></td>
-                <td className="bg-slate-800 border-r border-slate-700"></td> {/* Contractor */}
-                <td className="bg-slate-800 border-r border-slate-700"></td> {/* Department */}
-                <td className="bg-slate-800 border-r border-slate-700"></td>
-                <td className="bg-slate-800 border-r border-slate-700"></td>
-                <td className="bg-slate-800 border-r border-slate-700"></td>
-                <td className="text-right p-2.5 border-r border-slate-700 font-mono text-sky-200 font-bold bg-slate-800 select-all">
-                  {formatINR(totals.gross).replace('INR', '')}
-                </td>
-                <td colSpan={9} className="text-right px-4 text-slate-450 bg-slate-850 border-r border-slate-700 italic normal-case text-[10px] select-none font-medium">
-                  Totals recalculated live. Double border underline.
-                </td>
-                <td className="text-right p-2.5 border-r border-slate-700 font-mono text-indigo-200 font-bold bg-slate-800 select-all">
-                  {formatINR(totals.advance).replace('INR', '')}
-                </td>
-                <td className="text-right p-2.5 border-r border-slate-700 font-mono text-indigo-200 font-bold bg-slate-800 select-all">
-                  {formatINR(totals.food).replace('INR', '')}
-                </td>
-                <td className="text-right p-2.5 border-r border-slate-700 font-mono font-bold text-rose-350 bg-slate-800 select-all">
-                  {formatINR(totals.deductions).replace('INR', '')}
-                </td>
-                <td className="text-right p-2.5 font-mono text-[12px] font-extrabold text-emerald-300 bg-emerald-900/95 underline decoration-double decoration-emerald-400 decoration-2 select-all">
-                  {formatINR(totals.payable).replace('INR', '')}
-                </td>
-              </tr>
+              <tr className="bg-slate-800 text-white font-bold text-[11.5px] tracking-wide text-center uppercase h-11 sticky bottom-0 z-10 border-t-2 border-slate-300 relative shadow-md"><td className="sticky left-0 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold select-none h-full text-slate-200">SUMS:</td><td className="sticky left-16 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold text-slate-200 font-mono text-[10px] select-none uppercase">{totalItems} rows</td><td className="sticky left-40 bg-slate-900 border-r border-slate-700 z-15 h-full"></td><td className="bg-slate-800 border-r border-slate-700"></td><td className="bg-slate-800 border-r border-slate-700"></td><td className="bg-slate-800 border-r border-slate-700"></td><td className="bg-slate-800 border-r border-slate-700"></td><td className="bg-slate-800 border-r border-slate-700"></td><td className="bg-slate-800 border-r border-slate-700"></td><td className="text-right p-2.5 border-r border-slate-700 font-mono text-sky-200 font-bold bg-slate-800 select-all">{formatINR(totals.gross).replace('INR', '')}</td><td colSpan={9} className="text-right px-4 text-slate-450 bg-slate-850 border-r border-slate-700 italic normal-case text-[10px] select-none font-medium">Totals recalculated live. Double border underline.</td><td className="text-right p-2.5 border-r border-slate-700 font-mono text-indigo-200 font-bold bg-slate-800 select-all">{formatINR(totals.advance).replace('INR', '')}</td><td className="text-right p-2.5 border-r border-slate-700 font-mono text-indigo-200 font-bold bg-slate-800 select-all">{formatINR(totals.food).replace('INR', '')}</td><td className="text-right p-2.5 border-r border-slate-700 font-mono font-bold text-rose-350 bg-slate-800 select-all">{formatINR(totals.deductions).replace('INR', '')}</td><td className="text-right p-2.5 font-mono text-[12px] font-extrabold text-emerald-300 bg-emerald-900/95 underline decoration-double decoration-emerald-400 decoration-2 select-all">{formatINR(totals.payable).replace('INR', '')}</td></tr>
             </tfoot>
           )}
         </table>
+      </div>
+
+      {/* Mobile view grid container */}
+      <div className="block lg:hidden px-4 py-3 space-y-4 max-h-[580px] overflow-y-auto scrollbar-thin">
+        {paginatedEmployees.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {paginatedEmployees.map((emp, index) => {
+              const verifiedPage = Math.min(currentPage, totalPages);
+              const serialNo = (verifiedPage - 1) * pageSize + index + 1;
+              return (
+                <MobileEmployeeCard
+                  key={emp.id}
+                  emp={emp}
+                  serialNo={serialNo}
+                  viewOnly={viewOnly}
+                  onViewProfile={onViewProfile}
+                  onDeleteEmployee={onDeleteEmployee}
+                  handleCellBlur={handleCellBlur}
+                  formatINR={formatINR}
+                />
+              );
+            })}
+          </div>
+        ) : (
+          <div className="py-12 text-center text-slate-400 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+            <div className="flex flex-col items-center justify-center space-y-2">
+              <AlertTriangle size={24} className="text-slate-300 animate-pulse" />
+              <span>No employee records found matching current query or search criteria.</span>
+              <button 
+                onClick={() => setFilterOpts({
+                  searchQuery: '', minSalary: '', maxSalary: '', hasAbsenceOnly: false, highDeductionsOnly: false, sortBy: 'id', sortOrder: 'asc'
+                })}
+                className="text-xs text-blue-600 font-bold hover:underline"
+              >
+                Clear All Search Filters
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Mobile live total calculation summaries bar */}
+        {totalItems > 0 && (
+          <div className="bg-slate-800 text-white p-4.5 rounded-2xl shadow-md border border-slate-700 space-y-2 select-all">
+            <div className="flex justify-between items-center text-[10.5px] uppercase tracking-wider text-slate-400 font-bold">
+              <span>LEDGER SUMS ({totalItems} rows)</span>
+              <span className="text-[9px] font-medium italic text-slate-400 font-sans">recalculated live</span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs pt-1.5 border-t border-slate-700">
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-medium">Gross Pay:</span>
+                <span className="font-mono font-bold text-sky-200">{formatINR(totals.gross).replace('INR', '')}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-medium">Advances:</span>
+                <span className="font-mono font-bold text-indigo-200">{formatINR(totals.advance).replace('INR', '')}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-medium">Food Bal:</span>
+                <span className="font-mono font-bold text-indigo-200">{formatINR(totals.food).replace('INR', '')}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-medium">Deductions:</span>
+                <span className="font-mono font-bold text-rose-350">{formatINR(totals.deductions).replace('INR', '')}</span>
+              </div>
+            </div>
+            <div className="flex justify-between items-center pt-2.5 mt-1 border-t-2 border-slate-600">
+              <span className="text-xs font-black text-slate-300 uppercase tracking-wide">Net Payable Summary:</span>
+              <span className="font-mono text-base font-black text-emerald-400 underline decoration-double decoration-emerald-400 decoration-2">
+                {formatINR(totals.payable)}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Pagination controls */}
@@ -1414,6 +1456,402 @@ export default function ExcelTable({
         </div>
       )}
 
+    </div>
+  );
+}
+
+interface MobileEmployeeCardProps {
+  key?: React.Key;
+  emp: ComputedEmployee;
+  serialNo: number;
+  viewOnly: boolean;
+  onViewProfile?: (id: string) => void;
+  onDeleteEmployee: (id: string) => void;
+  handleCellBlur: (id: string, field: keyof Employee, value: string, element?: HTMLInputElement) => void;
+  formatINR: (value: number) => string;
+}
+
+function MobileEmployeeCard({
+  emp,
+  serialNo,
+  viewOnly,
+  onViewProfile,
+  onDeleteEmployee,
+  handleCellBlur,
+  formatINR,
+}: MobileEmployeeCardProps) {
+  const [activeTab, setActiveTab] = useState<'job' | 'salary' | 'attendance'>('job');
+  const isHighAbsent = emp.fullDaysAbsent >= 3;
+  const hasLeaves = emp.fullDaysAbsent > 0 || emp.absentHours > 0 || emp.absentMinutes > 0;
+  const hasErrors = emp.hasErrors;
+
+  return (
+    <div 
+      className={`border rounded-2xl p-4.5 space-y-4 shadow-sm transition-all ${
+        hasErrors 
+          ? 'bg-rose-50/40 border-rose-200' 
+          : 'bg-white border-slate-200 hover:border-slate-350 hover:shadow-md'
+      }`}
+    >
+      {/* Header: S.No, Name, ID, Actions */}
+      <div className="flex justify-between items-start gap-2.5 pb-3 border-b border-slate-150">
+        <div className="flex items-start gap-2.5 min-w-0">
+          <span className="flex-shrink-0 w-6.5 h-6.5 rounded-lg bg-slate-100 flex items-center justify-center font-mono font-bold text-xs text-slate-500">
+            {serialNo}
+          </span>
+          <div className="min-w-0">
+            <input
+              type="text"
+              defaultValue={emp.name}
+              onBlur={(e) => handleCellBlur(emp.id, 'name', e.target.value)}
+              disabled={viewOnly}
+              placeholder="EMPLOYEE NAME"
+              className="font-extrabold text-slate-900 text-[14px] hover:bg-slate-50 focus:bg-white rounded px-1 -mx-1 w-full uppercase focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:bg-transparent"
+            />
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="text-[10px] text-slate-400 font-mono font-bold uppercase tracking-wider">
+                ID: 
+              </span>
+              <input
+                type="text"
+                defaultValue={emp.id.startsWith('EMP_TEMP_') ? '' : emp.id}
+                onBlur={(e) => handleCellBlur(emp.id, 'id', e.target.value)}
+                disabled={viewOnly}
+                placeholder="TEMP"
+                className="font-mono font-bold text-[10.5px] text-blue-600 w-20 hover:bg-slate-50 focus:bg-white rounded px-0.5 uppercase focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:bg-transparent"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Action icons */}
+        <div className="flex items-center gap-1 shrink-0">
+          {onViewProfile && (
+            <button 
+              onClick={() => onViewProfile(emp.id)}
+              className="p-1.5 bg-slate-50 hover:bg-teal-50 border border-slate-200 hover:border-teal-100 text-slate-500 hover:text-teal-600 rounded-lg transition-all cursor-pointer"
+              title="View Employee Profile Dashboard"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+            </button>
+          )}
+          {!viewOnly && (
+            <button 
+              onClick={() => onDeleteEmployee(emp.id)}
+              className="p-1.5 bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-100 text-slate-500 hover:text-rose-600 rounded-lg transition-all cursor-pointer"
+              title="Remove Employee"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Segmented Tab controls */}
+      <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl text-center text-[11px] font-bold select-none">
+        <button
+          onClick={() => setActiveTab('job')}
+          className={`py-1.5 rounded-lg transition-all cursor-pointer ${
+            activeTab === 'job' 
+              ? 'bg-white text-slate-800 shadow-3xs' 
+              : 'text-slate-500 hover:text-slate-850'
+          }`}
+        >
+          💼 Job Info
+        </button>
+        <button
+          onClick={() => setActiveTab('salary')}
+          className={`py-1.5 rounded-lg transition-all cursor-pointer ${
+            activeTab === 'salary' 
+              ? 'bg-white text-slate-800 shadow-3xs' 
+              : 'text-slate-500 hover:text-slate-850'
+          }`}
+        >
+          💰 Pay/Rate
+        </button>
+        <button
+          onClick={() => setActiveTab('attendance')}
+          className={`py-1.5 rounded-lg transition-all cursor-pointer ${
+            activeTab === 'attendance' 
+              ? 'bg-white text-slate-800 shadow-3xs' 
+              : 'text-slate-500 hover:text-slate-850'
+          }`}
+        >
+          🛑 Leave & Ded
+        </button>
+      </div>
+
+      {/* Content depending on selected tab */}
+      <div className="space-y-3 pt-1 text-xs">
+        {activeTab === 'job' && (
+          <div className="grid grid-cols-2 gap-3.5">
+            <div className="space-y-1 col-span-2 sm:col-span-1">
+              <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Contractor</label>
+              <input
+                type="text"
+                defaultValue={emp.contractor || ''}
+                onBlur={(e) => handleCellBlur(emp.id, 'contractor', e.target.value)}
+                disabled={viewOnly}
+                placeholder="e.g. Agency A"
+                className="w-full h-9 px-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-medium focus:outline-hidden focus:ring-1 focus:ring-blue-400 disabled:opacity-65"
+              />
+            </div>
+
+            <div className="space-y-1 col-span-2 sm:col-span-1">
+              <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Department</label>
+              <input
+                type="text"
+                defaultValue={emp.department || ''}
+                onBlur={(e) => handleCellBlur(emp.id, 'department', e.target.value)}
+                disabled={viewOnly}
+                placeholder="e.g. Sales"
+                className="w-full h-9 px-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-medium focus:outline-hidden focus:ring-1 focus:ring-blue-400 disabled:opacity-65"
+              />
+            </div>
+
+            <div className="space-y-1 col-span-2 sm:col-span-1">
+              <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Designation</label>
+              <input
+                type="text"
+                defaultValue={emp.designation || ''}
+                onBlur={(e) => handleCellBlur(emp.id, 'designation', e.target.value)}
+                disabled={viewOnly}
+                placeholder="e.g. Operator"
+                className="w-full h-9 px-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-medium focus:outline-hidden focus:ring-1 focus:ring-blue-400 disabled:opacity-65"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Sunday Paid?</label>
+              <select
+                value={emp.sundayPaid || 'Not Paid'}
+                onChange={(e) => handleCellBlur(emp.id, 'sundayPaid', e.target.value)}
+                disabled={viewOnly}
+                className={`w-full h-9 px-2.5 bg-slate-50 border border-slate-200 focus:border-blue-400 rounded-lg font-bold uppercase focus:outline-hidden focus:ring-1 focus:ring-blue-400 cursor-pointer ${
+                  emp.sundayPaid === 'Paid' ? 'text-emerald-700' : 'text-rose-700'
+                }`}
+              >
+                <option value="Paid">Paid</option>
+                <option value="Not Paid">Not Paid</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Shift</label>
+              <select
+                value={emp.shift || 'DAY'}
+                onChange={(e) => handleCellBlur(emp.id, 'shift', e.target.value)}
+                disabled={viewOnly}
+                className={`w-full h-9 px-2.5 bg-slate-50 border border-slate-200 focus:border-blue-400 rounded-lg font-bold uppercase focus:outline-hidden focus:ring-1 focus:ring-blue-400 cursor-pointer ${
+                  emp.shift === 'NIGHT' ? 'text-purple-700' : 'text-amber-700'
+                }`}
+              >
+                <option value="DAY">DAY</option>
+                <option value="NIGHT">NIGHT</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'salary' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3.5">
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Salary Basis</label>
+                <select
+                  value={emp.salaryType || 'fixed'}
+                  onChange={(e) => handleCellBlur(emp.id, 'salaryType', e.target.value)}
+                  disabled={viewOnly}
+                  className="w-full h-9 px-2.5 bg-slate-50 border border-slate-200 focus:border-blue-400 rounded-lg font-bold uppercase focus:outline-hidden focus:ring-1 focus:ring-blue-400 cursor-pointer"
+                >
+                  <option value="fixed">Fixed (Monthly)</option>
+                  <option value="daily">Daily (Day Rate)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">
+                  {emp.salaryType === 'daily' ? 'Daily Rate (₹)' : 'Monthly Sal (₹)'}
+                </label>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold">₹</span>
+                  <input
+                    type="number"
+                    defaultValue={emp.monthlySalary || ''}
+                    onBlur={(e) => handleCellBlur(emp.id, 'monthlySalary', e.target.value)}
+                    disabled={viewOnly}
+                    placeholder="0"
+                    min="0"
+                    className="w-full h-9 pl-6 pr-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-bold focus:outline-hidden focus:ring-1 focus:ring-blue-400"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Expected Days</label>
+                <input
+                  type="number"
+                  defaultValue={emp.workingDays || ''}
+                  onBlur={(e) => handleCellBlur(emp.id, 'workingDays', e.target.value)}
+                  disabled={viewOnly}
+                  placeholder="e.g. 26"
+                  min="1"
+                  max="31"
+                  className="w-full h-9 px-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-semibold focus:outline-hidden focus:ring-1 focus:ring-blue-400"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Hours / Day</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  defaultValue={emp.workingHours || ''}
+                  onBlur={(e) => handleCellBlur(emp.id, 'workingHours', e.target.value)}
+                  disabled={viewOnly}
+                  placeholder="e.g. 9"
+                  min="1"
+                  max="24"
+                  className="w-full h-9 px-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-semibold focus:outline-hidden focus:ring-1 focus:ring-blue-400"
+                />
+              </div>
+            </div>
+
+            {/* Read-only calculations banner */}
+            <div className="grid grid-cols-2 gap-2 bg-slate-50 border border-slate-150 p-2.5 rounded-xl text-[11px]">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Daily Rate</span>
+                <span className="font-mono font-black text-slate-700">{formatINR(emp.dailyRate).replace('INR', '')}</span>
+              </div>
+              <div className="flex items-center justify-between px-1 border-l border-slate-200 pl-3">
+                <span className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Hourly Rate</span>
+                <span className="font-mono font-black text-slate-700">{formatINR(emp.hourlyRate).replace('INR', '')}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'attendance' && (
+          <div className="space-y-3.5">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <label className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none" title="Full Days Absent">Full Absent</label>
+                <input
+                  type="number"
+                  defaultValue={emp.fullDaysAbsent || ''}
+                  onBlur={(e) => handleCellBlur(emp.id, 'fullDaysAbsent', e.target.value)}
+                  disabled={viewOnly}
+                  placeholder="0"
+                  min="0"
+                  className={`w-full h-9 px-2 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg text-center font-bold focus:outline-hidden focus:ring-1 focus:ring-blue-400 ${
+                    isHighAbsent ? 'text-rose-700' : 'text-slate-700'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none" title="Absent Hours">Part Hrs</label>
+                <input
+                  type="number"
+                  defaultValue={emp.absentHours || ''}
+                  onBlur={(e) => handleCellBlur(emp.id, 'absentHours', e.target.value)}
+                  disabled={viewOnly}
+                  placeholder="0"
+                  min="0"
+                  className="w-full h-9 px-2 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg text-center font-bold focus:outline-hidden focus:ring-1 focus:ring-blue-400 text-slate-700"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none" title="Absent Minutes">Part Mins</label>
+                <input
+                  type="number"
+                  defaultValue={emp.absentMinutes || ''}
+                  onBlur={(e) => handleCellBlur(emp.id, 'absentMinutes', e.target.value)}
+                  disabled={viewOnly}
+                  placeholder="0"
+                  min="0"
+                  max="59"
+                  className="w-full h-9 px-2 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg text-center font-bold focus:outline-hidden focus:ring-1 focus:ring-blue-400 text-amber-800"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Advance Payment (₹)</label>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold">₹</span>
+                  <input
+                    type="number"
+                    defaultValue={emp.advancePayment || ''}
+                    onBlur={(e) => handleCellBlur(emp.id, 'advancePayment', e.target.value)}
+                    disabled={viewOnly}
+                    placeholder="0"
+                    min="0"
+                    className="w-full h-9 pl-6 pr-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-bold focus:outline-hidden focus:ring-1 focus:ring-blue-400"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Food Balance (₹)</label>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold">₹</span>
+                  <input
+                    type="number"
+                    defaultValue={emp.foodBalance || ''}
+                    onBlur={(e) => handleCellBlur(emp.id, 'foodBalance', e.target.value)}
+                    disabled={viewOnly}
+                    placeholder="0"
+                    min="0"
+                    className="w-full h-9 pl-6 pr-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-bold focus:outline-hidden focus:ring-1 focus:ring-blue-400"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Calculations Banner for Deductions */}
+            <div className="space-y-1.5 bg-slate-50 border border-slate-150 p-2.5 rounded-xl text-[11px]">
+              <div className="flex justify-between items-center px-1">
+                <span className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Deduct: Full Days</span>
+                <span className="font-mono font-black text-rose-600">
+                  {emp.deductionFullDay > 0 ? `-${formatINR(emp.deductionFullDay).replace('INR', '')}` : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center px-1 pt-1.5 border-t border-slate-200/60">
+                <span className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Deduct: Part/Hourly</span>
+                <span className="font-mono font-black text-rose-600">
+                  {emp.deductionHourly > 0 ? `-${formatINR(emp.deductionHourly).replace('INR', '')}` : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center px-1 pt-1.5 border-t border-slate-200/60">
+                <span className="text-slate-500 font-black uppercase text-[9px] tracking-wider">Total Deductions</span>
+                <span className="font-mono font-black text-rose-700 bg-rose-50 px-2 py-0.5 border border-rose-100 rounded">
+                  {emp.totalDeduction > 0 ? `-${formatINR(emp.totalDeduction).replace('INR', '')}` : '₹0.00'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Final payable summary row inside card */}
+      <div className="flex justify-between items-center bg-slate-900 text-white rounded-xl p-3 shadow-xs">
+        <div className="space-y-0.5">
+          <span className="text-[8.5px] text-slate-350 font-black uppercase tracking-widest block leading-none">Net Payable</span>
+          <span className="text-[10px] text-indigo-300 font-bold leading-none">Formula calculated</span>
+        </div>
+        <span className={`text-base font-black font-mono tracking-tight shrink-0 ${
+          hasLeaves 
+            ? isHighAbsent 
+              ? 'text-rose-300' 
+              : 'text-amber-300' 
+            : 'text-emerald-400'
+        }`}>
+          {formatINR(emp.finalPayable)}
+        </span>
+      </div>
     </div>
   );
 }

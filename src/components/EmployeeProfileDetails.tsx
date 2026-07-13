@@ -891,6 +891,111 @@ export default function EmployeeProfileDetails({
     return lateDates.includes(dayNum);
   };
 
+  const renderAttendanceMap = () => {
+    return (
+      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5.5 select-none" id="mini-calendar-pouch">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Attendance Map</h4>
+            <p className="text-sm font-black text-slate-800 tracking-tight mt-0.5">
+              {monthNames[calendarMonth]} {calendarYear}
+            </p>
+          </div>
+          <div className="flex gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-150">
+            <button 
+              onClick={handlePrevMonth}
+              className="p-1 text-slate-500 hover:text-slate-800 transition-colors hover:bg-white rounded-md cursor-pointer"
+            >
+              <ChevronLeft size={13} />
+            </button>
+            <button 
+              onClick={handleNextMonth}
+              className="p-1 text-slate-500 hover:text-slate-800 transition-colors hover:bg-white rounded-md cursor-pointer"
+            >
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        </div>
+
+        {/* Weekdays Row header */}
+        <div className="grid grid-cols-7 gap-y-1 text-center text-[10px] font-mono font-black uppercase text-slate-400 mb-2">
+          <span>S</span>
+          <span>M</span>
+          <span>T</span>
+          <span>W</span>
+          <span>T</span>
+          <span>F</span>
+          <span>S</span>
+        </div>
+
+        {/* Actual Days Grid mapping dynamic arrays */}
+        <div className="grid grid-cols-7 gap-y-1 gap-x-1 text-center text-xs">
+          {calendarDays.map((slot, index) => {
+            const cellDateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(slot.day).padStart(2, '0')}`;
+            const dayPunches = getAdjustedPunchesForDate(cellDateStr);
+            const hasPunches = dayPunches.length > 0;
+            const workMinutes = getWorkMinutes(dayPunches);
+
+            const absent = isAbsentDay(slot.day, slot.isCurrentMonth);
+            const shiftHours = getShiftTimingDurationHours(employee.shiftTime, employee.workingHours || 8);
+            const thresholdMinutes = shiftHours * 60 * 0.85;
+            const isPartialPresent = hasPunches && (workMinutes < thresholdMinutes);
+            const late = isLateDay(slot.day, slot.isCurrentMonth);
+            const isSelected = slot.isCurrentMonth && slot.day === selectedDay;
+
+            // Color priority: standard layout or custom punch logs loaded from file
+            let cellClass = "text-slate-700 hover:bg-slate-50";
+            if (!slot.isCurrentMonth) {
+              cellClass = "text-slate-300 pointer-events-none";
+            } else if (absent) {
+              cellClass = "bg-rose-500 text-white shadow-xs shadow-rose-300 ring-4 ring-white hover:bg-rose-600";
+            } else if (isPartialPresent) {
+              cellClass = "bg-amber-400 text-white shadow-xs shadow-amber-200 ring-4 ring-white hover:bg-amber-500";
+            } else if (hasPunches) {
+              cellClass = "bg-emerald-500 text-white font-black shadow-xs shadow-emerald-200 hover:bg-emerald-600";
+            } else if (late) {
+              cellClass = "bg-amber-400 text-white shadow-xs shadow-amber-200 ring-4 ring-white hover:bg-amber-500";
+            } else {
+              cellClass = "bg-slate-50 text-slate-700 hover:bg-slate-100";
+            }
+
+            return (
+              <button 
+                key={index} 
+                type="button"
+                disabled={!slot.isCurrentMonth}
+                onClick={() => {
+                  if (slot.isCurrentMonth) setSelectedDay(slot.day);
+                }}
+                className={`h-8 w-8 flex flex-col items-center justify-center font-bold text-[10px] rounded-lg mx-auto relative cursor-pointer group transition-all ${cellClass} ${
+                  isSelected ? 'ring-2 ring-slate-800 ring-offset-1 scale-110 z-10' : ''
+                }`}
+              >
+                <span>{slot.day}</span>
+                {hasPunches && !absent && !isSelected && (
+                  <span className="w-1 h-1 bg-white rounded-full absolute bottom-0.5" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Attendance Legends */}
+        <div className="flex justify-between items-center border-t border-slate-100 pt-3.5 mt-3.5 text-[9.5px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+          <span className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded bg-emerald-500 block" /> Synced
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded bg-amber-400 block" /> Partial Present
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded bg-rose-500 block" /> Absent
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="w-full flex flex-col font-sans text-slate-700 animate-fade-in select-text pb-10" id="employee-detail-panel">
       
@@ -1187,6 +1292,11 @@ export default function EmployeeProfileDetails({
               )}
             </div>
 
+          </div>
+
+          {/* Mobile Attendance Map: placed between Daily In-Out Logs and Salary & Deductions Breakdown Card */}
+          <div className="block lg:hidden">
+            {renderAttendanceMap()}
           </div>
 
           {/* 📊 Salary & Deductions Breakdown Card */}
@@ -1593,105 +1703,8 @@ export default function EmployeeProfileDetails({
         <div className="lg:col-span-3 flex flex-col gap-6">
           
           {/* Calendar Widget Card */}
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5.5 select-none" id="mini-calendar-pouch">
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Attendance Map</h4>
-                <p className="text-sm font-black text-slate-800 tracking-tight mt-0.5">
-                  {monthNames[calendarMonth]} {calendarYear}
-                </p>
-              </div>
-              <div className="flex gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-150">
-                <button 
-                  onClick={handlePrevMonth}
-                  className="p-1 text-slate-500 hover:text-slate-800 transition-colors hover:bg-white rounded-md cursor-pointer"
-                >
-                  <ChevronLeft size={13} />
-                </button>
-                <button 
-                  onClick={handleNextMonth}
-                  className="p-1 text-slate-500 hover:text-slate-800 transition-colors hover:bg-white rounded-md cursor-pointer"
-                >
-                  <ChevronRight size={13} />
-                </button>
-              </div>
-            </div>
-
-            {/* Weekdays Row header */}
-            <div className="grid grid-cols-7 gap-y-1 text-center text-[10px] font-mono font-black uppercase text-slate-400 mb-2">
-              <span>S</span>
-              <span>M</span>
-              <span>T</span>
-              <span>W</span>
-              <span>T</span>
-              <span>F</span>
-              <span>S</span>
-            </div>
-
-            {/* Actual Days Grid mapping dynamic arrays */}
-            <div className="grid grid-cols-7 gap-y-1 gap-x-1 text-center text-xs">
-              {calendarDays.map((slot, index) => {
-                const cellDateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(slot.day).padStart(2, '0')}`;
-                const dayPunches = getAdjustedPunchesForDate(cellDateStr);
-                const hasPunches = dayPunches.length > 0;
-                const workMinutes = getWorkMinutes(dayPunches);
-
-                const absent = isAbsentDay(slot.day, slot.isCurrentMonth);
-                const shiftHours = getShiftTimingDurationHours(employee.shiftTime, employee.workingHours || 8);
-                const thresholdMinutes = shiftHours * 60 * 0.85;
-                const isPartialPresent = hasPunches && (workMinutes < thresholdMinutes);
-                const late = isLateDay(slot.day, slot.isCurrentMonth);
-                const isSelected = slot.isCurrentMonth && slot.day === selectedDay;
-
-                // Color priority: standard layout or custom punch logs loaded from file
-                let cellClass = "text-slate-700 hover:bg-slate-50";
-                if (!slot.isCurrentMonth) {
-                  cellClass = "text-slate-300 pointer-events-none";
-                } else if (absent) {
-                  cellClass = "bg-rose-500 text-white shadow-xs shadow-rose-300 ring-4 ring-white hover:bg-rose-600";
-                } else if (isPartialPresent) {
-                  cellClass = "bg-amber-400 text-white shadow-xs shadow-amber-200 ring-4 ring-white hover:bg-amber-500";
-                } else if (hasPunches) {
-                  cellClass = "bg-emerald-500 text-white font-black shadow-xs shadow-emerald-200 hover:bg-emerald-600";
-                } else if (late) {
-                  cellClass = "bg-amber-400 text-white shadow-xs shadow-amber-200 ring-4 ring-white hover:bg-amber-500";
-                } else {
-                  cellClass = "bg-slate-50 text-slate-700 hover:bg-slate-100";
-                }
-
-                return (
-                  <button 
-                    key={index} 
-                    type="button"
-                    disabled={!slot.isCurrentMonth}
-                    onClick={() => {
-                      if (slot.isCurrentMonth) setSelectedDay(slot.day);
-                    }}
-                    className={`h-8 w-8 flex flex-col items-center justify-center font-bold text-[10px] rounded-lg mx-auto relative cursor-pointer group transition-all ${cellClass} ${
-                      isSelected ? 'ring-2 ring-slate-800 ring-offset-1 scale-110 z-10' : ''
-                    }`}
-                  >
-                    <span>{slot.day}</span>
-                    {hasPunches && !absent && !isSelected && (
-                      <span className="w-1 h-1 bg-white rounded-full absolute bottom-0.5" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Attendance Legends */}
-            <div className="flex justify-between items-center border-t border-slate-100 pt-3.5 mt-3.5 text-[9.5px] font-bold text-slate-400 uppercase tracking-wider font-mono">
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded bg-emerald-500 block" /> Synced
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded bg-amber-400 block" /> Partial Present
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded bg-rose-500 block" /> Absent
-              </span>
-            </div>
+          <div className="hidden lg:block">
+            {renderAttendanceMap()}
           </div>
 
           {/* ==================== DAILY BIOMETRIC PUNCH LOGS INTERACTIVE PANEL ==================== */}

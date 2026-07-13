@@ -148,5 +148,6 @@ export interface LoomRunningReport {
   createdAt: string;
   isAllStopped?: boolean;
   remarks?: string;
+  shift?: 'DAY' | 'NIGHT';
 }
 
