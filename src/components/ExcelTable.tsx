@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Employee, ComputedEmployee, FilterOptions } from '../types';
 import { 
   Lock, 
@@ -22,7 +22,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Unlock,
-  Undo2
+  Undo2,
+  ArrowUp,
+  ArrowDown,
+  Check,
+  X,
+  XCircle
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -58,6 +63,320 @@ function CellInput({ value, onBlur, className, type = "text", ...props }: CellIn
       onKeyDown={handleKeyDown}
       className={className}
     />
+  );
+}
+
+export type ColumnFilterKey = 'id' | 'name' | 'contractor' | 'department' | 'designation' | 'sundayPaid' | 'shift' | 'salaryType' | 'monthlySalary';
+
+export interface ExcelColumnFilter {
+  searchQuery: string;
+  selectedValues: string[] | null;
+  greaterThan: string;
+  smallerThan: string;
+}
+
+interface ExcelColumnFilterDropdownProps {
+  columnKey: ColumnFilterKey;
+  displayName: string;
+  employees: ComputedEmployee[];
+  filterOpts: FilterOptions;
+  setFilterOpts: React.Dispatch<React.SetStateAction<FilterOptions>>;
+  columnFilters: Record<ColumnFilterKey, ExcelColumnFilter>;
+  setColumnFilters: React.Dispatch<React.SetStateAction<Record<ColumnFilterKey, ExcelColumnFilter>>>;
+  onClose: () => void;
+  align?: 'left' | 'right';
+}
+
+function ExcelColumnFilterDropdown({
+  columnKey,
+  displayName,
+  employees,
+  filterOpts,
+  setFilterOpts,
+  columnFilters,
+  setColumnFilters,
+  onClose,
+  align = 'left'
+}: ExcelColumnFilterDropdownProps) {
+  const uniqueValues = useMemo(() => {
+    const vals = employees.map(emp => {
+      if (columnKey === 'monthlySalary') {
+        return String(emp.monthlySalary || 0);
+      }
+      const val = emp[columnKey as keyof Employee];
+      return val !== undefined && val !== null ? String(val).trim() : '(Blank)';
+    });
+    const unique = Array.from(new Set(vals));
+    if (columnKey === 'monthlySalary') {
+      return unique.sort((a, b) => Number(a) - Number(b));
+    }
+    return unique.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [employees, columnKey]);
+
+  const [localSearch, setLocalSearch] = useState('');
+  const [localSelected, setLocalSelected] = useState<string[] | null>(
+    columnFilters[columnKey].selectedValues
+  );
+  const [localGreater, setLocalGreater] = useState(columnFilters[columnKey].greaterThan);
+  const [localSmaller, setLocalSmaller] = useState(columnFilters[columnKey].smallerThan);
+
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        onClose();
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [onClose]);
+
+  const isCurrentColumnFiltered = useMemo(() => {
+    const filter = columnFilters[columnKey];
+    return filter.selectedValues !== null || filter.greaterThan.trim() !== '' || filter.smallerThan.trim() !== '';
+  }, [columnFilters, columnKey]);
+
+  const filteredUniqueValues = useMemo(() => {
+    return uniqueValues.filter(val => 
+      val.toLowerCase().includes(localSearch.toLowerCase())
+    );
+  }, [uniqueValues, localSearch]);
+
+  const isChecked = (val: string) => {
+    if (localSelected === null) return true;
+    return localSelected.includes(val);
+  };
+
+  const handleToggleValue = (val: string) => {
+    if (localSelected === null) {
+      const next = uniqueValues.filter(v => v !== val);
+      setLocalSelected(next);
+    } else {
+      if (localSelected.includes(val)) {
+        setLocalSelected(localSelected.filter(v => v !== val));
+      } else {
+        const next = [...localSelected, val];
+        if (next.length === uniqueValues.length) {
+          setLocalSelected(null);
+        } else {
+          setLocalSelected(next);
+        }
+      }
+    }
+  };
+
+  const isSelectAllChecked = useMemo(() => {
+    if (localSelected === null) return true;
+    return filteredUniqueValues.every(val => localSelected.includes(val));
+  }, [localSelected, filteredUniqueValues]);
+
+  const handleToggleSelectAll = () => {
+    if (isSelectAllChecked) {
+      if (localSelected === null) {
+        const remaining = uniqueValues.filter(v => !filteredUniqueValues.includes(v));
+        setLocalSelected(remaining);
+      } else {
+        const next = localSelected.filter(v => !filteredUniqueValues.includes(v));
+        setLocalSelected(next);
+      }
+    } else {
+      if (localSelected === null) {
+        // already all
+      } else {
+        const next = Array.from(new Set([...localSelected, ...filteredUniqueValues]));
+        if (next.length === uniqueValues.length) {
+          setLocalSelected(null);
+        } else {
+          setLocalSelected(next);
+        }
+      }
+    }
+  };
+
+  const handleSort = (order: 'asc' | 'desc') => {
+    const sortByField = columnKey === 'monthlySalary' ? 'salary' : columnKey;
+    setFilterOpts(prev => ({
+      ...prev,
+      sortBy: sortByField as any,
+      sortOrder: order
+    }));
+    onClose();
+  };
+
+  const handleApply = () => {
+    setColumnFilters(prev => ({
+      ...prev,
+      [columnKey]: {
+        searchQuery: '',
+        selectedValues: localSelected,
+        greaterThan: localGreater,
+        smallerThan: localSmaller
+      }
+    }));
+    onClose();
+  };
+
+  const handleClear = () => {
+    setColumnFilters(prev => ({
+      ...prev,
+      [columnKey]: {
+        searchQuery: '',
+        selectedValues: null,
+        greaterThan: '',
+        smallerThan: ''
+      }
+    }));
+    onClose();
+  };
+
+  const isNumeric = columnKey === 'monthlySalary';
+
+  return (
+    <div 
+      ref={dropdownRef}
+      className={`absolute top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl p-3 w-64 text-left font-normal normal-case text-[11px] text-slate-700 space-y-2.5 select-none ${
+        align === 'right' ? 'right-0' : 'left-0'
+      }`}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <div className="font-extrabold text-slate-800 border-b border-slate-100 pb-1.5 flex justify-between items-center">
+        <span>Filter {displayName}</span>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-650 cursor-pointer">
+          <X size={12} />
+        </button>
+      </div>
+
+      <div className="space-y-1">
+        <button 
+          onClick={() => handleSort('asc')}
+          className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded-lg text-slate-700 font-bold transition-colors cursor-pointer text-left"
+        >
+          <ArrowUp size={12} className="text-slate-400" />
+          <span>Sort {isNumeric ? 'Smallest to Largest' : 'A to Z'}</span>
+        </button>
+        <button 
+          onClick={() => handleSort('desc')}
+          className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded-lg text-slate-700 font-bold transition-colors cursor-pointer text-left"
+        >
+          <ArrowDown size={12} className="text-slate-400" />
+          <span>Sort {isNumeric ? 'Largest to Smallest' : 'Z to A'}</span>
+        </button>
+      </div>
+
+      <hr className="border-slate-100" />
+
+      {/* Action Controls: Apply, Cancel, and Clear Filter */}
+      <div className="bg-slate-50 border border-slate-100 p-2 rounded-lg space-y-1.5">
+        <div className="flex gap-1.5">
+          <button
+            onClick={handleApply}
+            className="flex-1 py-1.5 text-center text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer font-extrabold uppercase text-[9.5px] tracking-wider shadow-xs hover:shadow transition-colors flex items-center justify-center gap-1"
+          >
+            <Check size={11} />
+            <span>Apply Filter</span>
+          </button>
+          <button
+            onClick={onClose}
+            className="py-1.5 px-3 text-slate-650 bg-slate-200 hover:bg-slate-250 rounded-lg cursor-pointer font-extrabold uppercase text-[9.5px] tracking-wider transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+        <button
+          onClick={handleClear}
+          className={`w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[9.5px] font-extrabold rounded-lg transition-colors cursor-pointer text-center uppercase border ${
+            isCurrentColumnFiltered 
+              ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200/60' 
+              : 'bg-slate-100/50 text-slate-400 border-slate-100 cursor-not-allowed'
+          }`}
+          disabled={!isCurrentColumnFiltered}
+        >
+          <XCircle size={11} className={isCurrentColumnFiltered ? 'text-rose-500' : 'text-slate-300'} />
+          <span>Clear Column Filter</span>
+        </button>
+      </div>
+
+      <hr className="border-slate-100" />
+
+      <div className="space-y-1.5">
+        <span className="font-black text-[9px] uppercase text-slate-400 tracking-wider">Custom Filter</span>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[9.5px] font-bold text-slate-500 shrink-0 w-20">Greater Than:</span>
+            <input
+              type={isNumeric ? "number" : "text"}
+              value={localGreater}
+              onChange={(e) => setLocalGreater(e.target.value)}
+              placeholder={isNumeric ? "Min" : "value..."}
+              className="w-full px-2 py-1 border border-slate-200 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500 text-[11px] font-bold"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[9.5px] font-bold text-slate-500 shrink-0 w-20">Less Than:</span>
+            <input
+              type={isNumeric ? "number" : "text"}
+              value={localSmaller}
+              onChange={(e) => setLocalSmaller(e.target.value)}
+              placeholder={isNumeric ? "Max" : "value..."}
+              className="w-full px-2 py-1 border border-slate-200 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500 text-[11px] font-bold"
+            />
+          </div>
+        </div>
+      </div>
+
+      <hr className="border-slate-100" />
+
+      <div className="space-y-1.5">
+        <span className="font-black text-[9px] uppercase text-slate-400 tracking-wider">Unique Values</span>
+        <div className="relative">
+          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400">
+            <Search size={11} />
+          </span>
+          <input
+            type="text"
+            value={localSearch}
+            onChange={(e) => setLocalSearch(e.target.value)}
+            placeholder="Search values..."
+            className="w-full pl-6 pr-2 py-1 border border-slate-200 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500 text-[11px] font-medium"
+          />
+        </div>
+
+        <div className="border border-slate-100 rounded-lg max-h-32 overflow-y-auto scrollbar-thin p-1 bg-slate-50/50 space-y-0.5">
+          <label className="flex items-center gap-2 px-1.5 py-1 hover:bg-slate-100 rounded-sm cursor-pointer font-bold text-slate-650">
+            <input
+              type="checkbox"
+              checked={isSelectAllChecked}
+              onChange={handleToggleSelectAll}
+              className="rounded-sm text-blue-600 focus:ring-blue-500 border-slate-350 w-3.5 h-3.5 cursor-pointer"
+            />
+            <span>(Select All)</span>
+          </label>
+
+          {filteredUniqueValues.length > 0 ? (
+            filteredUniqueValues.map((val) => (
+              <label 
+                key={val}
+                className="flex items-center gap-2 px-1.5 py-1 hover:bg-slate-100 rounded-sm cursor-pointer font-bold text-slate-650 break-all"
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked(val)}
+                  onChange={() => handleToggleValue(val)}
+                  className="rounded-sm text-blue-600 focus:ring-blue-500 border-slate-350 w-3.5 h-3.5 cursor-pointer"
+                />
+                <span className="truncate">{val}</span>
+              </label>
+            ))
+          ) : (
+            <div className="text-center text-[10px] text-slate-400 py-3 italic">No matching values</div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -108,6 +427,20 @@ export default function ExcelTable({
     sortBy: 'id',
     sortOrder: 'asc'
   });
+
+  const [columnFilters, setColumnFilters] = useState<Record<ColumnFilterKey, ExcelColumnFilter>>({
+    id: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
+    name: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
+    contractor: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
+    department: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
+    designation: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
+    sundayPaid: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
+    shift: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
+    salaryType: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
+    monthlySalary: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
+  });
+
+  const [activeFilterDropdown, setActiveFilterDropdown] = useState<ColumnFilterKey | null>(null);
 
   // Password sheet settings unlock state
   const [passwordInput, setPasswordInput] = useState('');
@@ -164,6 +497,60 @@ export default function ExcelTable({
       result = result.filter(emp => emp.totalDeduction > (emp.grossSalary * 0.1));
     }
 
+    // Apply custom column-specific Excel filters
+    Object.entries(columnFilters).forEach(([key, filterVal]) => {
+      const colKey = key as ColumnFilterKey;
+      const filter = filterVal as ExcelColumnFilter;
+
+      // a. Checkbox unique values list filter
+      if (filter.selectedValues !== null) {
+        result = result.filter(emp => {
+          let val = '';
+          if (colKey === 'monthlySalary') {
+            val = String(emp.monthlySalary || 0);
+          } else {
+            const v = emp[colKey as keyof Employee];
+            val = v !== undefined && v !== null ? String(v).trim() : '(Blank)';
+          }
+          return filter.selectedValues!.includes(val);
+        });
+      }
+
+      // b. Greater than filter
+      if (filter.greaterThan.trim() !== '') {
+        const gtNum = Number(filter.greaterThan);
+        if (!isNaN(gtNum)) {
+          result = result.filter(emp => {
+            const val = colKey === 'monthlySalary' ? (emp.monthlySalary || 0) : Number(emp[colKey as keyof Employee]);
+            return !isNaN(val) && val > gtNum;
+          });
+        } else {
+          const gtStr = filter.greaterThan.toLowerCase();
+          result = result.filter(emp => {
+            const valStr = String(emp[colKey as keyof Employee] || '').toLowerCase();
+            return valStr > gtStr;
+          });
+        }
+      }
+
+      // c. Less than filter
+      if (filter.smallerThan.trim() !== '') {
+        const ltNum = Number(filter.smallerThan);
+        if (!isNaN(ltNum)) {
+          result = result.filter(emp => {
+            const val = colKey === 'monthlySalary' ? (emp.monthlySalary || 0) : Number(emp[colKey as keyof Employee]);
+            return !isNaN(val) && val < ltNum;
+          });
+        } else {
+          const ltStr = filter.smallerThan.toLowerCase();
+          result = result.filter(emp => {
+            const valStr = String(emp[colKey as keyof Employee] || '').toLowerCase();
+            return valStr < ltStr;
+          });
+        }
+      }
+    });
+
     // 5. Sorting
     result.sort((a, b) => {
       // Always keep empty templates at the bottom of the ledger
@@ -173,22 +560,25 @@ export default function ExcelTable({
       if (isTempA && !isTempB) return 1;
       if (!isTempA && isTempB) return -1;
 
-      let valA: any = a[filterOpts.sortBy];
-      let valB: any = b[filterOpts.sortBy];
+      let valA: any = a[filterOpts.sortBy as any];
+      let valB: any = b[filterOpts.sortBy as any];
 
       // Handle custom sorting keys
       if (filterOpts.sortBy === 'contractor') {
         valA = a.contractor || '';
         valB = b.contractor || '';
-      } else if (filterOpts.sortBy === 'salary') {
-        valA = a.monthlySalary;
-        valB = b.monthlySalary;
+      } else if (filterOpts.sortBy === 'salary' || (filterOpts.sortBy as string) === 'monthlySalary') {
+        valA = a.monthlySalary || 0;
+        valB = b.monthlySalary || 0;
       } else if (filterOpts.sortBy === 'deduction') {
         valA = a.totalDeduction;
         valB = b.totalDeduction;
       } else if (filterOpts.sortBy === 'finalPay') {
         valA = a.finalPayable;
         valB = b.finalPayable;
+      } else {
+        valA = a[filterOpts.sortBy as keyof Employee] || '';
+        valB = b[filterOpts.sortBy as keyof Employee] || '';
       }
 
       if (typeof valA === 'string') {
@@ -205,7 +595,7 @@ export default function ExcelTable({
     });
 
     return result;
-  }, [employees, filterOpts]);
+  }, [employees, filterOpts, columnFilters]);
 
   // Compute pagination bounds
   const totalItems = filteredEmployees.length;
@@ -525,8 +915,18 @@ export default function ExcelTable({
     }).format(value);
   };
 
+  const isIdFiltered = columnFilters.id.selectedValues !== null || columnFilters.id.greaterThan !== '' || columnFilters.id.smallerThan !== '';
+  const isNameFiltered = columnFilters.name.selectedValues !== null || columnFilters.name.greaterThan !== '' || columnFilters.name.smallerThan !== '';
+  const isContractorFiltered = columnFilters.contractor.selectedValues !== null || columnFilters.contractor.greaterThan !== '' || columnFilters.contractor.smallerThan !== '';
+  const isDepartmentFiltered = columnFilters.department.selectedValues !== null || columnFilters.department.greaterThan !== '' || columnFilters.department.smallerThan !== '';
+  const isDesignationFiltered = columnFilters.designation.selectedValues !== null || columnFilters.designation.greaterThan !== '' || columnFilters.designation.smallerThan !== '';
+  const isSundayPaidFiltered = columnFilters.sundayPaid.selectedValues !== null || columnFilters.sundayPaid.greaterThan !== '' || columnFilters.sundayPaid.smallerThan !== '';
+  const isShiftFiltered = columnFilters.shift.selectedValues !== null || columnFilters.shift.greaterThan !== '' || columnFilters.shift.smallerThan !== '';
+  const isSalaryTypeFiltered = columnFilters.salaryType.selectedValues !== null || columnFilters.salaryType.greaterThan !== '' || columnFilters.smallerThan !== '';
+  const isMonthlySalaryFiltered = columnFilters.monthlySalary.selectedValues !== null || columnFilters.monthlySalary.greaterThan !== '' || columnFilters.monthlySalary.smallerThan !== '';
+
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-lg flex flex-col pt-4 overflow-hidden" id="sheet-ledger-container">
+    <div className="bg-white rounded-xl border border-slate-200 shadow-lg flex flex-col pt-4 overflow-hidden relative" id="sheet-ledger-container">
       
       {/* Title & Toolbars */}
       <div className="px-5 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 select-none">
@@ -828,7 +1228,7 @@ export default function ExcelTable({
       </div>
 
       {/* Spreadsheet grid container */}
-      <div className="hidden lg:block overflow-x-auto w-full max-w-full relative scrollbar-thin max-h-[580px]" id="excel-grid-viewport">
+      <div className="hidden lg:block overflow-x-auto w-full max-w-full relative scrollbar-thin min-h-[480px] max-h-[580px]" id="excel-grid-viewport">
         <table className="w-full text-left border-collapse table-fixed select-text">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[11px] font-bold tracking-wider text-center h-11 uppercase sticky top-0 z-10 shadow-xs">
@@ -837,58 +1237,282 @@ export default function ExcelTable({
               </th>
 
               <th className="w-24 text-left px-3 border-r border-slate-200 bg-slate-50 font-bold sticky left-16 z-20">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between relative">
                   <span>EMP ID</span>
-                  <button onClick={() => triggerSort('id')} className="cursor-pointer text-slate-400 hover:text-slate-650 transition-colors">
-                    <ArrowUpDown size={11} />
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveFilterDropdown(activeFilterDropdown === 'id' ? null : 'id');
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`cursor-pointer p-0.5 rounded transition-colors ${
+                      isIdFiltered ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-slate-400 hover:text-slate-650 hover:bg-slate-100'
+                    }`}
+                    title="Filter / Sort"
+                  >
+                    <Filter size={11} />
                   </button>
+                  {activeFilterDropdown === 'id' && (
+                    <ExcelColumnFilterDropdown
+                      columnKey="id"
+                      displayName="EMP ID"
+                      employees={employees}
+                      filterOpts={filterOpts}
+                      setFilterOpts={setFilterOpts}
+                      columnFilters={columnFilters}
+                      setColumnFilters={setColumnFilters}
+                      onClose={() => setActiveFilterDropdown(null)}
+                    />
+                  )}
                 </div>
               </th>
 
               <th className="w-48 text-left px-3 border-r border-slate-200 bg-slate-50 font-bold sticky left-40 z-20">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between relative">
                   <span>Employee Name</span>
-                  <button onClick={() => triggerSort('name')} className="cursor-pointer text-slate-400 hover:text-slate-650 transition-colors">
-                    <ArrowUpDown size={11} />
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveFilterDropdown(activeFilterDropdown === 'name' ? null : 'name');
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`cursor-pointer p-0.5 rounded transition-colors ${
+                      isNameFiltered ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-slate-400 hover:text-slate-650 hover:bg-slate-100'
+                    }`}
+                    title="Filter / Sort"
+                  >
+                    <Filter size={11} />
                   </button>
+                  {activeFilterDropdown === 'name' && (
+                    <ExcelColumnFilterDropdown
+                      columnKey="name"
+                      displayName="Employee Name"
+                      employees={employees}
+                      filterOpts={filterOpts}
+                      setFilterOpts={setFilterOpts}
+                      columnFilters={columnFilters}
+                      setColumnFilters={setColumnFilters}
+                      onClose={() => setActiveFilterDropdown(null)}
+                    />
+                  )}
                 </div>
               </th>
 
               <th className="w-40 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 text-[11px]">
-                <div className="flex items-center justify-between px-1">
+                <div className="flex items-center justify-between px-1 relative">
                   <span>Contractor</span>
-                  <button onClick={() => triggerSort('contractor')} className="cursor-pointer text-slate-400 hover:text-slate-650 transition-colors">
-                    <ArrowUpDown size={11} />
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveFilterDropdown(activeFilterDropdown === 'contractor' ? null : 'contractor');
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`cursor-pointer p-0.5 rounded transition-colors ${
+                      isContractorFiltered ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-slate-400 hover:text-slate-650 hover:bg-slate-100'
+                    }`}
+                    title="Filter / Sort"
+                  >
+                    <Filter size={11} />
                   </button>
+                  {activeFilterDropdown === 'contractor' && (
+                    <ExcelColumnFilterDropdown
+                      columnKey="contractor"
+                      displayName="Contractor"
+                      employees={employees}
+                      filterOpts={filterOpts}
+                      setFilterOpts={setFilterOpts}
+                      columnFilters={columnFilters}
+                      setColumnFilters={setColumnFilters}
+                      onClose={() => setActiveFilterDropdown(null)}
+                    />
+                  )}
                 </div>
               </th>
 
               <th className="w-36 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 text-[11px]">
-                Department
+                <div className="flex items-center justify-between px-1 relative">
+                  <span>Department</span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveFilterDropdown(activeFilterDropdown === 'department' ? null : 'department');
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`cursor-pointer p-0.5 rounded transition-colors ${
+                      isDepartmentFiltered ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-slate-400 hover:text-slate-650 hover:bg-slate-100'
+                    }`}
+                    title="Filter / Sort"
+                  >
+                    <Filter size={11} />
+                  </button>
+                  {activeFilterDropdown === 'department' && (
+                    <ExcelColumnFilterDropdown
+                      columnKey="department"
+                      displayName="Department"
+                      employees={employees}
+                      filterOpts={filterOpts}
+                      setFilterOpts={setFilterOpts}
+                      columnFilters={columnFilters}
+                      setColumnFilters={setColumnFilters}
+                      onClose={() => setActiveFilterDropdown(null)}
+                    />
+                  )}
+                </div>
               </th>
 
               <th className="w-36 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 text-[11px]">
-                Designation
+                <div className="flex items-center justify-between px-1 relative">
+                  <span>Designation</span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveFilterDropdown(activeFilterDropdown === 'designation' ? null : 'designation');
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`cursor-pointer p-0.5 rounded transition-colors ${
+                      isDesignationFiltered ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-slate-400 hover:text-slate-650 hover:bg-slate-100'
+                    }`}
+                    title="Filter / Sort"
+                  >
+                    <Filter size={11} />
+                  </button>
+                  {activeFilterDropdown === 'designation' && (
+                    <ExcelColumnFilterDropdown
+                      columnKey="designation"
+                      displayName="Designation"
+                      employees={employees}
+                      filterOpts={filterOpts}
+                      setFilterOpts={setFilterOpts}
+                      columnFilters={columnFilters}
+                      setColumnFilters={setColumnFilters}
+                      onClose={() => setActiveFilterDropdown(null)}
+                    />
+                  )}
+                </div>
               </th>
 
               <th className="w-32 px-2 border-r border-slate-200 bg-blue-50/50 font-bold text-blue-850 text-[11px] leading-tight">
-                Sunday Paid?
+                <div className="flex items-center justify-between px-1 relative">
+                  <span>Sunday Paid?</span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveFilterDropdown(activeFilterDropdown === 'sundayPaid' ? null : 'sundayPaid');
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`cursor-pointer p-0.5 rounded transition-colors ${
+                      isSundayPaidFiltered ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-slate-400 hover:text-slate-650 hover:bg-slate-100'
+                    }`}
+                    title="Filter / Sort"
+                  >
+                    <Filter size={11} />
+                  </button>
+                  {activeFilterDropdown === 'sundayPaid' && (
+                    <ExcelColumnFilterDropdown
+                      columnKey="sundayPaid"
+                      displayName="Sunday Paid"
+                      employees={employees}
+                      filterOpts={filterOpts}
+                      setFilterOpts={setFilterOpts}
+                      columnFilters={columnFilters}
+                      setColumnFilters={setColumnFilters}
+                      onClose={() => setActiveFilterDropdown(null)}
+                    />
+                  )}
+                </div>
               </th>
 
               <th className="w-28 px-2 border-r border-slate-200 bg-amber-50/40 font-bold text-amber-850 text-[11px]">
-                Shift
+                <div className="flex items-center justify-between px-1 relative">
+                  <span>Shift</span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveFilterDropdown(activeFilterDropdown === 'shift' ? null : 'shift');
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`cursor-pointer p-0.5 rounded transition-colors ${
+                      isShiftFiltered ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-slate-400 hover:text-slate-650 hover:bg-slate-100'
+                    }`}
+                    title="Filter / Sort"
+                  >
+                    <Filter size={11} />
+                  </button>
+                  {activeFilterDropdown === 'shift' && (
+                    <ExcelColumnFilterDropdown
+                      columnKey="shift"
+                      displayName="Shift"
+                      employees={employees}
+                      filterOpts={filterOpts}
+                      setFilterOpts={setFilterOpts}
+                      columnFilters={columnFilters}
+                      setColumnFilters={setColumnFilters}
+                      onClose={() => setActiveFilterDropdown(null)}
+                    />
+                  )}
+                </div>
               </th>
 
               <th className="w-[110px] px-2 border-r border-slate-200 bg-indigo-50/40 font-bold text-indigo-800 text-[11px] leading-tight">
-                Basis
+                <div className="flex items-center justify-between px-1 relative">
+                  <span>Basis</span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveFilterDropdown(activeFilterDropdown === 'salaryType' ? null : 'salaryType');
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`cursor-pointer p-0.5 rounded transition-colors ${
+                      isSalaryTypeFiltered ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-indigo-400 hover:text-indigo-650 hover:bg-indigo-100/50'
+                    }`}
+                    title="Filter / Sort"
+                  >
+                    <Filter size={11} />
+                  </button>
+                  {activeFilterDropdown === 'salaryType' && (
+                    <ExcelColumnFilterDropdown
+                      columnKey="salaryType"
+                      displayName="Basis"
+                      employees={employees}
+                      filterOpts={filterOpts}
+                      setFilterOpts={setFilterOpts}
+                      columnFilters={columnFilters}
+                      setColumnFilters={setColumnFilters}
+                      onClose={() => setActiveFilterDropdown(null)}
+                    />
+                  )}
+                </div>
               </th>
 
               <th className="w-40 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500">
-                <div className="flex items-center justify-between px-1">
+                <div className="flex items-center justify-between px-1 relative">
                   <span>Salary / Rate (₹)</span>
-                  <button onClick={() => triggerSort('salary')} className="cursor-pointer text-slate-400 hover:text-slate-650 transition-colors">
-                    <ArrowUpDown size={11} />
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveFilterDropdown(activeFilterDropdown === 'monthlySalary' ? null : 'monthlySalary');
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`cursor-pointer p-0.5 rounded transition-colors ${
+                      isMonthlySalaryFiltered ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-slate-400 hover:text-slate-650 hover:bg-slate-100'
+                    }`}
+                    title="Filter / Sort"
+                  >
+                    <Filter size={11} />
                   </button>
+                  {activeFilterDropdown === 'monthlySalary' && (
+                    <ExcelColumnFilterDropdown
+                      columnKey="monthlySalary"
+                      displayName="Salary / Rate"
+                      employees={employees}
+                      filterOpts={filterOpts}
+                      setFilterOpts={setFilterOpts}
+                      columnFilters={columnFilters}
+                      setColumnFilters={setColumnFilters}
+                      onClose={() => setActiveFilterDropdown(null)}
+                      align="right"
+                    />
+                  )}
                 </div>
               </th>
 

@@ -70,7 +70,7 @@ export interface FilterOptions {
   maxSalary: string;
   hasAbsenceOnly: boolean;
   highDeductionsOnly: boolean;
-  sortBy: 'id' | 'name' | 'salary' | 'deduction' | 'finalPay' | 'contractor';
+  sortBy: 'id' | 'name' | 'salary' | 'deduction' | 'finalPay' | 'contractor' | 'department' | 'designation' | 'sundayPaid' | 'shift' | 'salaryType' | 'monthlySalary';
   sortOrder: 'asc' | 'desc';
 }
 
