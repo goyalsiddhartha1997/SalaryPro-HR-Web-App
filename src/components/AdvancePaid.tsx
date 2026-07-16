@@ -137,6 +137,21 @@ export default function AdvancePaid({
   });
   const [isExporting, setIsExporting] = useState<boolean>(false);
 
+  // --- STATE FOR ADVANCE DATE RANGE EXPORT ---
+  const [showAdvanceExportModal, setShowAdvanceExportModal] = useState<boolean>(false);
+  const [advanceExportStartDate, setAdvanceExportStartDate] = useState<string>(() => {
+    const now = new Date();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    return `${now.getFullYear()}-${mm}-01`;
+  });
+  const [advanceExportEndDate, setAdvanceExportEndDate] = useState<string>(() => {
+    const now = new Date();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    return `${now.getFullYear()}-${mm}-${dd}`;
+  });
+  const [isAdvanceExporting, setIsAdvanceExporting] = useState<boolean>(false);
+
   // Keep filters in sync with selected months
   React.useEffect(() => {
     setAdvFilterMonth(selectedMonth);
@@ -1014,6 +1029,159 @@ export default function AdvancePaid({
     }
   };
 
+  // Generate Excel report for selected date range for Employee Advances
+  const handleExportAdvancesData = async () => {
+    if (!advanceExportStartDate || !advanceExportEndDate) {
+      triggerAlert('warn', 'Please select both start and end dates.');
+      return;
+    }
+    if (advanceExportStartDate > advanceExportEndDate) {
+      triggerAlert('warn', 'Start date cannot be after end date.');
+      return;
+    }
+
+    setIsAdvanceExporting(true);
+    try {
+      // 1. Gather all advances across all months and all employees
+      const list: { id: string; employeeId: string; name: string; amount: number; monthYear: string; remarks?: string; date?: string }[] = [];
+      employees.forEach(emp => {
+        if (!emp.id || emp.id.toUpperCase().startsWith('EMP_TEMP_')) return;
+        
+        const empOverrides = allMonthlyOverrides[emp.id];
+        if (empOverrides) {
+          Object.entries(empOverrides).forEach(([mYearStr, override]) => {
+            if (override.advances && Array.isArray(override.advances) && override.advances.length > 0) {
+              override.advances.forEach((adv: any) => {
+                list.push({
+                  id: adv.id,
+                  employeeId: emp.id,
+                  name: emp.name || `Employee ${emp.id}`,
+                  amount: adv.amount,
+                  monthYear: mYearStr,
+                  remarks: adv.remarks || '',
+                  date: adv.date || ''
+                });
+              });
+            } else if (override.advancePayment !== undefined && override.advancePayment > 0) {
+              list.push({
+                id: 'legacy',
+                employeeId: emp.id,
+                name: emp.name || `Employee ${emp.id}`,
+                amount: override.advancePayment,
+                monthYear: mYearStr,
+                remarks: override.advanceRemarks || '',
+                date: override.advanceDate || ''
+              });
+            }
+          });
+        }
+      });
+
+      // 2. Filter advances within selected date range
+      const filteredAdvances = list.filter(adv => {
+        if (!adv.date) return false;
+        const iso = getBillISODateStr(adv.date);
+        return iso && iso >= advanceExportStartDate && iso <= advanceExportEndDate;
+      });
+
+      if (filteredAdvances.length === 0) {
+        triggerAlert('info', 'No advance records found within the selected date range.');
+        setIsAdvanceExporting(false);
+        return;
+      }
+
+      // 3. Sort chronologically
+      const getTimestamp = (dateStr?: string) => {
+        if (!dateStr) return 0;
+        const parsed = parseDateString(dateStr);
+        if (parsed) {
+          return new Date(parsed.y, parsed.mIdx, parsed.d).getTime();
+        }
+        const t = Date.parse(dateStr);
+        return isNaN(t) ? 0 : t;
+      };
+
+      const sortedFilteredAdvances = filteredAdvances.sort((a, b) => {
+        const comp = getTimestamp(a.date) - getTimestamp(b.date);
+        if (comp !== 0) return comp;
+        
+        const idA = parseInt(a.employeeId, 10);
+        const idB = parseInt(b.employeeId, 10);
+        if (isNaN(idA) && isNaN(idB)) return a.employeeId.localeCompare(b.employeeId);
+        if (isNaN(idA)) return 1;
+        if (isNaN(idB)) return -1;
+        return idA - idB;
+      });
+
+      // 4. Build report rows
+      const reportHeaders = [
+        [`EMPLOYEE ADVANCES REPORT`],
+        [`Selected Period: ${advanceExportStartDate} to ${advanceExportEndDate}`],
+        [`Generated On: ${new Date().toLocaleString()}`],
+        [], // spacing row
+        [
+          'Record Date',
+          'Employee Code',
+          'Employee Name',
+          'Remarks',
+          'Advance Amount (₹)'
+        ]
+      ];
+
+      const itemRows = sortedFilteredAdvances.map(adv => {
+        return [
+          adv.date || '-',
+          adv.employeeId,
+          adv.name,
+          adv.remarks || '-',
+          adv.amount
+        ];
+      });
+
+      const totalAmountAll = itemRows.reduce((sum, r) => sum + (r[4] as number), 0);
+      const totalsRow = [
+        'TOTALS',
+        '',
+        '',
+        '',
+        totalAmountAll
+      ];
+
+      const finalRows = [
+        ...reportHeaders,
+        ...itemRows,
+        [], // spacing row
+        totalsRow
+      ];
+
+      // 5. Generate workbook and save
+      const worksheet = XLSX.utils.aoa_to_sheet(finalRows);
+      
+      // Auto columns sizing
+      worksheet['!cols'] = [
+        { wch: 18 }, // Record Date
+        { wch: 15 }, // Employee Code
+        { wch: 25 }, // Employee Name
+        { wch: 35 }, // Remarks
+        { wch: 20 }  // Advance Amount (₹)
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Advances Report');
+      
+      const fileName = `Employee_Advances_${advanceExportStartDate}_to_${advanceExportEndDate}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+
+      triggerAlert('success', `Exported advances report to "${fileName}" successfully.`);
+      setShowAdvanceExportModal(false);
+    } catch (err) {
+      console.error("Error during Advances Excel export:", err);
+      triggerAlert('warn', 'Failed to generate Advances Excel export. Check console log.');
+    } finally {
+      setIsAdvanceExporting(false);
+    }
+  };
+
   return (
     <div className="w-full flex flex-col font-sans text-slate-700 animate-fade-in pb-10" id="advances-food-bill-panel">
       
@@ -1322,9 +1490,20 @@ export default function AdvancePaid({
                   Recorded Advances for {selectedMonth === -1 ? 'All Months' : months[selectedMonth]} {selectedYear}
                 </h4>
               </div>
-              <span className="text-[10px] font-black text-slate-400 uppercase font-mono bg-slate-100 px-2.5 py-0.5 rounded-lg">
-                {filteredRecordedDisbursals.length} logged
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanceExportModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 hover:border-emerald-300 text-emerald-700 hover:text-emerald-800 rounded-xl text-[10px] font-black uppercase transition-all cursor-pointer"
+                  title="Export date range to Excel"
+                >
+                  <FileSpreadsheet size={13} />
+                  Export Range
+                </button>
+                <span className="text-[10px] font-black text-slate-400 uppercase font-mono bg-slate-100 px-2.5 py-0.5 rounded-lg">
+                  {filteredRecordedDisbursals.length} logged
+                </span>
+              </div>
             </div>
 
             {/* Day, Month, Search filters similar to Overtime Logs */}
@@ -2054,6 +2233,71 @@ export default function AdvancePaid({
                 className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 text-white rounded-xl font-black text-xs tracking-wider uppercase shadow-md shadow-emerald-600/10 transition-all cursor-pointer inline-flex items-center gap-1.5"
               >
                 {isExporting ? 'Generating...' : 'Export Spreadsheet'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📊 Advances Excel Export Modal */}
+      {showAdvanceExportModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in" id="advances-export-modal">
+          <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xl w-full max-w-md animate-scale-up select-none">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <FileSpreadsheet size={18} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black uppercase text-slate-800 tracking-wider">Export Advances</h4>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Select date range for Excel report</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdvanceExportModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block mb-1 text-[10px] font-bold text-slate-400 uppercase tracking-widest">From Date</label>
+                <input
+                  type="date"
+                  value={advanceExportStartDate}
+                  onChange={(e) => setAdvanceExportStartDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 focus:bg-white focus:outline-hidden"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-[10px] font-bold text-slate-400 uppercase tracking-widest">To Date</label>
+                <input
+                  type="date"
+                  value={advanceExportEndDate}
+                  onChange={(e) => setAdvanceExportEndDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 focus:bg-white focus:outline-hidden"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowAdvanceExportModal(false)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-xs tracking-wider uppercase transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExportAdvancesData}
+                disabled={isAdvanceExporting}
+                className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 text-white rounded-xl font-black text-xs tracking-wider uppercase shadow-md shadow-emerald-600/10 transition-all cursor-pointer inline-flex items-center gap-1.5"
+              >
+                {isAdvanceExporting ? 'Generating...' : 'Export Spreadsheet'}
               </button>
             </div>
           </div>

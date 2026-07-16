@@ -450,7 +450,7 @@ export default function ExcelTable({
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(15);
+  const [pageSize, setPageSize] = useState(50);
 
   // Bulk overrides state
   const [bulkDays, setBulkDays] = useState(26);
@@ -1228,7 +1228,7 @@ export default function ExcelTable({
       </div>
 
       {/* Spreadsheet grid container */}
-      <div className="hidden lg:block overflow-x-auto w-full max-w-full relative scrollbar-thin min-h-[480px] max-h-[580px]" id="excel-grid-viewport">
+      <div className="hidden lg:block overflow-x-auto w-full max-w-full relative scrollbar-thin min-h-[480px] max-h-[1910px]" id="excel-grid-viewport">
         <table className="w-full text-left border-collapse table-fixed select-text">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[11px] font-bold tracking-wider text-center h-11 uppercase sticky top-0 z-10 shadow-xs">
