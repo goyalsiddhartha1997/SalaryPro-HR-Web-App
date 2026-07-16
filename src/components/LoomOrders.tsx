@@ -75,6 +75,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [subRemarks, setSubRemarks] = useState<string>('');
   const [subItemStatus, setSubItemStatus] = useState<'Pending' | 'Production' | 'Completed'>('Pending');
   const [subNoOfRolls, setSubNoOfRolls] = useState<string>('');
+  const [subLaminationSelection, setSubLaminationSelection] = useState<string>('LAMINATION');
+  const [subLaminationCustom, setSubLaminationCustom] = useState<string>('');
 
   // --- INLINE SUB-ORDER EDIT STATES ---
   const [editingRowIndex, setEditingRowIndex] = useState<number | null>(null);
@@ -88,6 +90,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [inlineRemarks, setInlineRemarks] = useState<string>('');
   const [inlineRowStatus, setInlineRowStatus] = useState<'Pending' | 'Production' | 'Completed'>('Pending');
   const [inlineNoOfRolls, setInlineNoOfRolls] = useState<string>('');
+  const [inlineLaminationSelection, setInlineLaminationSelection] = useState<string>('LAMINATION');
+  const [inlineLaminationCustom, setInlineLaminationCustom] = useState<string>('');
 
   // --- FILTER & SEARCH STATES ---
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -275,13 +279,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         ["PP FABRIC MANUFACTURING SPECIFICATIONS SHEET"],
         ["Order Reference:", modalOrder.orderNo, "", "Logged Date:", modalOrder.date, "", "Overall Status:", modalOrder.status],
         [], // empty spacer row
-        ["#", "Weave Quality", "Size / Width", "GSM", "Denier", "Fabric Weight (g)", "Target (Tons)", "Completed (Tons)", "Status", "Remarks"]
+        ["#", "Weave Quality", "Lamination Type", "Size / Width", "GSM", "Denier", "Fabric Weight (g)", "Target (Tons)", "Completed (Tons)", "Status", "Remarks"]
       ];
 
       // 2. Prepare items rows
       const itemRows = sortedModalRows.map(({ row }, idx) => [
         idx + 1,
         row.quality || '',
+        (row.laminationType || 'NON-LAMINATION').toUpperCase(),
         row.size || '',
         row.gsm || 0,
         row.denier || 0,
@@ -304,6 +309,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       worksheet['!cols'] = [
         { wch: 6 },  // #
         { wch: 25 }, // Quality
+        { wch: 18 }, // Lamination Type
         { wch: 15 }, // Size
         { wch: 10 }, // GSM
         { wch: 10 }, // Denier
@@ -414,6 +420,17 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       rollsVal = parsed;
     }
 
+    const finalLaminationType = (
+      subLaminationSelection === 'other' 
+        ? subLaminationCustom.trim() 
+        : subLaminationSelection
+    ).toUpperCase();
+
+    if (subLaminationSelection === 'other' && !subLaminationCustom.trim()) {
+      triggerAlert('warn', 'Please specify the custom lamination type.');
+      return;
+    }
+
     const newSubOrder: LoomOrderRow = {
       size: subSize.trim(),
       quality: subQuality.trim(),
@@ -424,7 +441,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       productionCompleted: 0,
       remarks: subRemarks.trim(),
       status: subItemStatus,
-      noOfRolls: rollsVal
+      noOfRolls: rollsVal,
+      laminationType: finalLaminationType
     };
 
     const updatedRows = [...targetOrder.rows, newSubOrder];
@@ -448,6 +466,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       setSubRemarks('');
       setSubItemStatus('Pending');
       setSubNoOfRolls('');
+      setSubLaminationSelection('LAMINATION');
+      setSubLaminationCustom('');
     } catch (err) {
       console.error("Failed to save sub-order", err);
       triggerAlert('warn', 'Failed to append sub-order item.');
@@ -467,6 +487,21 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     setInlineRemarks(row.remarks || '');
     setInlineRowStatus(row.status || 'Pending');
     setInlineNoOfRolls(row.noOfRolls !== undefined ? String(row.noOfRolls) : '');
+    
+    const normalizedLaminationType = (row.laminationType || 'NON-LAMINATION').toUpperCase();
+    if (normalizedLaminationType === 'LAMINATION' || normalizedLaminationType === 'LAMINATED') {
+      setInlineLaminationSelection('LAMINATION');
+      setInlineLaminationCustom('');
+    } else if (normalizedLaminationType === 'NON-LAMINATION' || normalizedLaminationType === 'NON-LAMINATED') {
+      setInlineLaminationSelection('NON-LAMINATION');
+      setInlineLaminationCustom('');
+    } else if (row.laminationType) {
+      setInlineLaminationSelection('other');
+      setInlineLaminationCustom(row.laminationType.toUpperCase());
+    } else {
+      setInlineLaminationSelection('NON-LAMINATION');
+      setInlineLaminationCustom('');
+    }
   };
 
   // Save changes to single sub-order item
@@ -508,6 +543,17 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       rollsVal = parsed;
     }
 
+    const finalInlineLaminationType = (
+      inlineLaminationSelection === 'other'
+        ? inlineLaminationCustom.trim()
+        : inlineLaminationSelection
+    ).toUpperCase();
+
+    if (inlineLaminationSelection === 'other' && !inlineLaminationCustom.trim()) {
+      triggerAlert('warn', 'Please specify the custom lamination type.');
+      return;
+    }
+
     const updatedRows = [...targetOrder.rows];
     updatedRows[index] = {
       size: inlineSize.trim(),
@@ -519,7 +565,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       productionCompleted: completedQtyVal,
       remarks: inlineRemarks.trim(),
       status: inlineRowStatus,
-      noOfRolls: rollsVal
+      noOfRolls: rollsVal,
+      laminationType: finalInlineLaminationType
     };
 
     try {
@@ -1163,7 +1210,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           }}
         >
           <div 
-            className="bg-white rounded-3xl shadow-2xl border border-zinc-200 w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col animate-scale-up"
+            className="bg-white rounded-3xl shadow-2xl border border-zinc-200 w-full max-w-[1380px] max-h-[90vh] overflow-hidden flex flex-col animate-scale-up"
             onClick={(e) => e.stopPropagation()}
           >
             
@@ -1377,6 +1424,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           <tr className="bg-zinc-50/80 text-zinc-500 border-b border-zinc-200">
                             <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[40px]">#</th>
                             <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[140px]">Weave Quality</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[130px]">Lamination Type</th>
                             <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[100px]">Size</th>
                             <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[70px]">GSM</th>
                             <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[75px]">Denier</th>
@@ -1409,6 +1457,29 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       onChange={(e) => setInlineQuality(e.target.value)}
                                       className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs font-extrabold text-zinc-800"
                                     />
+                                  </td>
+
+                                  {/* Lamination Input */}
+                                  <td className="py-2 px-1.5">
+                                    <select
+                                      value={inlineLaminationSelection}
+                                      onChange={(e) => setInlineLaminationSelection(e.target.value)}
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs font-bold text-zinc-700 cursor-pointer"
+                                    >
+                                      <option value="LAMINATION">LAMINATION</option>
+                                      <option value="NON-LAMINATION">NON-LAMINATION</option>
+                                      <option value="other">OTHER (CUSTOM...)</option>
+                                    </select>
+                                    {inlineLaminationSelection === 'other' && (
+                                      <input
+                                        type="text"
+                                        value={inlineLaminationCustom}
+                                        onChange={(e) => setInlineLaminationCustom(e.target.value.toUpperCase())}
+                                        placeholder="SPECIFY CUSTOM..."
+                                        className="w-full mt-1 bg-white border border-zinc-300 rounded-lg px-2 py-0.5 text-xs text-zinc-800 uppercase"
+                                        required
+                                      />
+                                    )}
                                   </td>
 
                                   {/* Size Input */}
@@ -1560,6 +1631,18 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 </td>
 
                                 <td className="py-3 px-3 font-semibold text-zinc-700 text-xs">
+                                  <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                                    (row.laminationType || 'NON-LAMINATION').toUpperCase() === 'LAMINATION' || (row.laminationType || 'NON-LAMINATION').toUpperCase() === 'LAMINATED'
+                                      ? 'bg-amber-50 text-amber-800 border border-amber-200' 
+                                      : (row.laminationType || 'NON-LAMINATION').toUpperCase() === 'NON-LAMINATION' || (row.laminationType || 'NON-LAMINATION').toUpperCase() === 'NON-LAMINATED'
+                                        ? 'bg-zinc-100 text-zinc-850 border border-zinc-200' 
+                                        : 'bg-sky-50 text-sky-800 border border-sky-200'
+                                  }`}>
+                                    {(row.laminationType || 'NON-LAMINATION').toUpperCase()}
+                                  </span>
+                                </td>
+
+                                <td className="py-3 px-3 font-semibold text-zinc-700 text-xs">
                                   {row.size}
                                 </td>
 
@@ -1698,6 +1781,28 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                   />
                                 </div>
                                 <div>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Lamination Type</label>
+                                  <select
+                                    value={inlineLaminationSelection}
+                                    onChange={(e) => setInlineLaminationSelection(e.target.value)}
+                                    className="w-full bg-white border border-zinc-350 rounded-lg px-2.5 py-1.5 text-xs font-bold"
+                                  >
+                                    <option value="LAMINATION">LAMINATION</option>
+                                    <option value="NON-LAMINATION">NON-LAMINATION</option>
+                                    <option value="other">OTHER (CUSTOM...)</option>
+                                  </select>
+                                  {inlineLaminationSelection === 'other' && (
+                                    <input
+                                      type="text"
+                                      value={inlineLaminationCustom}
+                                      onChange={(e) => setInlineLaminationCustom(e.target.value.toUpperCase())}
+                                      placeholder="SPECIFY CUSTOM..."
+                                      className="w-full mt-1 bg-white border border-zinc-350 rounded-lg px-2.5 py-1 text-xs uppercase"
+                                      required
+                                    />
+                                  )}
+                                </div>
+                                <div>
                                   <label className="text-[8px] font-black text-zinc-500 uppercase">Size</label>
                                   <input
                                     type="text"
@@ -1822,10 +1927,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               </span>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="grid grid-cols-3 gap-2 text-xs">
                               <div>
                                 <span className="text-[8px] font-black text-zinc-400 uppercase tracking-wider block">Quality</span>
                                 <span className="font-bold text-zinc-900 uppercase block mt-0.5">{row.quality}</span>
+                              </div>
+                              <div>
+                                <span className="text-[8px] font-black text-zinc-400 uppercase tracking-wider block">Lamination</span>
+                                <span className="font-semibold text-zinc-700 block mt-0.5 uppercase">{(row.laminationType || 'NON-LAMINATION').toUpperCase()}</span>
                               </div>
                               <div>
                                 <span className="text-[8px] font-black text-zinc-400 uppercase tracking-wider block">Size / Width</span>
@@ -1933,17 +2042,39 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 </div>
 
                 <form onSubmit={(e) => handleAddSubOrder(e, modalOrder)} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                     <div>
                       <label className="text-[8.5px] font-black text-zinc-500 uppercase tracking-wider block mb-1">Weave Quality / Mix <span className="text-amber-600">*</span></label>
                       <input
                         type="text"
                         value={subQuality}
                         onChange={(e) => setSubQuality(e.target.value)}
-                        placeholder="e.g. Milky White / Laminated"
+                        placeholder="e.g. Milky White"
                         className="w-full bg-white border border-zinc-300 rounded-xl py-1.5 px-3 text-xs font-bold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
                         required
                       />
+                    </div>
+                    <div>
+                      <label className="text-[8.5px] font-black text-zinc-500 uppercase tracking-wider block mb-1">Lamination Type <span className="text-amber-600">*</span></label>
+                      <select
+                        value={subLaminationSelection}
+                        onChange={(e) => setSubLaminationSelection(e.target.value)}
+                        className="w-full bg-white border border-zinc-300 rounded-xl py-1.5 px-2 text-xs font-black text-zinc-700 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                      >
+                        <option value="LAMINATION">✨ LAMINATION</option>
+                        <option value="NON-LAMINATION">🚫 NON-LAMINATION</option>
+                        <option value="other">✍️ OTHER (CUSTOM...)</option>
+                      </select>
+                      {subLaminationSelection === 'other' && (
+                        <input
+                          type="text"
+                          value={subLaminationCustom}
+                          onChange={(e) => setSubLaminationCustom(e.target.value.toUpperCase())}
+                          placeholder="SPECIFY CUSTOM LAMINATION..."
+                          className="w-full mt-1.5 bg-white border border-zinc-300 rounded-xl py-1 px-2.5 text-xs font-bold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500 uppercase"
+                          required
+                        />
+                      )}
                     </div>
                     <div>
                       <label className="text-[8.5px] font-black text-zinc-500 uppercase tracking-wider block mb-1">Size / Width <span className="text-amber-600">*</span></label>

@@ -92,6 +92,7 @@ export interface LoomOrderRow {
   productionCompleted?: number;
   status?: 'Pending' | 'Production' | 'Completed';
   noOfRolls?: number;
+  laminationType?: string;
 }
 
 export interface LoomOrder {
