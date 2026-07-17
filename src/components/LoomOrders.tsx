@@ -395,18 +395,37 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       return;
     }
 
-    if (!subSize.trim() || !subQuality.trim()) {
-      triggerAlert('warn', 'Size and Quality specifications are required.');
+    if (!subQuality.trim()) {
+      triggerAlert('warn', 'Weave Quality / Mix is required.');
+      return;
+    }
+
+    if (!subSize.trim()) {
+      triggerAlert('warn', 'Size / Width specification is required.');
       return;
     }
 
     const gsmVal = parseFloat(subGsm);
-    const denierVal = parseFloat(subDenier);
-    const fabricWeightVal = parseFloat(subFabricWeight);
-    const totalQtyVal = parseFloat(subTotalQuantity);
+    if (isNaN(gsmVal) || gsmVal <= 0) {
+      triggerAlert('warn', 'GSM must be a valid positive number.');
+      return;
+    }
 
-    if (isNaN(gsmVal) || gsmVal <= 0 || isNaN(denierVal) || denierVal <= 0 || isNaN(fabricWeightVal) || fabricWeightVal <= 0 || isNaN(totalQtyVal) || totalQtyVal <= 0) {
-      triggerAlert('warn', 'GSM, Denier, Fabric Weight and Tonnage Target must be valid positive numbers.');
+    const denierVal = parseFloat(subDenier);
+    if (isNaN(denierVal) || denierVal <= 0) {
+      triggerAlert('warn', 'Denier must be a valid positive number.');
+      return;
+    }
+
+    const fabricWeightVal = parseFloat(subFabricWeight);
+    if (isNaN(fabricWeightVal) || fabricWeightVal <= 0) {
+      triggerAlert('warn', 'Fabric Weight must be a valid positive number.');
+      return;
+    }
+
+    const totalQtyVal = parseFloat(subTotalQuantity);
+    if (isNaN(totalQtyVal) || totalQtyVal <= 0) {
+      triggerAlert('warn', 'Target (Tons) must be a valid positive number.');
       return;
     }
 
@@ -441,11 +460,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       productionCompleted: 0,
       remarks: subRemarks.trim(),
       status: subItemStatus,
-      noOfRolls: rollsVal,
       laminationType: finalLaminationType
     };
 
-    const updatedRows = [...targetOrder.rows, newSubOrder];
+    if (rollsVal !== undefined) {
+      newSubOrder.noOfRolls = rollsVal;
+    }
+
+    const updatedRows = [...(targetOrder.rows || []), newSubOrder];
 
     try {
       const orderRef = doc(db, 'loomOrders', targetOrder.id);
@@ -555,7 +577,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     }
 
     const updatedRows = [...targetOrder.rows];
-    updatedRows[index] = {
+    const editedRow: LoomOrderRow = {
       size: inlineSize.trim(),
       quality: inlineQuality.trim(),
       gsm: gsmVal,
@@ -565,9 +587,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       productionCompleted: completedQtyVal,
       remarks: inlineRemarks.trim(),
       status: inlineRowStatus,
-      noOfRolls: rollsVal,
       laminationType: finalInlineLaminationType
     };
+
+    if (rollsVal !== undefined) {
+      editedRow.noOfRolls = rollsVal;
+    }
+
+    updatedRows[index] = editedRow;
 
     try {
       const orderRef = doc(db, 'loomOrders', targetOrder.id);
@@ -2042,7 +2069,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 </div>
 
                 <form onSubmit={(e) => handleAddSubOrder(e, modalOrder)} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
                       <label className="text-[8.5px] font-black text-zinc-500 uppercase tracking-wider block mb-1">Weave Quality / Mix <span className="text-amber-600">*</span></label>
                       <input
@@ -2051,7 +2078,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                         onChange={(e) => setSubQuality(e.target.value)}
                         placeholder="e.g. Milky White"
                         className="w-full bg-white border border-zinc-300 rounded-xl py-1.5 px-3 text-xs font-bold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
-                        required
                       />
                     </div>
                     <div>
@@ -2072,7 +2098,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           onChange={(e) => setSubLaminationCustom(e.target.value.toUpperCase())}
                           placeholder="SPECIFY CUSTOM LAMINATION..."
                           className="w-full mt-1.5 bg-white border border-zinc-300 rounded-xl py-1 px-2.5 text-xs font-bold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500 uppercase"
-                          required
                         />
                       )}
                     </div>
@@ -2084,7 +2109,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                         onChange={(e) => setSubSize(e.target.value)}
                         placeholder="e.g. 24 inches / 60cm"
                         className="w-full bg-white border border-zinc-300 rounded-xl py-1.5 px-3 text-xs font-bold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
-                        required
                       />
                     </div>
                     <div>
@@ -2099,14 +2123,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                         <option value="Completed">✅ Completed</option>
                       </select>
                     </div>
-                    <div className="flex items-end">
-                      <button
-                        type="submit"
-                        className="w-full bg-zinc-950 hover:bg-zinc-850 text-amber-400 font-black text-xs uppercase tracking-wider py-2 rounded-xl border border-zinc-800 transition-all shadow-3xs flex items-center justify-center gap-1"
-                      >
-                        <Plus size={13} className="stroke-[2.5]" /> Append Sub-order
-                      </button>
-                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 md:grid-cols-6 gap-3 pt-1 border-t border-zinc-200/50">
@@ -2119,7 +2135,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                         onChange={(e) => setSubGsm(e.target.value)}
                         placeholder="e.g. 60"
                         className="w-full bg-white border border-zinc-300 rounded-xl py-1.5 px-2.5 text-xs font-mono font-bold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                        required
                       />
                     </div>
                     <div>
@@ -2131,7 +2146,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                         onChange={(e) => setSubDenier(e.target.value)}
                         placeholder="e.g. 750"
                         className="w-full bg-white border border-zinc-300 rounded-xl py-1.5 px-2.5 text-xs font-mono font-bold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                        required
                       />
                     </div>
                     <div>
@@ -2143,7 +2157,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                         onChange={(e) => setSubFabricWeight(e.target.value)}
                         placeholder="e.g. 52"
                         className="w-full bg-white border border-zinc-300 rounded-xl py-1.5 px-2.5 text-xs font-mono font-bold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                        required
                       />
                     </div>
                     <div>
@@ -2155,7 +2168,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                         onChange={(e) => setSubTotalQuantity(e.target.value)}
                         placeholder="e.g. 2.40"
                         className="w-full bg-white border border-zinc-300 rounded-xl py-1.5 px-2.5 text-xs font-mono font-bold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                        required
                       />
                     </div>
                     <div>
@@ -2194,6 +2206,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                         className="w-full bg-white border border-zinc-300 rounded-xl py-1.5 px-2.5 text-xs text-zinc-700 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       />
                     </div>
+                  </div>
+
+                  <div className="flex justify-end pt-3 border-t border-zinc-200/50">
+                    <button
+                      type="submit"
+                      className="w-full md:w-auto md:px-8 bg-zinc-950 hover:bg-zinc-850 active:scale-95 text-amber-400 font-black text-xs uppercase tracking-wider py-2.5 rounded-xl border border-zinc-800 transition-all shadow-3xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus size={13} className="stroke-[2.5]" /> Append Sub-order
+                    </button>
                   </div>
                 </form>
               </div>
