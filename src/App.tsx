@@ -18,6 +18,7 @@ import LoomOrders from './components/LoomOrders';
 import RawMaterialsInventory from './components/RawMaterialsInventory';
 import LoomProduction from './components/LoomProduction';
 import LoomRunningReport from './components/LoomRunningReport';
+import TapePlantProduction from './components/TapePlantProduction';
 import SearchEmp from './components/SearchEmp';
 import { 
   collection, 
@@ -682,7 +683,7 @@ export default function App() {
   const [isSignUpMode, setIsSignUpMode] = useState(false);
   const [customLoginLoading, setCustomLoginLoading] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'payroll' | 'calendar' | 'attendance' | 'performance' | 'advance' | 'gatepass' | 'overtime' | 'looms' | 'inventory' | 'loom-production' | 'loom-running'>(() => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'payroll' | 'calendar' | 'attendance' | 'performance' | 'advance' | 'gatepass' | 'overtime' | 'looms' | 'inventory' | 'loom-production' | 'loom-running' | 'tape-production'>(() => {
     const email = localStorage.getItem('salarypro_logged_in_email');
     return email === 'hr@fortuneflexipack.com' ? 'gatepass' : 'employees';
   });
@@ -2335,6 +2336,18 @@ export default function App() {
               </button>
             )}
 
+            {/* Tape Plant Production Report Link */}
+            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
+              <button
+                onClick={() => { setActiveTab('tape-production'); setMobileMenuOpen(false); }}
+                className="w-full flex items-center justify-start text-left gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+                style={activeTab === 'tape-production' ? { backgroundColor: 'var(--color-slate-55, #f1f5f9)', color: '#1e293b', fontWeight: 900 } : {}}
+              >
+                <FileSpreadsheet size={16} className={activeTab === 'tape-production' ? 'text-amber-500 font-extrabold' : 'text-slate-400'} />
+                <span className="whitespace-nowrap">Tape Plant Prod Report</span>
+              </button>
+            )}
+
             {/* Raw Materials Stock Inventory Link */}
             {loggedInEmail !== 'hr@fortuneflexipack.com' && (
               <button
@@ -2424,6 +2437,7 @@ export default function App() {
                   {activeTab === 'inventory' && 'Raw Material Stock Inventory'}
                   {activeTab === 'loom-production' && 'Loom Prod Report'}
                   {activeTab === 'loom-running' && 'Loom Running Report'}
+                  {activeTab === 'tape-production' && 'Tape Plant Prod Report'}
                   {activeTab === 'calendar' && 'Search EMP'}
                   {activeTab === 'attendance' && 'Attendance Logs'}
                   {activeTab === 'performance' && 'Evaluation Overviews'}
@@ -2441,7 +2455,8 @@ export default function App() {
                 {activeTab === 'inventory' && 'Granules, fillers, modifiers, reception replenishment, and plant auto-deduction logs'}
                 {activeTab === 'loom-production' && 'Daily metrics, looms, and wastage reports for weaving plant'}
                 {activeTab === 'loom-running' && 'Daily running status tracking ledger, specifications, and handwriting digitisation portal'}
-                {activeTab !== 'employees' && activeTab !== 'payroll' && activeTab !== 'dashboard' && activeTab !== 'calendar' && activeTab !== 'looms' && activeTab !== 'inventory' && activeTab !== 'loom-production' && activeTab !== 'loom-running' && 'HR Portal sandbox and database logs'}
+                {activeTab === 'tape-production' && 'Daily raw materials, lamination, and extrusion line production metrics'}
+                {activeTab !== 'employees' && activeTab !== 'payroll' && activeTab !== 'dashboard' && activeTab !== 'calendar' && activeTab !== 'looms' && activeTab !== 'inventory' && activeTab !== 'loom-production' && activeTab !== 'loom-running' && activeTab !== 'tape-production' && 'HR Portal sandbox and database logs'}
               </p>
             </div>
           </div>
@@ -2927,6 +2942,14 @@ export default function App() {
           {/* ==================== TAB: LOOM RUNNING REPORT ==================== */}
           {activeTab === 'loom-running' && (
             <LoomRunningReport 
+              triggerAlert={triggerAlert}
+              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
+            />
+          )}
+
+          {/* ==================== TAB: TAPE PLANT PRODUCTION REPORT ==================== */}
+          {activeTab === 'tape-production' && (
+            <TapePlantProduction 
               triggerAlert={triggerAlert}
               viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
             />

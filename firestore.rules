@@ -231,5 +231,10 @@ service cloud.firestore {
       allow delete: if isValidId(reportId);
     }
 
+    match /tapePlantProductions/{productionId} {
+      allow read, list: if true;
+      allow create, update, delete: if isValidId(productionId);
+    }
+
   }
 }

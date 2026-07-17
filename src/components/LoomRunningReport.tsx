@@ -337,7 +337,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       gsm: 3.5,
       denier: 600,
       average: 84.0, // 24 * 3.5
-      runningStatus: 'Running'
+      runningStatus: 'Running',
+      remarks: ''
     };
     setPreviewRows([...previewRows, newRow]);
   };
@@ -393,7 +394,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
         ['LOOM RUNNING REPORT LEDGER SUMMARY'],
         [`Export Period: ${filterMode === 'single' ? formatDateLabel(singleDate) : `${formatDateLabel(rangeStartDate)} to ${formatDateLabel(rangeEndDate)}`}`],
         [],
-        ['Report Date', 'Loom Number', 'Quality', 'Size', 'GSM', 'Denier', 'Average (grams)', 'Running Status']
+        ['Report Date', 'Loom Number', 'Quality', 'Size', 'GSM', 'Denier', 'Average (grams)', 'Running Status', 'Remarks']
       ];
 
       filteredReports.forEach((report) => {
@@ -407,7 +408,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
             row.gsm,
             row.denier,
             row.average,
-            row.runningStatus
+            row.runningStatus,
+            row.remarks || ''
           ]);
         });
       });
@@ -423,7 +425,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
         { wch: 10 }, // GSM
         { wch: 10 }, // Denier
         { wch: 15 }, // Average Speed
-        { wch: 15 }  // Status
+        { wch: 15 }, // Status
+        { wch: 25 }  // Remarks
       ];
 
       const workbook = XLSX.utils.book_new();
@@ -797,7 +800,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                             <th className="py-3 px-4 border-r border-slate-800 text-center">GSM</th>
                             <th className="py-3 px-4 border-r border-slate-800 text-center">Denier</th>
                             <th className="py-3 px-4 border-r border-slate-800 text-center">Average Weight</th>
-                            <th className="py-3 px-4 text-center">Running Status</th>
+                            <th className="py-3 px-4 border-r border-slate-800 text-center">Running Status</th>
+                            <th className="py-3 px-4 text-center">Remarks</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-150 text-[12px] md:text-[13px] font-bold text-slate-800">
@@ -821,7 +825,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                               <td className="py-3 px-4 border-r border-slate-150 text-center font-mono">
                                 {row.average} <span className="text-[9px] text-slate-400 font-semibold uppercase">g</span>
                               </td>
-                              <td className="py-3 px-4 text-center">
+                              <td className="py-3 px-4 border-r border-slate-150 text-center">
                                 <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                                   row.runningStatus === 'Running'
                                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-150'
@@ -830,6 +834,9 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                                   <span className={`w-1.5 h-1.5 rounded-full ${row.runningStatus === 'Running' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
                                   {row.runningStatus}
                                 </span>
+                              </td>
+                              <td className="py-3 px-4 text-center text-xs text-slate-600 max-w-[150px] truncate" title={row.remarks || ''}>
+                                {row.remarks || ''}
                               </td>
                             </tr>
                           ))}
@@ -876,6 +883,13 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                               <span className="text-xs font-black text-slate-800 font-mono">{row.average} <span className="text-[9px] text-slate-400 font-semibold uppercase">g</span></span>
                             </div>
                           </div>
+
+                          {row.remarks && (
+                            <div className="pt-2 border-t border-dashed border-slate-150">
+                              <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none mb-1">Remarks</span>
+                              <span className="text-xs font-semibold text-slate-700 block">{row.remarks}</span>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -890,7 +904,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       {/* ==================== MODAL: PHOTO UPLOAD & PREVIEW / ADD ==================== */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in" id="running-add-modal">
-          <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto animate-scale-up select-none">
+          <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xl w-full max-w-7xl max-h-[95vh] overflow-y-auto animate-scale-up select-none">
             
             {/* Modal Header */}
             <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
@@ -1105,7 +1119,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                         </p>
                       </div>
                     ) : (
-                      <div className="flex-1 overflow-x-auto border border-slate-150 rounded-2xl shadow-inner max-h-[350px]">
+                      <div className="flex-1 overflow-x-auto border border-slate-150 rounded-2xl shadow-inner max-h-[600px]">
                         <table className="w-full text-left border-collapse">
                           <thead>
                             <tr className="bg-slate-900 text-slate-100 text-[10px] font-black uppercase tracking-wider border-b border-slate-800">
@@ -1116,6 +1130,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                               <th className="py-2.5 px-3 border-r border-slate-800 text-center">Denier</th>
                               <th className="py-2.5 px-3 border-r border-slate-800 text-center">Average</th>
                               <th className="py-2.5 px-3 border-r border-slate-800 text-center">Status</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center">Remarks</th>
                               <th className="py-2.5 px-3 text-center">Delete</th>
                             </tr>
                           </thead>
@@ -1181,6 +1196,15 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                                     <option value="Running">🟢 Running</option>
                                     <option value="Stopped">🔴 Stopped</option>
                                   </select>
+                                </td>
+                                <td className="py-1.5 px-2.5 border-r border-slate-150 w-40 text-center">
+                                  <input
+                                    type="text"
+                                    value={row.remarks || ''}
+                                    onChange={(e) => handleUpdatePreviewCell(idx, 'remarks', e.target.value)}
+                                    placeholder="Remarks (if any)"
+                                    className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-850 focus:outline-none focus:bg-white text-center font-semibold"
+                                  />
                                 </td>
                                 <td className="py-1.5 px-2.5 text-center w-12">
                                   <button
