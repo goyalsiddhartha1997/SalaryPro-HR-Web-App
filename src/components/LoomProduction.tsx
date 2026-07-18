@@ -42,6 +42,7 @@ interface LoomProductionReport {
   production?: number | null;
   average?: number | null;
   wastage?: number | null;
+  remarks?: string;
   createdAt: string;
 }
 
@@ -65,6 +66,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
   const [loomsVal, setLoomsVal] = useState<string>('');
   const [productionVal, setProductionVal] = useState<string>('');
   const [wastageVal, setWastageVal] = useState<string>('');
+  const [remarksVal, setRemarksVal] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [shiftVal, setShiftVal] = useState<'day' | 'night'>('day');
   const [editingRecord, setEditingRecord] = useState<LoomProductionReport | null>(null);
@@ -77,6 +79,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
     setLoomsVal('');
     setProductionVal('');
     setWastageVal('');
+    setRemarksVal('');
     setEditingRecord(null);
   };
 
@@ -88,6 +91,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
     setLoomsVal(r.looms ? String(r.looms) : '');
     setProductionVal(r.production ? String(r.production) : '');
     setWastageVal(r.wastage ? String(r.wastage) : '');
+    setRemarksVal(r.remarks || '');
     setShowAddModal(true);
   };
 
@@ -234,6 +238,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
         date: entryDate,
         isStopped,
         shift: shiftVal,
+        remarks: remarksVal || '',
         createdAt: editingRecord ? (editingRecord.createdAt || new Date().toISOString()) : new Date().toISOString()
       };
 
@@ -330,7 +335,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
         const shiftLabel = r.shift ? r.shift.toUpperCase() : 'DAY';
 
         if (r.isStopped) {
-          return [displayDate, shiftLabel, 'Stop', 'Stop', 'Stop', 'Stop'];
+          return [displayDate, shiftLabel, 'Stop', 'Stop', 'Stop', 'Stop', r.remarks || ''];
         }
 
         return [
@@ -339,7 +344,8 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
           `${r.looms} looms`,
           `${r.production?.toLocaleString()} M`,
           `${r.average?.toLocaleString()} M`,
-          `${r.wastage} KG`
+          `${r.wastage} KG`,
+          r.remarks || ''
         ];
       });
 
@@ -362,12 +368,12 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
         ['LOOM PRODUCTION REPORT SUMMARY'],
         [`Date Range: ${formatDateLabel(exportStartDate)} to ${formatDateLabel(exportEndDate)}`],
         [], // empty row
-        ['Date', 'Shift', 'Looms', 'Production', 'Average', 'Wastage']
+        ['Date', 'Shift', 'Looms', 'Production', 'Average', 'Wastage', 'Remarks']
       ];
 
       const sheetTotals = [
         [], // empty spacer
-        ['Total', '', `${sumLooms} looms`, `${sumProduction.toLocaleString()} M`, '————', `${sumWastage.toFixed(1)} KG`]
+        ['Total', '', `${sumLooms} looms`, `${sumProduction.toLocaleString()} M`, '————', `${sumWastage.toFixed(1)} KG`, '']
       ];
 
       const finalRows = [
@@ -385,7 +391,8 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
         { wch: 15 }, // Looms
         { wch: 18 }, // Production
         { wch: 15 }, // Average
-        { wch: 15 }  // Wastage
+        { wch: 15 }, // Wastage
+        { wch: 30 }  // Remarks
       ];
 
       const workbook = XLSX.utils.book_new();
@@ -754,6 +761,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
                   <th className="py-4.5 px-6 border-r border-slate-800 text-center">Total Production (M)</th>
                   <th className="py-4.5 px-6 border-r border-slate-800 text-center">Average Production (M)</th>
                   <th className="py-4.5 px-6 border-r border-slate-800 text-center">Wastage (KG)</th>
+                  <th className="py-4.5 px-6 border-r border-slate-800 text-center">Remarks</th>
                   {!viewOnly && <th className="py-4.5 px-6 text-center">Actions</th>}
                 </tr>
               </thead>
@@ -786,24 +794,29 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
                             Weaving Plant Operations Stopped
                           </span>
                         </td>
+                        <td className="py-4 px-6 border-r border-slate-150 text-center font-normal text-slate-500 italic max-w-[180px] truncate" title={r.remarks || ''}>
+                          {r.remarks || '—'}
+                        </td>
                         {!viewOnly && (
-                          <td className="py-4 px-6 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleEditClick(r)}
-                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all cursor-pointer mr-1"
-                              title="Edit Record"
-                            >
-                              <Edit2 size={16} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteEntry(r.id, dateLabel)}
-                              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-100 rounded-xl transition-all cursor-pointer"
-                              title="Delete Record"
-                            >
-                              <Trash2 size={16} />
-                            </button>
+                          <td className="py-4 px-6 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleEditClick(r)}
+                                className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all cursor-pointer"
+                                title="Edit Record"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteEntry(r.id, dateLabel)}
+                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-100 rounded-xl transition-all cursor-pointer"
+                                title="Delete Record"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -846,24 +859,29 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
                           {r.wastage} KG
                         </span>
                       </td>
+                      <td className="py-4 px-6 border-r border-slate-150 text-center font-normal text-slate-500 italic max-w-[180px] truncate" title={r.remarks || ''}>
+                        {r.remarks || '—'}
+                      </td>
                       {!viewOnly && (
-                        <td className="py-4 px-6 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleEditClick(r)}
-                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all cursor-pointer mr-1"
-                            title="Edit Record"
-                          >
-                            <Edit2 size={16} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteEntry(r.id, dateLabel)}
-                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-100 rounded-xl transition-all cursor-pointer"
-                            title="Delete Record"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                        <td className="py-4 px-6 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleEditClick(r)}
+                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all cursor-pointer"
+                              title="Edit Record"
+                            >
+                              <Edit2 size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteEntry(r.id, dateLabel)}
+                              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-100 rounded-xl transition-all cursor-pointer"
+                              title="Delete Record"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -892,6 +910,9 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
                   <td className="py-5 px-6 text-center border-r border-slate-200 font-mono font-black text-amber-800 font-mono">
                     {totals.wastage.toLocaleString()}{' '}
                     <span className="text-[11px] font-black text-slate-400">KG</span>
+                  </td>
+                  <td className="py-5 px-6 text-center border-r border-slate-200 text-slate-400 font-mono tracking-widest font-black">
+                    ————
                   </td>
                   {!viewOnly && <td className="py-5 px-6 bg-slate-200/40"></td>}
                 </tr>
@@ -945,6 +966,13 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
                         <p className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest">Wastage</p>
                         <p className="font-extrabold text-amber-700 font-mono mt-0.5">{r.wastage} KG</p>
                       </div>
+                    </div>
+                  )}
+
+                  {r.remarks && (
+                    <div className="bg-slate-50/50 border border-slate-150 rounded-2xl p-3 text-xs text-slate-600 font-medium italic">
+                      <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block not-italic mb-1">Remarks</span>
+                      {r.remarks}
                     </div>
                   )}
 
@@ -1150,6 +1178,18 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
                   Weaving plant stopped. All columns will be locked with a "Stop" status in the ledger.
                 </div>
               )}
+
+              {/* Remarks optional field */}
+              <div>
+                <label className="block mb-1 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Remarks (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Minor maintenance, power cut, operator shift change"
+                  value={remarksVal}
+                  onChange={(e) => setRemarksVal(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs font-bold text-slate-700 focus:bg-white focus:outline-hidden"
+                />
+              </div>
 
               {/* Action Buttons */}
               <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
