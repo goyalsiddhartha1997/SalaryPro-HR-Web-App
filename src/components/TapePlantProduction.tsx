@@ -62,6 +62,7 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
 
   // --- STATE FOR FILTERS ---
   const [filterMode, setFilterMode] = useState<'month' | 'range' | 'all'>('month');
+  const [filterShift, setFilterShift] = useState<'all' | 'day' | 'night'>('all');
   
   // Month selector states
   const [selectedMonth, setSelectedMonth] = useState<number>(() => new Date().getMonth() + 1); // 1-12
@@ -340,22 +341,26 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
   // --- FILTERED REPORTS DATA ---
   const filteredReports = useMemo(() => {
     return reports.filter(r => {
-      if (filterMode === 'all') {
-        return true;
-      }
-      
+      // Date filtering
+      let dateMatch = true;
       if (filterMode === 'month') {
         const parts = r.date.split('-'); // [YYYY, MM, DD]
         if (parts.length === 3) {
           const rYear = parseInt(parts[0], 10);
           const rMonth = parseInt(parts[1], 10);
-          return rYear === selectedYear && rMonth === selectedMonth;
+          dateMatch = rYear === selectedYear && rMonth === selectedMonth;
+        } else {
+          dateMatch = false;
         }
-        return false;
+      } else if (filterMode === 'range') {
+        dateMatch = r.date >= rangeStartDate && r.date <= rangeEndDate;
       }
 
-      if (filterMode === 'range') {
-        return r.date >= rangeStartDate && r.date <= rangeEndDate;
+      if (!dateMatch) return false;
+
+      // Shift filtering
+      if (filterShift !== 'all') {
+        return (r.shift || 'day') === filterShift;
       }
 
       return true;
@@ -365,7 +370,7 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       if (dateComp !== 0) return dateComp;
       return a.shift.localeCompare(b.shift);
     });
-  }, [reports, filterMode, selectedMonth, selectedYear, rangeStartDate, rangeEndDate]);
+  }, [reports, filterMode, selectedMonth, selectedYear, rangeStartDate, rangeEndDate, filterShift]);
 
   // --- AGGREGATED TOTALS FOR SELECTED VIEW ---
   const totals = useMemo(() => {
@@ -626,54 +631,82 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       </div>
 
       {/* 📊 METRICS HIGHLIGHTS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         
         {/* Metric 1 */}
-        <div className="bg-white border border-slate-150 rounded-3xl p-5 shadow-xs flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-amber-50 flex items-center justify-center text-amber-600 shrink-0">
-            <Package size={22} className="stroke-[2.5]" />
+        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-sky-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+          <div className="flex justify-between items-start relative z-10">
+            <div>
+              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Total Shifts Logged</p>
+              <h3 className="text-2xl font-black text-slate-800 mt-2">
+                {totals.totalShifts ? `${totals.totalShifts.toLocaleString()} Shifts` : '0 Shifts'}
+              </h3>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold">
+              <Package size={18} />
+            </div>
           </div>
-          <div>
-            <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest leading-none mb-1.5">Total Shifts Logged</span>
-            <span className="text-2xl font-black text-slate-850 font-mono leading-none">{totals.totalShifts}</span>
-            <span className="text-[9px] font-bold text-slate-400 block mt-1.5 uppercase">For selected date filters</span>
-          </div>
+          <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
+            For selected date filters
+          </p>
         </div>
 
         {/* Metric 2 */}
-        <div className="bg-white border border-slate-150 rounded-3xl p-5 shadow-xs flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0">
-            <Activity size={22} className="stroke-[2.5]" />
+        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+          <div className="flex justify-between items-start relative z-10">
+            <div>
+              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Active Running</p>
+              <h3 className="text-2xl font-black text-emerald-700 mt-2">
+                {totals.runningShifts ? `${totals.runningShifts.toLocaleString()} Run` : '0 Run'}
+              </h3>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+              <Activity size={18} />
+            </div>
           </div>
-          <div>
-            <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest leading-none mb-1.5">Active Running</span>
-            <span className="text-2xl font-black text-slate-850 font-mono leading-none text-emerald-600">{totals.runningShifts}</span>
-            <span className="text-[9px] font-bold text-slate-400 block mt-1.5 uppercase">Shifts with material usage</span>
-          </div>
+          <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
+            Shifts with material usage
+          </p>
         </div>
 
         {/* Metric 3 */}
-        <div className="bg-white border border-slate-150 rounded-3xl p-5 shadow-xs flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-rose-50 flex items-center justify-center text-rose-600 shrink-0">
-            <Lock size={22} className="stroke-[2.5]" />
+        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-rose-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+          <div className="flex justify-between items-start relative z-10">
+            <div>
+              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Plant Not Running</p>
+              <h3 className="text-2xl font-black text-rose-700 mt-2">
+                {totals.stoppedShifts ? `${totals.stoppedShifts.toLocaleString()} Stop` : '0 Stop'}
+              </h3>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
+              <Lock size={18} />
+            </div>
           </div>
-          <div>
-            <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest leading-none mb-1.5">Plant Not Running</span>
-            <span className="text-2xl font-black text-slate-850 font-mono leading-none text-rose-500">{totals.stoppedShifts}</span>
-            <span className="text-[9px] font-bold text-slate-400 block mt-1.5 uppercase">Stopped shifts recorded</span>
-          </div>
+          <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
+            Stopped shifts recorded
+          </p>
         </div>
 
         {/* Metric 4 */}
-        <div className="bg-white border border-slate-150 rounded-3xl p-5 shadow-xs flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
-            <Trash2 size={22} className="stroke-[2.5]" />
+        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+          <div className="flex justify-between items-start relative z-10">
+            <div>
+              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Total Line Wastage</p>
+              <h3 className="text-2xl font-black text-indigo-700 mt-2">
+                {totals.wastage ? `${totals.wastage.toLocaleString()} KG` : '0 KG'}
+              </h3>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+              <Trash2 size={18} />
+            </div>
           </div>
-          <div>
-            <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest leading-none mb-1.5">Total Line Wastage</span>
-            <span className="text-2xl font-black text-slate-850 font-mono leading-none text-indigo-600">{totals.wastage.toLocaleString()} <span className="text-xs uppercase font-extrabold">kg</span></span>
-            <span className="text-[9px] font-bold text-slate-400 block mt-1.5 uppercase">Accumulated shift waste</span>
-          </div>
+          <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
+            Accumulated shift waste
+          </p>
         </div>
 
       </div>
@@ -777,6 +810,20 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
                 </div>
               </div>
             )}
+
+            {/* Shift Filter Dropdown */}
+            <div className="w-full sm:w-40 shrink-0">
+              <label className="block mb-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Shift Filter</label>
+              <select
+                value={filterShift}
+                onChange={(e) => setFilterShift(e.target.value as 'all' | 'day' | 'night')}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs font-black text-slate-700 focus:bg-white focus:outline-hidden cursor-pointer"
+              >
+                <option value="all">✨ All Shifts</option>
+                <option value="day">☀️ Day Shift</option>
+                <option value="night">🌙 Night Shift</option>
+              </select>
+            </div>
 
           </div>
 

@@ -1383,75 +1383,91 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       </div>
 
       {/* 3. STATS OVERVIEW CARDS */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Metric 1: Total Varieties */}
-        <div className="bg-white border border-slate-200/85 p-5 rounded-3xl shadow-sm hover:shadow-md transition-all">
-          <div className="flex justify-between items-start">
-            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">Registered Materials</span>
-            <span className="p-2 bg-slate-100 text-slate-700 rounded-xl">
-              <Package size={16} />
-            </span>
+        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-sky-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+          <div className="flex justify-between items-start relative z-10">
+            <div>
+              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Registered Materials</p>
+              <h3 className="text-2xl font-black text-slate-800 mt-2">
+                {metrics.totalVarieties ? `${metrics.totalVarieties} Varieties` : '0 Varieties'}
+              </h3>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold">
+              <Package size={18} />
+            </div>
           </div>
-          <div className="mt-3 space-y-1">
-            <h3 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">{metrics.totalVarieties} Varieties</h3>
-            <p className="text-xs text-slate-450 font-bold uppercase tracking-wider">Active stock sheets</p>
-          </div>
+          <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
+            Active stock sheets
+          </p>
         </div>
 
         {/* Metric 2: Total Stock in Store */}
-        <div className="bg-white border border-slate-200/85 p-5 rounded-3xl shadow-sm hover:shadow-md transition-all">
-          <div className="flex justify-between items-start">
-            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">Total Bulk Stock</span>
-            <span className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
-              <TrendingUp size={16} />
-            </span>
+        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+          <div className="flex justify-between items-start relative z-10">
+            <div>
+              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Total Bulk Stock</p>
+              <h3 className="text-2xl font-black text-indigo-900 mt-2">
+                {((metrics.totalStockKgs || 0) / 1000).toFixed(2)} Tons
+              </h3>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+              <TrendingUp size={18} />
+            </div>
           </div>
-          <div className="mt-3 space-y-1">
-            <h3 className="text-xl sm:text-2xl font-black text-indigo-900 font-mono tracking-tight">{(metrics.totalStockKgs / 1000).toFixed(2)} Tons</h3>
-            <p className="text-xs text-indigo-650 font-extrabold uppercase tracking-wider">{metrics.totalStockKgs.toLocaleString()} kgs total in-store</p>
-          </div>
+          <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
+            {metrics.totalStockKgs.toLocaleString()} kgs total in-store
+          </p>
         </div>
 
         {/* Metric 3: Plant Usage */}
-        <div className="bg-white border border-slate-200/85 p-5 rounded-3xl shadow-sm hover:shadow-md transition-all">
-          <div className="flex justify-between items-start">
-            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">
-              {metricsFilterMode === 'single' ? 'Selected Plant Usage' : 'Range Plant Usage'}
-            </span>
-            <span className="p-2 bg-rose-50 text-rose-600 rounded-xl animate-pulse">
-              <TrendingDown size={16} />
-            </span>
+        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-rose-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+          <div className="flex justify-between items-start relative z-10">
+            <div>
+              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">
+                {metricsFilterMode === 'single' ? 'Selected Plant Usage' : 'Range Plant Usage'}
+              </p>
+              <h3 className="text-2xl font-black text-rose-700 mt-2">
+                {(metrics.todayUsageKgs || 0).toLocaleString()} kg
+              </h3>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
+              <TrendingDown size={18} />
+            </div>
           </div>
-          <div className="mt-3 space-y-1">
-            <h3 className="text-xl sm:text-2xl font-black text-rose-600 font-mono tracking-tight">{metrics.todayUsageKgs.toLocaleString()} kg</h3>
-            <p className="text-[10px] text-rose-500 font-extrabold uppercase tracking-wider">
-              {metricsFilterMode === 'single' 
-                ? `Usage on ${formatDateToDMY(metricsSingleDate)}`
-                : `${formatDateToDMY(metricsRangeStart)} to ${formatDateToDMY(metricsRangeEnd)}`
-              }
-            </p>
-          </div>
+          <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
+            {metricsFilterMode === 'single' 
+              ? `Usage on ${formatDateToDMY(metricsSingleDate)}`
+              : `${formatDateToDMY(metricsRangeStart)} to ${formatDateToDMY(metricsRangeEnd)}`
+            }
+          </p>
         </div>
 
         {/* Metric 4: Fresh Stock Received */}
-        <div className="bg-white border border-slate-200/85 p-5 rounded-3xl shadow-sm hover:shadow-md transition-all">
-          <div className="flex justify-between items-start">
-            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">
-              {metricsFilterMode === 'single' ? 'Selected Stock Received' : 'Range Stock Received'}
-            </span>
-            <span className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
-              <PlusCircle size={16} />
-            </span>
+        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+          <div className="flex justify-between items-start relative z-10">
+            <div>
+              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">
+                {metricsFilterMode === 'single' ? 'Selected Stock Received' : 'Range Stock Received'}
+              </p>
+              <h3 className="text-2xl font-black text-emerald-700 mt-2">
+                {(metrics.todayReceivedKgs || 0).toLocaleString()} kg
+              </h3>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+              <PlusCircle size={18} />
+            </div>
           </div>
-          <div className="mt-3 space-y-1">
-            <h3 className="text-xl sm:text-2xl font-black text-emerald-700 font-mono tracking-tight">{metrics.todayReceivedKgs.toLocaleString()} kg</h3>
-            <p className="text-[10px] text-emerald-600 font-extrabold uppercase tracking-wider">
-              {metricsFilterMode === 'single' 
-                ? `Received on ${formatDateToDMY(metricsSingleDate)}`
-                : `${formatDateToDMY(metricsRangeStart)} to ${formatDateToDMY(metricsRangeEnd)}`
-              }
-            </p>
-          </div>
+          <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
+            {metricsFilterMode === 'single' 
+              ? `Received on ${formatDateToDMY(metricsSingleDate)}`
+              : `${formatDateToDMY(metricsRangeStart)} to ${formatDateToDMY(metricsRangeEnd)}`
+            }
+          </p>
         </div>
       </div>
 

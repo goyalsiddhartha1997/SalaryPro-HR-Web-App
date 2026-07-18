@@ -94,6 +94,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
   // --- STATE FOR FILTERS ---
   // Filter modes: 'month' (default), 'range', 'all'
   const [filterMode, setFilterMode] = useState<'month' | 'range' | 'all'>('month');
+  const [filterShift, setFilterShift] = useState<'all' | 'day' | 'night'>('all');
   
   // Month selector states
   const [selectedMonth, setSelectedMonth] = useState<number>(() => new Date().getMonth() + 1); // 1-12
@@ -155,36 +156,46 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
   // --- FILTERED REPORTS DATA ---
   const filteredReports = useMemo(() => {
     return reports.filter(r => {
-      if (filterMode === 'all') {
-        return true;
-      }
-      
+      // Date filtering
+      let dateMatch = true;
       if (filterMode === 'month') {
         const parts = r.date.split('-'); // [YYYY, MM, DD]
         if (parts.length === 3) {
           const rYear = parseInt(parts[0], 10);
           const rMonth = parseInt(parts[1], 10);
-          return rYear === selectedYear && rMonth === selectedMonth;
+          dateMatch = rYear === selectedYear && rMonth === selectedMonth;
+        } else {
+          dateMatch = false;
         }
-        return false;
+      } else if (filterMode === 'range') {
+        dateMatch = r.date >= rangeStartDate && r.date <= rangeEndDate;
       }
 
-      if (filterMode === 'range') {
-        return r.date >= rangeStartDate && r.date <= rangeEndDate;
+      if (!dateMatch) return false;
+
+      // Shift filtering
+      if (filterShift !== 'all') {
+        return (r.shift || 'day') === filterShift;
       }
 
       return true;
     }).sort((a, b) => a.date.localeCompare(b.date)); // Sort chronologically ascending for the ledger report
-  }, [reports, filterMode, selectedMonth, selectedYear, rangeStartDate, rangeEndDate]);
+  }, [reports, filterMode, selectedMonth, selectedYear, rangeStartDate, rangeEndDate, filterShift]);
 
   // --- AGGREGATED TOTALS FOR SELECTED VIEW ---
   const totals = useMemo(() => {
     let totalLooms = 0;
     let totalProduction = 0;
     let totalWastage = 0;
+    const totalShifts = filteredReports.length;
+    let activeShifts = 0;
+    let stoppedShifts = 0;
 
     filteredReports.forEach(r => {
-      if (!r.isStopped) {
+      if (r.isStopped) {
+        stoppedShifts += 1;
+      } else {
+        activeShifts += 1;
         totalLooms += r.looms || 0;
         totalProduction += r.production || 0;
         totalWastage += r.wastage || 0;
@@ -194,7 +205,10 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
     return {
       looms: totalLooms,
       production: totalProduction,
-      wastage: parseFloat(totalWastage.toFixed(2))
+      wastage: parseFloat(totalWastage.toFixed(2)),
+      shifts: totalShifts,
+      activeShifts,
+      stoppedShifts
     };
   }, [filteredReports]);
 
@@ -552,6 +566,20 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
               </div>
             )}
 
+            {/* Shift Filter Dropdown */}
+            <div className="w-full sm:w-40 shrink-0">
+              <label className="block mb-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Shift Filter</label>
+              <select
+                value={filterShift}
+                onChange={(e) => setFilterShift(e.target.value as 'all' | 'day' | 'night')}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs font-black text-slate-700 focus:bg-white focus:outline-hidden cursor-pointer"
+              >
+                <option value="all">✨ All Shifts</option>
+                <option value="day">☀️ Day Shift</option>
+                <option value="night">🌙 Night Shift</option>
+              </select>
+            </div>
+
           </div>
 
           {/* Right: Quick Action Buttons */}
@@ -590,7 +618,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
         </h3>
         
         {/* Bento Grid Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           
           {/* Card: Total Looms */}
           <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
@@ -647,6 +675,37 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
             <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
               Total material wasted in kilograms
             </p>
+          </div>
+
+          {/* Card: Shift Overview (3-in-1 KPI) */}
+          <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all flex flex-col justify-between">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-sky-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+            <div className="flex justify-between items-start relative z-10 w-full">
+              <div>
+                <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Total Shift Records</p>
+                <h3 className="text-2xl font-black text-slate-800 mt-2">
+                  {totals.shifts ? `${totals.shifts.toLocaleString()} Shifts` : '0 Shifts'}
+                </h3>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold">
+                <Activity size={18} />
+              </div>
+            </div>
+            
+            <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between relative z-10 w-full">
+              <div>
+                <p className="text-[9.5px] text-slate-400 font-extrabold uppercase tracking-widest">Active Shifts</p>
+                <p className="text-sm font-black text-emerald-600 mt-0.5">
+                  {totals.activeShifts} Run
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[9.5px] text-slate-400 font-extrabold uppercase tracking-widest">Stopped Shifts</p>
+                <p className="text-sm font-black text-rose-600 mt-0.5">
+                  {totals.stoppedShifts} Stop
+                </p>
+              </div>
+            </div>
           </div>
 
         </div>

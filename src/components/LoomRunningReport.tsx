@@ -33,7 +33,10 @@ import {
   Database,
   Check,
   Cpu,
-  BarChart3
+  BarChart3,
+  Layers,
+  Flame,
+  Activity
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { type LoomRunningReport, LoomRunningRow } from '../types';
@@ -47,9 +50,11 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
   // --- STATE FOR FIRESTORE STREAMING ---
   const [reports, setReports] = useState<LoomRunningReport[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loomProductions, setLoomProductions] = useState<any[]>([]);
 
   // --- STATE FOR DATE FILTER MODE ---
   const [filterMode, setFilterMode] = useState<'single' | 'range'>('single');
+  const [filterShift, setFilterShift] = useState<'ALL' | 'DAY' | 'NIGHT'>('ALL');
   const [singleDate, setSingleDate] = useState<string>(() => {
     return new Date().toISOString().split('T')[0];
   });
@@ -105,16 +110,37 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
     return () => unsubscribe();
   }, []);
 
+  // --- STREAM PRODUCTION DATA FROM FIRESTORE ---
+  useEffect(() => {
+    const q = collection(db, 'loomProductions');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const dataList: any[] = [];
+      snapshot.forEach((docSnap) => {
+        dataList.push(docSnap.data());
+      });
+      setLoomProductions(dataList);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'loomProductions');
+    });
+    return () => unsubscribe();
+  }, []);
+
   // --- FILTERED REPORTS DATA ---
   const filteredReports = useMemo(() => {
     return reports.filter(r => {
-      if (filterMode === 'single') {
-        return r.date === singleDate;
-      } else {
-        return r.date >= rangeStartDate && r.date <= rangeEndDate;
+      const dateMatch = filterMode === 'single'
+        ? r.date === singleDate
+        : (r.date >= rangeStartDate && r.date <= rangeEndDate);
+      
+      if (!dateMatch) return false;
+
+      if (filterShift !== 'ALL') {
+        return r.shift === filterShift;
       }
+
+      return true;
     }).sort((a, b) => b.date.localeCompare(a.date));
-  }, [reports, filterMode, singleDate, rangeStartDate, rangeEndDate]);
+  }, [reports, filterMode, singleDate, rangeStartDate, rangeEndDate, filterShift]);
 
   // --- CALCULATE SUMMARY METRICS FROM FILTERED REPORTS ---
   const metrics = useMemo(() => {
@@ -148,6 +174,56 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       avgSpeed: totalLoomEntriesCount ? parseFloat((averageSpeedSum / totalLoomEntriesCount).toFixed(2)) : 0
     };
   }, [filteredReports]);
+
+  // --- MATCHED PRODUCTION METRICS FROM LOOM PRODUCTION REPORT ---
+  const matchedProductionEntries = useMemo(() => {
+    return loomProductions.filter(p => {
+      const dateMatch = filterMode === 'single'
+        ? p.date === singleDate
+        : (p.date >= rangeStartDate && p.date <= rangeEndDate);
+
+      if (!dateMatch) return false;
+
+      if (filterShift === 'DAY') {
+        return (p.shift || 'day') === 'day';
+      } else if (filterShift === 'NIGHT') {
+        return (p.shift || 'day') === 'night';
+      }
+
+      return true;
+    });
+  }, [loomProductions, filterMode, singleDate, rangeStartDate, rangeEndDate, filterShift]);
+
+  const prodMetrics = useMemo(() => {
+    let totalProduction = 0;
+    let totalLoomsForProd = 0;
+    let totalWastage = 0;
+    let entryCount = 0;
+    let averageSum = 0;
+
+    matchedProductionEntries.forEach(entry => {
+      if (!entry.isStopped) {
+        totalProduction += entry.production || 0;
+        totalLoomsForProd += entry.looms || 0;
+        totalWastage += entry.wastage || 0;
+        if (entry.average) {
+          averageSum += entry.average;
+          entryCount++;
+        }
+      }
+    });
+
+    const avgProduction = totalLoomsForProd > 0 
+      ? Math.round(totalProduction / totalLoomsForProd) 
+      : (entryCount > 0 ? Math.round(averageSum / entryCount) : 0);
+
+    return {
+      totalProduction,
+      avgProduction,
+      totalWastage,
+      hasData: matchedProductionEntries.length > 0
+    };
+  }, [matchedProductionEntries]);
 
   // --- LEDGER GROUPED SUMMARY FOR SELECTED DATE(S) ---
   const summaryData = useMemo(() => {
@@ -594,26 +670,40 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
               </div>
             )}
 
+            {/* Shift Filter Dropdown */}
+            <div className="w-full sm:w-40 shrink-0">
+              <label className="block mb-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Shift Filter</label>
+              <select
+                value={filterShift}
+                onChange={(e) => setFilterShift(e.target.value as 'ALL' | 'DAY' | 'NIGHT')}
+                className="h-9 w-full bg-slate-50 border border-slate-200 rounded-xl py-1.5 px-3 text-xs font-black text-slate-700 focus:bg-white focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">✨ All Shifts</option>
+                <option value="DAY">☀️ Day Shift</option>
+                <option value="NIGHT">🌙 Night Shift</option>
+              </select>
+            </div>
+
           </div>
 
           {/* Right: Actions */}
-          <div className="flex flex-col sm:flex-row gap-3 shrink-0 w-full sm:w-auto">
+          <div className="flex flex-wrap sm:flex-nowrap items-end gap-2 shrink-0 w-full lg:w-auto justify-end">
             <button
               type="button"
               onClick={() => setShowSummaryPopup(true)}
-              className="px-5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-indigo-600/5 border border-indigo-100 w-full sm:w-auto"
+              className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-indigo-600/5 border border-indigo-100 w-full sm:w-auto"
               id="view-summary-btn"
             >
-              <BarChart3 size={16} />
+              <BarChart3 size={15} />
               View Summary
             </button>
             <button
               type="button"
               onClick={handleExportToExcel}
-              className="px-5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-emerald-600/5 border border-emerald-100 w-full sm:w-auto"
+              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-600/5 border border-emerald-100 w-full sm:w-auto"
               id="export-running-report"
             >
-              <FileSpreadsheet size={16} />
+              <FileSpreadsheet size={15} />
               Export Excel
             </button>
             {!viewOnly && (
@@ -623,11 +713,11 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                   resetModalState();
                   setShowAddModal(true);
                 }}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-indigo-600/10 w-full sm:w-auto"
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-indigo-600/10 w-full sm:w-auto"
                 id="add-running-report-btn"
               >
-                <Plus size={16} />
-                Upload Daily report / Add
+                <Plus size={15} />
+                Upload Report / Add
               </button>
             )}
           </div>
@@ -642,36 +732,64 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
           Report Summary Metrics ({filterMode === 'single' ? formatDateLabel(singleDate) : 'Selected Period'})
         </h3>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           {/* Card: Total Looms Logged */}
-          <div className="bg-white border border-slate-150 rounded-3xl p-5 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all flex flex-col justify-between">
-            <div>
-              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Looms Tracked</p>
-              <h3 className="text-2xl font-black text-slate-800 mt-2">
-                {metrics.totalLoomsCount ? `${metrics.totalLoomsCount} Looms` : '0 Looms'}
-              </h3>
-            </div>
-            <p className="text-[9px] text-slate-450 font-medium mt-4 pt-2.5 border-t border-slate-100 uppercase tracking-wider">
-              Sum of recorded loom instances
-            </p>
-          </div>
-
-          {/* Card: Running & Stopped Combined */}
-          <div className="bg-white border border-slate-150 rounded-3xl p-5 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
-            <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Active Running</p>
-            <h3 className="text-2xl font-black text-emerald-600 mt-1">
-              {metrics.runningCount ? `${metrics.runningCount} Active` : '0 Active'}
-            </h3>
-            
-            <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+          <div className="bg-white border border-slate-150 rounded-3xl p-4 sm:p-5 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all flex flex-col justify-between">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-slate-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+            <div className="relative z-10 flex justify-between items-start">
               <div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Stopped Looms</p>
-                <p className="text-sm font-black text-amber-600 mt-0.5">
-                  {metrics.stoppedCount ? `${metrics.stoppedCount} Stopped` : '0 Stopped'}
+                <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Looms Tracked</p>
+                <h3 className="text-xl xl:text-lg 2xl:text-2xl font-black text-slate-800 mt-2 font-mono whitespace-nowrap flex items-baseline gap-0.5">
+                  {metrics.totalLoomsCount || '0'}
+                  <span className="text-xs font-bold text-slate-400">Looms</span>
+                </h3>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-slate-50 text-slate-600 flex items-center justify-center font-bold">
+                <Layers size={18} />
+              </div>
+            </div>
+            
+            <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between relative z-10">
+              <div>
+                <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Running</p>
+                <p className="text-xs font-black text-emerald-600 mt-0.5">
+                  {metrics.runningCount} Active
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Utilization</p>
+                <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Stopped</p>
+                <p className="text-xs font-black text-amber-600 mt-0.5">
+                  {metrics.stoppedCount} Stopped
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Card: Running & Stopped Combined */}
+          <div className="bg-white border border-slate-150 rounded-3xl p-4 sm:p-5 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all flex flex-col justify-between">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+            <div className="relative z-10 flex justify-between items-start">
+              <div>
+                <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Active Running</p>
+                <h3 className="text-xl xl:text-lg 2xl:text-2xl font-black text-emerald-600 mt-2 font-mono whitespace-nowrap flex items-baseline gap-0.5">
+                  {metrics.runningCount || '0'}
+                  <span className="text-xs font-bold text-emerald-500">Active</span>
+                </h3>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                <Check size={18} />
+              </div>
+            </div>
+            
+            <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between relative z-10">
+              <div>
+                <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Stopped</p>
+                <p className="text-xs font-black text-amber-600 mt-0.5">
+                  {metrics.stoppedCount} Stopped
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Utilization</p>
                 <p className="text-xs font-black text-slate-700 mt-0.5">
                   {metrics.totalLoomsCount ? `${Math.round((metrics.runningCount / metrics.totalLoomsCount) * 100)}%` : '0%'}
                 </p>
@@ -680,16 +798,125 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
           </div>
 
           {/* Card: Avg Parameters */}
-          <div className="bg-white border border-slate-150 rounded-3xl p-5 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all flex flex-col justify-between">
-            <div>
-              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Avg Weight & Quality</p>
-              <h3 className="text-2xl font-black text-indigo-700 mt-2 font-mono">
-                {metrics.avgSpeed} <span className="text-xs text-slate-450">g</span>
-              </h3>
+          <div className="bg-white border border-slate-150 rounded-3xl p-4 sm:p-5 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all flex flex-col justify-between">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+            <div className="relative z-10 flex justify-between items-start">
+              <div>
+                <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Avg Weight & Quality</p>
+                <h3 className="text-xl xl:text-lg 2xl:text-2xl font-black text-indigo-700 mt-2 font-mono whitespace-nowrap flex items-baseline gap-0.5">
+                  {metrics.avgSpeed || '0'}
+                  <span className="text-xs font-bold text-slate-400">g</span>
+                </h3>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                <Cpu size={18} />
+              </div>
             </div>
-            <p className="text-[9px] text-indigo-500 font-medium mt-4 pt-2.5 border-t border-slate-100 uppercase tracking-wider">
-              Avg: {metrics.avgGsm} GSM / {metrics.avgDenier} Denier
-            </p>
+            
+            <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between relative z-10">
+              <div>
+                <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Avg GSM</p>
+                <p className="text-xs font-black text-indigo-600 mt-0.5">
+                  {metrics.avgGsm} GSM
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Avg Denier</p>
+                <p className="text-xs font-black text-indigo-600 mt-0.5">
+                  {metrics.avgDenier} D
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Card: Total Production */}
+          <div className="bg-white border border-slate-150 rounded-3xl p-4 sm:p-5 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all flex flex-col justify-between">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+            <div className="relative z-10 flex justify-between items-start">
+              <div>
+                <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Total Production</p>
+                <h3 className="text-xl xl:text-lg 2xl:text-2xl font-black text-emerald-700 mt-2 font-mono whitespace-nowrap flex items-baseline gap-0.5">
+                  {prodMetrics.totalProduction ? prodMetrics.totalProduction.toLocaleString() : '0'}
+                  <span className="text-xs font-bold text-emerald-500">M</span>
+                </h3>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                <Sparkles size={18} />
+              </div>
+            </div>
+            
+            <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between relative z-10">
+              <div>
+                <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Units</p>
+                <p className="text-xs font-black text-slate-600 mt-0.5">Meters</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Report</p>
+                <p className={`text-xs font-black mt-0.5 ${prodMetrics.hasData ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  {prodMetrics.hasData ? 'Synced' : 'No Data'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Card: Average Production */}
+          <div className="bg-white border border-slate-150 rounded-3xl p-4 sm:p-5 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all flex flex-col justify-between">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+            <div className="relative z-10 flex justify-between items-start">
+              <div>
+                <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Avg Production</p>
+                <h3 className="text-xl xl:text-lg 2xl:text-2xl font-black text-indigo-700 mt-2 font-mono whitespace-nowrap flex items-baseline gap-0.5">
+                  {prodMetrics.avgProduction ? prodMetrics.avgProduction.toLocaleString() : '0'}
+                  <span className="text-xs font-bold text-indigo-500">M</span>
+                </h3>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                <Activity size={18} />
+              </div>
+            </div>
+            
+            <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between relative z-10">
+              <div>
+                <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Rate</p>
+                <p className="text-xs font-black text-indigo-600 mt-0.5">M/Loom</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Report</p>
+                <p className={`text-xs font-black mt-0.5 ${prodMetrics.hasData ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  {prodMetrics.hasData ? 'Synced' : 'No Data'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Card: Total Wastage */}
+          <div className="bg-white border border-slate-150 rounded-3xl p-4 sm:p-5 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all flex flex-col justify-between">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-rose-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
+            <div className="relative z-10 flex justify-between items-start">
+              <div>
+                <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Total Wastage</p>
+                <h3 className="text-xl xl:text-lg 2xl:text-2xl font-black text-rose-700 mt-2 font-mono whitespace-nowrap flex items-baseline gap-0.5">
+                  {prodMetrics.totalWastage ? prodMetrics.totalWastage.toLocaleString() : '0'}
+                  <span className="text-xs font-bold text-rose-500">KG</span>
+                </h3>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
+                <Flame size={18} />
+              </div>
+            </div>
+            
+            <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between relative z-10">
+              <div>
+                <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Units</p>
+                <p className="text-xs font-black text-slate-600 mt-0.5">Kilograms</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Report</p>
+                <p className={`text-xs font-black mt-0.5 ${prodMetrics.hasData ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  {prodMetrics.hasData ? 'Synced' : 'No Data'}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
