@@ -6,7 +6,7 @@
 import { Employee, ComputedEmployee } from './types';
 
 // Let's create a functional helper that validates and computes all required salaries
-export function calculateSalary(emp: Employee): ComputedEmployee {
+export function calculateSalary(emp: Employee, sundayPaidRule: 'totalMonthDays' | '26Days' = 'totalMonthDays'): ComputedEmployee {
   const errorMessages: string[] = [];
   
   // Real-time validations
@@ -64,16 +64,20 @@ export function calculateSalary(emp: Employee): ComputedEmployee {
   const safeAbsHours = Math.max(0, absHours);
   const safeAbsMins = Math.max(0, Math.min(59, absMins));
 
+  // Determine the dynamic calculation divisor for Sunday paid employees
+  const isSundayPaid = emp.sundayPaid === 'Paid';
+  const calculationDivisor = (sundayPaidRule === '26Days' && isSundayPaid) ? 26 : safeDays;
+
   // Intermediate Calculations in full precision based on salary basis
   let rawDailyRate = 0;
   let rawBaseMonthly = 0;
 
   if (salaryType === 'daily') {
     rawDailyRate = safeSalary; // In daily rate mode, 'monthlySalary' field input is the daily rate
-    const activeElapsed = (emp.elapsedDays !== undefined && emp.elapsedDays > 0) ? emp.elapsedDays : safeDays;
+    const activeElapsed = (emp.elapsedDays !== undefined && emp.elapsedDays > 0) ? emp.elapsedDays : calculationDivisor;
     rawBaseMonthly = rawDailyRate * activeElapsed; // Theoretical base if they had worked full days
   } else {
-    rawDailyRate = safeSalary / safeDays;
+    rawDailyRate = safeSalary / calculationDivisor;
     rawBaseMonthly = (emp.elapsedDays !== undefined && emp.elapsedDays > 0) ? (rawDailyRate * emp.elapsedDays) : safeSalary;
   }
 

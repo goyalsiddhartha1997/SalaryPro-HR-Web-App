@@ -40,7 +40,8 @@ import {
   Info,
   Search,
   Timer,
-  Zap
+  Zap,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface EmployeeProfileDetailsProps {
@@ -55,6 +56,8 @@ interface EmployeeProfileDetailsProps {
   ledgerMonth?: number;
   ledgerYear?: number;
   triggerAlert?: (type: 'success' | 'info' | 'warn', text: string) => void;
+  sundayPaidRule?: 'totalMonthDays' | '26Days';
+  setSundayPaidRule?: React.Dispatch<React.SetStateAction<'totalMonthDays' | '26Days'>>;
 }
 
 // Helper calculating break time
@@ -182,7 +185,9 @@ export default function EmployeeProfileDetails({
   setAllPunchLogs,
   ledgerMonth = 5,
   ledgerYear = 2026,
-  triggerAlert
+  triggerAlert,
+  sundayPaidRule = 'totalMonthDays',
+  setSundayPaidRule
 }: EmployeeProfileDetailsProps) {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editedName, setEditedName] = useState('');
@@ -673,7 +678,10 @@ export default function EmployeeProfileDetails({
   const workingHoursPerDay = employee.workingHours || 8;
   const isDailyBasis = employee.salaryType === 'daily';
   
-  const dynamicDailyRate = isDailyBasis ? baseSalary : (baseSalary > 0 && workingDays > 0 ? baseSalary/workingDays : 0);
+  const isSundayPaid = employee.sundayPaid === 'Paid';
+  const calculationDivisor = (sundayPaidRule === '26Days' && isSundayPaid) ? 26 : (workingDays > 0 ? workingDays : 26);
+  
+  const dynamicDailyRate = isDailyBasis ? baseSalary : (baseSalary > 0 && calculationDivisor > 0 ? baseSalary/calculationDivisor : 0);
   const dynamicHourlyRate = dynamicDailyRate > 0 && workingHoursPerDay > 0 ? dynamicDailyRate / workingHoursPerDay : 0;
   
   const elapsedDays = uploadedDaysInThisMonth.length > 0 ? uploadedDaysInThisMonth.length : workingDays;
@@ -1203,6 +1211,27 @@ export default function EmployeeProfileDetails({
         {/* ==================== MIDDLE COLUMN: BENTO BLOCKS (6/12 cols) ==================== */}
         <div className="lg:col-span-6 flex flex-col gap-6">
           
+          {/* Sunday-Paid Employee Salary Calculation Rule Selector */}
+          <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 p-4 rounded-3xl shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 bg-emerald-100 text-emerald-700 rounded-xl flex items-center justify-center shrink-0">
+                <FileSpreadsheet size={15} />
+              </div>
+              <div>
+                <h5 className="font-bold text-slate-800 text-[11.5px] uppercase tracking-wide">Sunday Paid Calculation Rule</h5>
+                <p className="text-[10px] text-slate-500 font-medium">Select dynamic divisor for Sunday-paid personnel</p>
+              </div>
+            </div>
+            <select
+              value={sundayPaidRule}
+              onChange={(e) => setSundayPaidRule?.(e.target.value as 'totalMonthDays' | '26Days')}
+              className="bg-white border border-slate-200 text-slate-800 text-xs font-bold rounded-xl px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-hidden cursor-pointer shadow-xs min-w-[170px]"
+            >
+              <option value="totalMonthDays">Total Month Days (Default)</option>
+              <option value="26Days">26 Days Rule</option>
+            </select>
+          </div>
+
           {/* Leaves Circular Stats Row */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             
@@ -1249,47 +1278,104 @@ export default function EmployeeProfileDetails({
 
             {/* Statistic 2 - Daily In-Out Logs */}
             <div className="bg-white border border-slate-150 p-4 rounded-3xl flex flex-col items-center relative shadow-sm hover:shadow-md transition-shadow col-span-2 w-full min-h-[148px]">
-              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Daily In-Out Logs</span>
+              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase mb-1">Daily In-Out Logs</span>
               
-              {punchesList.length === 0 ? (
-                <div className="flex flex-col items-center justify-center flex-1 text-center text-slate-400 mt-2 select-none">
-                  <Clock size={16} className="text-slate-350 mb-1" />
-                  <p className="text-[10px] font-semibold leading-tight font-sans">No Logs Selected</p>
-                  <p className="text-[8px] mt-0.5">{selectedDay} {monthNames[calendarMonth]}</p>
-                </div>
-              ) : (
-                <div className="w-full mt-2.5 grid grid-cols-2 gap-1.5">
-                   {punchesList.map((punch, idx) => {
-                     const parts = punch.split(' ');
-                     const time = parts[0] || '08:00';
-                     const isIN = punch.toUpperCase().includes('IN') || punch.toUpperCase().includes('ARR');
-                     const isAuto = punch.toUpperCase().includes('(AUTO)');
-                     return (
-                       <div key={idx} className={`flex justify-between items-center p-1.5 px-2 rounded-xl border transition-all ${
-                         isAuto 
-                           ? 'bg-amber-100 text-amber-955 border-amber-500 border-2 ring-1 ring-amber-400/50 shadow-xs animate-pulse' 
-                           : 'bg-slate-50 border-slate-100'
-                       }`} title={isAuto ? "Automatically repaired and inserted by the attendance engine" : undefined}>
-                         <span className={`text-[10px] font-mono font-bold ${isAuto ? 'text-amber-950 font-extrabold' : 'text-slate-700'}`}>{time}</span>
-                         <div className="flex items-center gap-1.5">
-                           <span className={`text-[8px] uppercase font-extrabold px-1.5 py-0.2 rounded-md ${
-                             isAuto
-                                ? isIN ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
-                                : isIN ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-rose-50 text-rose-700 border border-rose-100'
-                           }`}>
-                             {employee.shift === 'NIGHT' ? (isIN ? 'Arr Time' : 'Out 1') : (isIN ? 'In' : 'Out')}
-                           </span>
-                           {isAuto && (
-                             <span className="bg-amber-600 text-white text-[7.5px] font-black px-1 rounded-sm uppercase tracking-wider font-mono">
-                               Auto
-                             </span>
-                           )}
-                         </div>
-                       </div>
-                     );
-                   })}
-                </div>
-              )}
+              {(() => {
+                const inPunchObj = punchesList.find(p => p.toUpperCase().includes('IN') || p.toUpperCase().includes('ARR'));
+                const outPunchObj = punchesList.find(p => p.toUpperCase().includes('OUT') || p.toUpperCase().includes('DEP') || p.toUpperCase().includes('EXIT'));
+
+                const inPunch = inPunchObj || (punchesList.length > 0 ? punchesList[0] : null);
+                const outPunch = outPunchObj || (punchesList.length > 1 && inPunch !== punchesList[1] ? punchesList[1] : null);
+
+                const parsePunch = (punchStr: string | null) => {
+                  if (!punchStr) return null;
+                  const parts = punchStr.split(' ');
+                  const time = parts[0] || '08:00';
+                  const isAuto = punchStr.toUpperCase().includes('(AUTO)');
+                  return { raw: punchStr, time, isAuto };
+                };
+
+                const inData = parsePunch(inPunch);
+                const outData = parsePunch(outPunch);
+
+                if (punchesList.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center justify-center flex-1 text-center text-slate-400 select-none w-full">
+                      <Clock size={16} className="text-slate-300 mb-1" />
+                      <p className="text-[10px] font-semibold leading-tight font-sans">No Logs Selected</p>
+                      <p className="text-[8px] mt-0.5">{selectedDay} {monthNames[calendarMonth]}</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="w-full flex-1 mt-1.5 grid grid-cols-2 gap-3">
+                    {/* IN PUNCH */}
+                    {inData ? (
+                      <div className={`p-3 rounded-2xl border flex flex-col justify-between transition-all hover:shadow-xs relative h-full ${
+                        inData.isAuto 
+                          ? 'bg-amber-50/40 border-amber-200 text-amber-900' 
+                          : 'bg-emerald-50/30 border-emerald-100 text-emerald-900'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-1.5 h-1.5 rounded-full ${inData.isAuto ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
+                            <span className={`text-[9px] uppercase font-bold tracking-wider ${inData.isAuto ? 'text-amber-700' : 'text-emerald-700'}`}>
+                              {employee.shift === 'NIGHT' ? 'Arr Time' : 'Check-In'}
+                            </span>
+                          </div>
+                          {inData.isAuto && (
+                            <span className="bg-amber-500 text-white text-[7px] font-extrabold px-1 rounded-sm uppercase tracking-wider font-mono scale-90">
+                              Auto
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xl sm:text-2xl font-black font-mono tracking-tight text-slate-800 mt-1">
+                          {inData.time}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="border border-dashed border-slate-200 bg-slate-50/30 rounded-2xl flex flex-col items-center justify-center text-center p-3 h-full">
+                        <Clock size={14} className="text-slate-350 mb-1" />
+                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Check-In</span>
+                        <span className="text-[10px] font-bold font-mono text-slate-400 mt-0.5">PENDING</span>
+                      </div>
+                    )}
+
+                    {/* OUT PUNCH */}
+                    {outData ? (
+                      <div className={`p-3 rounded-2xl border flex flex-col justify-between transition-all hover:shadow-xs relative h-full ${
+                        outData.isAuto 
+                          ? 'bg-amber-50/40 border-amber-200 text-amber-900' 
+                          : 'bg-rose-50/30 border-rose-100 text-rose-900'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-1.5 h-1.5 rounded-full ${outData.isAuto ? 'bg-amber-500 animate-pulse' : 'bg-rose-500'}`} />
+                            <span className={`text-[9px] uppercase font-bold tracking-wider ${outData.isAuto ? 'text-amber-700' : 'text-rose-700'}`}>
+                              {employee.shift === 'NIGHT' ? 'Out 1' : 'Check-Out'}
+                            </span>
+                          </div>
+                          {outData.isAuto && (
+                            <span className="bg-amber-500 text-white text-[7px] font-extrabold px-1 rounded-sm uppercase tracking-wider font-mono scale-90">
+                              Auto
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xl sm:text-2xl font-black font-mono tracking-tight text-slate-800 mt-1">
+                          {outData.time}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="border border-dashed border-slate-200 bg-slate-50/30 rounded-2xl flex flex-col items-center justify-center text-center p-3 h-full">
+                        <Clock size={14} className="text-slate-350 mb-1" />
+                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Check-Out</span>
+                        <span className="text-[10px] font-bold font-mono text-slate-400 mt-0.5">PENDING</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
           </div>
@@ -1352,12 +1438,12 @@ export default function EmployeeProfileDetails({
 
                   <div className="flex justify-between items-center border-t border-slate-100/70 pt-2.5">
                     <span className="text-xs font-semibold text-slate-500">Daily Earning Rate</span>
-                    <span className="text-xs font-bold text-slate-700 font-mono" title={isDailyBasis ? "Daily rate fixed" : `${baseSalary} / ${workingDays}`}>{formatINR(dynamicDailyRate)} / day</span>
+                    <span className="text-xs font-bold text-slate-700 font-mono" title={isDailyBasis ? "Daily rate fixed" : `${baseSalary} / ${calculationDivisor}`}>{formatINR(dynamicDailyRate)} / day</span>
                   </div>
 
                   <div className="flex justify-between items-center border-t border-slate-100/70 pt-2.5">
                     <span className="text-xs font-semibold text-slate-500">Hourly Earning Rate</span>
-                    <span className="text-xs font-bold text-slate-700 font-mono" title={isDailyBasis ? `${baseSalary} / ${workingHoursPerDay}` : `(${baseSalary} / ${workingDays}) / ${workingHoursPerDay}`}>{formatINR(dynamicHourlyRate)} / hour</span>
+                    <span className="text-xs font-bold text-slate-700 font-mono" title={isDailyBasis ? `${baseSalary} / ${workingHoursPerDay}` : `(${baseSalary} / ${calculationDivisor}) / ${workingHoursPerDay}`}>{formatINR(dynamicHourlyRate)} / hour</span>
                   </div>
 
                   {isFixed && employee.sundayPaid === 'Paid' && (
@@ -1729,109 +1815,166 @@ export default function EmployeeProfileDetails({
               const targetDate = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
               const punchesList = getAdjustedPunchesForDate(targetDate);
               
-              if (punchesList.length === 0) {
-                return (
-                  <div className="text-center py-4 space-y-2 select-none text-slate-400">
-                    <p className="text-[10px] font-medium leading-relaxed font-sans max-w-[190px] mx-auto">
-                      No biometric transactions logged for this date. Run the 'WiFi Machine Sync' hub to upload rows or enter a manual punch.
-                    </p>
-                  </div>
-                );
-              }
+              const inPunchObj = punchesList.find(p => p.toUpperCase().includes('IN') || p.toUpperCase().includes('ARR'));
+              const outPunchObj = punchesList.find(p => p.toUpperCase().includes('OUT') || p.toUpperCase().includes('DEP') || p.toUpperCase().includes('EXIT'));
+
+              const inPunch = inPunchObj || (punchesList.length > 0 ? punchesList[0] : null);
+              const outPunch = outPunchObj || (punchesList.length > 1 && inPunch !== punchesList[1] ? punchesList[1] : null);
+
+              const parsePunch = (punchStr: string | null) => {
+                if (!punchStr) return null;
+                const parts = punchStr.split(' ');
+                const time = parts[0] || '08:00';
+                const isAuto = punchStr.toUpperCase().includes('(AUTO)');
+                return { raw: punchStr, time, isAuto };
+              };
+
+              const inData = parsePunch(inPunch);
+              const outData = parsePunch(outPunch);
+
+              const handleDeletePunch = async (punchToDelete: string, isOut: boolean) => {
+                let pDate = targetDate;
+                if (employee.shift === 'NIGHT' && isOut) {
+                  const dateObj = new Date(targetDate);
+                  dateObj.setUTCDate(dateObj.getUTCDate() + 1);
+                  pDate = `${dateObj.getUTCFullYear()}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(dateObj.getUTCDate()).padStart(2, '0')}`;
+                }
+                
+                const rawPunches = punchLogs[pDate]?.punches || [];
+                const filtered = rawPunches.filter(p => p !== punchToDelete);
+                const docRef = doc(db, 'employees', employee.id, 'punches', pDate);
+                try {
+                  if (filtered.length === 0) {
+                    await deleteDoc(docRef);
+                  } else {
+                    await setDoc(docRef, {
+                      id: pDate,
+                      employeeId: employee.id,
+                      date: pDate,
+                      punches: filtered
+                    });
+                  }
+                  triggerAlert?.('success', 'Punch log updated successfully.');
+                } catch (error) {
+                  handleFirestoreError(error, OperationType.WRITE, `employees/${employee.id}/punches/${pDate}`);
+                  triggerAlert?.('warn', 'Offline mode: Changes saved in local Cache (Network fallback active).');
+                }
+
+                // Update local state immediately (offline-first execution)
+                setPunchLogs(prev => {
+                  const next = { ...prev };
+                  if (filtered.length === 0) {
+                    delete next[pDate];
+                  } else {
+                    next[pDate] = {
+                      id: pDate,
+                      employeeId: employee.id,
+                      date: pDate,
+                      punches: filtered
+                    };
+                  }
+                  return next;
+                });
+
+                // Update parent state real-time
+                if (setAllPunchLogs) {
+                  setAllPunchLogs(prev => {
+                    const next = { ...prev };
+                    if (!next[employee.id]) {
+                      next[employee.id] = {};
+                    }
+                    if (filtered.length === 0) {
+                      delete next[employee.id][pDate];
+                    } else {
+                      next[employee.id][pDate] = filtered;
+                    }
+                    localStorage.setItem('salarypro_all_punches_cache', JSON.stringify(next));
+                    return next;
+                  });
+                }
+              };
 
               return (
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                   {punchesList.map((punch, idx) => {
-                     const parts = punch.split(' ');
-                     const time = parts[0] || '08:00';
-                     const isIN = punch.toUpperCase().includes('IN') || punch.toUpperCase().includes('ARR');
-                     const isAuto = punch.toUpperCase().includes('(AUTO)');
-                     return (
-                       <div key={idx} className={`flex justify-between items-center p-2 rounded-xl transition-all border ${
-                         isAuto 
-                           ? 'bg-amber-950/40 border-amber-500/50 text-amber-100 hover:bg-amber-900/40 animate-pulse' 
-                           : 'bg-slate-805/80 bg-slate-800 hover:bg-slate-755 border-slate-850 border-slate-700/30'
-                       }`} title={isAuto ? "Automatically repaired and inserted by the attendance engine" : undefined}>
-                         <div className="flex items-center gap-2">
-                           <span className={`w-1.5 h-1.5 rounded-full ${isAuto ? 'bg-amber-400 animate-ping' : isIN ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-                           <span className="text-[11px] font-mono font-bold tracking-tight">{time}</span>
-                           <span className={`text-[9.5px] uppercase font-black tracking-widest ${isAuto ? 'text-amber-400 font-extrabold' : isIN ? 'text-emerald-400' : 'text-rose-400'}`}>
-                             {isAuto ? 'Auto-Repair' : isIN ? 'Check-In' : 'Check-Out'}
-                           </span>
-                         </div>
+                <div className="grid grid-cols-2 gap-3.5 w-full select-none">
+                  {/* IN PUNCH CARD */}
+                  {inData ? (
+                    <div className={`relative p-3.5 rounded-2xl border transition-all flex flex-col justify-between h-28 ${
+                      inData.isAuto 
+                        ? 'bg-amber-950/20 border-amber-500/30 text-amber-100 hover:bg-amber-900/20' 
+                        : 'bg-emerald-950/25 border-emerald-500/20 text-emerald-100 hover:bg-emerald-950/35'
+                    }`}>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          <span className="text-[10px] uppercase font-black tracking-widest text-emerald-400 font-sans">CHECK-IN</span>
+                        </div>
+                        {inData.isAuto && (
+                          <span className="inline-block text-[8px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-md mt-1">
+                            Auto-Repaired
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-3xl font-black font-mono tracking-tight text-white mt-1">
+                        {inData.time}
+                      </div>
+                      {!viewOnly && (
                         <button 
                           type="button" 
-                          onClick={async () => {
-                            const punchToDelete = punchesList[idx];
-                            const isOutPunch = punchToDelete.toUpperCase().includes('OUT') || punchToDelete.toUpperCase().includes('DEP') || punchToDelete.toUpperCase().includes('EXIT');
-                            
-                            let pDate = targetDate;
-                            if (employee.shift === 'NIGHT' && isOutPunch) {
-                              const dateObj = new Date(targetDate);
-                              dateObj.setUTCDate(dateObj.getUTCDate() + 1);
-                              pDate = `${dateObj.getUTCFullYear()}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(dateObj.getUTCDate()).padStart(2, '0')}`;
-                            }
-                            
-                            const rawPunches = punchLogs[pDate]?.punches || [];
-                            const filtered = rawPunches.filter(p => p !== punchToDelete);
-                            const docRef = doc(db, 'employees', employee.id, 'punches', pDate);
-                            try {
-                              if (filtered.length === 0) {
-                                await deleteDoc(docRef);
-                              } else {
-                                await setDoc(docRef, {
-                                  id: pDate,
-                                  employeeId: employee.id,
-                                  date: pDate,
-                                  punches: filtered
-                                });
-                              }
-                              triggerAlert?.('success', 'Punch log updated successfully.');
-                            } catch (error) {
-                              handleFirestoreError(error, OperationType.WRITE, `employees/${employee.id}/punches/${pDate}`);
-                              triggerAlert?.('warn', 'Offline mode: Changes saved in local Cache (Network fallback active).');
-                            }
-
-                            // Update local state immediately (offline-first execution)
-                            setPunchLogs(prev => {
-                              const next = { ...prev };
-                              if (filtered.length === 0) {
-                                delete next[pDate];
-                              } else {
-                                next[pDate] = {
-                                  id: pDate,
-                                  employeeId: employee.id,
-                                  date: pDate,
-                                  punches: filtered
-                                };
-                              }
-                              return next;
-                            });
-
-                            // Update parent state real-time
-                            if (setAllPunchLogs) {
-                              setAllPunchLogs(prev => {
-                                const next = { ...prev };
-                                if (!next[employee.id]) {
-                                  next[employee.id] = {};
-                                }
-                                if (filtered.length === 0) {
-                                  delete next[employee.id][pDate];
-                                } else {
-                                  next[employee.id][pDate] = filtered;
-                                }
-                                localStorage.setItem('salarypro_all_punches_cache', JSON.stringify(next));
-                                return next;
-                              });
-                            }
-                          }}
-                          className="hover:text-rose-500 text-slate-500 p-1 cursor-pointer rounded hover:bg-slate-800 transition-colors"
+                          onClick={() => handleDeletePunch(inData.raw, false)}
+                          className="absolute top-2 right-2 hover:bg-slate-800 text-slate-500 hover:text-rose-400 p-1.5 cursor-pointer rounded-lg transition-all"
+                          title="Delete punch log"
                         >
-                          <Trash2 size={11} />
+                          <Trash2 size={13} />
                         </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="border border-dashed border-slate-700/60 bg-slate-950/25 rounded-2xl flex flex-col items-center justify-center text-center p-3 h-28">
+                      <Clock size={16} className="text-slate-600 mb-1.5 animate-pulse" />
+                      <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest font-sans">CHECK-IN</span>
+                      <span className="text-xs font-bold font-mono text-slate-600 mt-1">PENDING</span>
+                    </div>
+                  )}
+
+                  {/* OUT PUNCH CARD */}
+                  {outData ? (
+                    <div className={`relative p-3.5 rounded-2xl border transition-all flex flex-col justify-between h-28 ${
+                      outData.isAuto 
+                        ? 'bg-amber-950/20 border-amber-500/30 text-amber-100 hover:bg-amber-900/20' 
+                        : 'bg-rose-950/25 border-rose-500/20 text-rose-100 hover:bg-rose-950/35'
+                    }`}>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-rose-400" />
+                          <span className="text-[10px] uppercase font-black tracking-widest text-rose-400 font-sans">CHECK-OUT</span>
+                        </div>
+                        {outData.isAuto && (
+                          <span className="inline-block text-[8px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-md mt-1">
+                            Auto-Repaired
+                          </span>
+                        )}
                       </div>
-                    );
-                  })}
+                      <div className="text-3xl font-black font-mono tracking-tight text-white mt-1">
+                        {outData.time}
+                      </div>
+                      {!viewOnly && (
+                        <button 
+                          type="button" 
+                          onClick={() => handleDeletePunch(outData.raw, true)}
+                          className="absolute top-2 right-2 hover:bg-slate-800 text-slate-500 hover:text-rose-400 p-1.5 cursor-pointer rounded-lg transition-all"
+                          title="Delete punch log"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="border border-dashed border-slate-700/60 bg-slate-950/25 rounded-2xl flex flex-col items-center justify-center text-center p-3 h-28">
+                      <Clock size={16} className="text-slate-600 mb-1.5" />
+                      <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest font-sans">CHECK-OUT</span>
+                      <span className="text-xs font-bold font-mono text-slate-600 mt-1">PENDING</span>
+                    </div>
+                  )}
                 </div>
               );
             })()}

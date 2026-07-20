@@ -688,6 +688,13 @@ export default function App() {
     return email === 'hr@fortuneflexipack.com' ? 'gatepass' : 'employees';
   });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('55'); // Hardyal (First employee in yesterday's attendance PDF!)
+  const [sundayPaidRule, setSundayPaidRule] = useState<'totalMonthDays' | '26Days'>(() => {
+    return (localStorage.getItem('salarypro_sunday_paid_rule') as 'totalMonthDays' | '26Days') || 'totalMonthDays';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('salarypro_sunday_paid_rule', sundayPaidRule);
+  }, [sundayPaidRule]);
   const [alertMsg, setAlertMsg] = useState<{ type: 'success' | 'info' | 'warn'; text: string } | null>(null);
   
   // Guard observer hr email to only access and use Advances, Gate Pass, and Overtime tabs
@@ -854,7 +861,7 @@ export default function App() {
 
   // Compute calculated row fields dynamically on active dataset changes
   const computedEmployees = useMemo(() => {
-    const list = syncedEmployees.map(calculateSalary);
+    const list = syncedEmployees.map(emp => calculateSalary(emp, sundayPaidRule));
     list.sort((a, b) => {
       // Keep empty temp/placeholder rows at the bottom
       const isTempA = a.id.startsWith('EMP_TEMP_') || !(a.name || '').trim();
@@ -877,7 +884,7 @@ export default function App() {
       return a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: 'base' });
     });
     return list;
-  }, [syncedEmployees]);
+  }, [syncedEmployees, sundayPaidRule]);
 
   // Aggregate sums for quick banner card KPIs
   const quickKPIs = useMemo(() => {
@@ -2810,6 +2817,8 @@ export default function App() {
                 ledgerMonth={ledgerMonth}
                 ledgerYear={ledgerYear}
                 triggerAlert={triggerAlert}
+                sundayPaidRule={sundayPaidRule}
+                setSundayPaidRule={setSundayPaidRule}
               />
             </div>
           )}

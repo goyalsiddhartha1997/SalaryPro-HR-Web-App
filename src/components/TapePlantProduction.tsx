@@ -638,80 +638,80 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       </div>
 
       {/* 📊 METRICS HIGHLIGHTS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8">
         
         {/* Metric 1 */}
-        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
+        <div className="bg-white border border-slate-150 rounded-3xl p-4 sm:p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
           <div className="absolute top-0 right-0 w-24 h-24 bg-sky-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
           <div className="flex justify-between items-start relative z-10">
             <div>
-              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Total Shifts Logged</p>
-              <h3 className="text-2xl font-black text-slate-800 mt-2">
+              <p className="text-[9px] sm:text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Total Shifts Logged</p>
+              <h3 className="text-base sm:text-2xl font-black text-slate-800 mt-2">
                 {totals.totalShifts ? `${totals.totalShifts.toLocaleString()} Shifts` : '0 Shifts'}
               </h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold">
-              <Package size={18} />
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold shrink-0">
+              <Package className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
             </div>
           </div>
-          <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
+          <p className="text-[8.5px] sm:text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
             For selected date filters
           </p>
         </div>
 
         {/* Metric 2 */}
-        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
+        <div className="bg-white border border-slate-150 rounded-3xl p-4 sm:p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
           <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
           <div className="flex justify-between items-start relative z-10">
             <div>
-              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Active Running</p>
-              <h3 className="text-2xl font-black text-emerald-700 mt-2">
+              <p className="text-[9px] sm:text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Active Running</p>
+              <h3 className="text-base sm:text-2xl font-black text-emerald-700 mt-2">
                 {totals.runningShifts ? `${totals.runningShifts.toLocaleString()} Run` : '0 Run'}
               </h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-              <Activity size={18} />
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold shrink-0">
+              <Activity className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
             </div>
           </div>
-          <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
+          <p className="text-[8.5px] sm:text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
             Shifts with material usage
           </p>
         </div>
 
         {/* Metric 3 */}
-        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
+        <div className="bg-white border border-slate-150 rounded-3xl p-4 sm:p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
           <div className="absolute top-0 right-0 w-24 h-24 bg-rose-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
           <div className="flex justify-between items-start relative z-10">
             <div>
-              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Plant Not Running</p>
-              <h3 className="text-2xl font-black text-rose-700 mt-2">
+              <p className="text-[9px] sm:text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Plant Not Running</p>
+              <h3 className="text-base sm:text-2xl font-black text-rose-700 mt-2">
                 {totals.stoppedShifts ? `${totals.stoppedShifts.toLocaleString()} Stop` : '0 Stop'}
               </h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
-              <Lock size={18} />
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold shrink-0">
+              <Lock className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
             </div>
           </div>
-          <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
+          <p className="text-[8.5px] sm:text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
             Stopped shifts recorded
           </p>
         </div>
 
         {/* Metric 4 */}
-        <div className="bg-white border border-slate-150 rounded-3xl p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
+        <div className="bg-white border border-slate-150 rounded-3xl p-4 sm:p-6 shadow-xs relative overflow-hidden select-none hover:shadow-md transition-all">
           <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50/40 rounded-full translate-x-4 -translate-y-4 -z-0"></div>
           <div className="flex justify-between items-start relative z-10">
             <div>
-              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Total Line Wastage</p>
-              <h3 className="text-2xl font-black text-indigo-700 mt-2">
+              <p className="text-[9px] sm:text-[10px] text-slate-400 font-extrabold uppercase tracking-widest">Total Line Wastage</p>
+              <h3 className="text-base sm:text-2xl font-black text-indigo-700 mt-2">
                 {totals.wastage ? `${totals.wastage.toLocaleString()} KG` : '0 KG'}
               </h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
-              <Trash2 size={18} />
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold shrink-0">
+              <Trash2 className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
             </div>
           </div>
-          <p className="text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
+          <p className="text-[8.5px] sm:text-[9.5px] text-slate-400 font-medium mt-3 uppercase tracking-wider">
             Accumulated shift waste
           </p>
         </div>
@@ -891,128 +891,238 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left">
-              <thead>
-                <tr className="bg-slate-900 text-slate-200 text-[10px] font-black uppercase tracking-wider border-b border-slate-800 select-none">
-                  <th className="py-3 px-6 border-r border-slate-800">Date</th>
-                  <th className="py-3 px-6 border-r border-slate-800 text-center">Shift</th>
-                  <th className="py-3 px-6 border-r border-slate-800">Raw Material Usage Description</th>
-                  <th className="py-3 px-6 border-r border-slate-800 text-center">Wastage (kg)</th>
-                  <th className="py-3 px-6 border-r border-slate-800 text-center">Data Origin</th>
-                  <th className="py-3 px-6 border-r border-slate-800 text-center">Remarks</th>
-                  {!viewOnly && <th className="py-3 px-6 text-center">Actions</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-150 font-bold text-slate-800 text-xs">
-                {filteredReports.map((report) => (
-                  <tr 
-                    key={report.id} 
-                    className={`hover:bg-slate-50/50 transition-colors ${report.isStopped ? 'bg-rose-50/30' : ''}`}
-                    id={`row-${report.id}`}
-                  >
+          <>
+            {/* 📱 Mobile Card List View (Visible only on mobile devices) */}
+            <div className="block md:hidden divide-y divide-slate-150">
+              {filteredReports.map((report) => (
+                <div 
+                  key={report.id} 
+                  className={`p-4 flex flex-col gap-3.5 transition-all hover:bg-slate-50/50 ${report.isStopped ? 'bg-rose-50/20' : 'bg-white'}`}
+                  id={`card-${report.id}`}
+                >
+                  {/* Card Header: Date & Shift */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CalendarIcon size={14} className="text-slate-400" />
+                      <span className="font-mono text-xs font-bold text-slate-800">{formatDateLabel(report.date)}</span>
+                    </div>
                     
-                    {/* Date Column */}
-                    <td className="py-4 px-6 border-r border-slate-150 whitespace-nowrap">
-                      <div className="flex items-center gap-2.5">
-                        <CalendarIcon size={14} className="text-slate-400" />
-                        <span className="font-mono">{formatDateLabel(report.date)}</span>
-                      </div>
-                    </td>
-
-                    {/* Shift Column */}
-                    <td className="py-4 px-6 border-r border-slate-150 text-center">
-                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
-                        report.shift === 'day' 
-                          ? 'bg-amber-50 text-amber-700 border border-amber-100' 
-                          : 'bg-purple-50 text-purple-700 border border-purple-200'
-                      }`}>
-                        {report.shift === 'day' ? (
-                          <Sun size={10} className="text-amber-500 stroke-[2.5]" />
-                        ) : (
-                          <Moon size={10} className="text-purple-600 stroke-[2.5]" />
-                        )}
-                        {report.shift === 'day' ? 'Day Shift' : 'Night Shift'}
-                      </span>
-                    </td>
-
-                    {/* Usage Column */}
-                    <td className="py-4 px-6 border-r border-slate-150 max-w-lg">
-                      {report.isStopped ? (
-                        <div className="flex items-center justify-start py-1">
-                          <span className="inline-flex items-center gap-1.5 bg-rose-100 text-rose-800 border border-rose-200 px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest animate-pulse">
-                            <AlertTriangle size={12} className="shrink-0" />
-                            {report.usage || "Plant Stopped / Not Running"}
-                          </span>
-                        </div>
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-extrabold uppercase tracking-wider ${
+                      report.shift === 'day' 
+                        ? 'bg-amber-50 text-amber-700 border border-amber-100' 
+                        : 'bg-purple-50 text-purple-700 border border-purple-200'
+                    }`}>
+                      {report.shift === 'day' ? (
+                        <Sun size={9} className="text-amber-500 stroke-[2]" />
                       ) : (
-                        <span className="text-slate-700 font-semibold leading-relaxed">
+                        <Moon size={9} className="text-purple-600 stroke-[2]" />
+                      )}
+                      {report.shift === 'day' ? 'Day Shift' : 'Night Shift'}
+                    </span>
+                  </div>
+
+                  {/* Card Body: Usage and Wastage */}
+                  <div className="space-y-3">
+                    <div>
+                      <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-1">Raw Material Usage Details</span>
+                      {report.isStopped ? (
+                        <span className="inline-flex items-center gap-1.5 bg-rose-100 text-rose-800 border border-rose-200 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest animate-pulse">
+                          <AlertTriangle size={11} className="shrink-0" />
+                          {report.usage || "Plant Stopped / Not Running"}
+                        </span>
+                      ) : (
+                        <p className="text-slate-700 text-xs font-semibold leading-relaxed bg-slate-50/50 p-2.5 rounded-2xl border border-slate-100">
                           {report.usage}
-                        </span>
+                        </p>
                       )}
-                    </td>
+                    </div>
 
-                    {/* Wastage Column */}
-                    <td className="py-4 px-6 border-r border-slate-150 text-center font-mono">
-                      {report.isStopped ? (
-                        <span className="text-slate-350">—</span>
-                      ) : (
-                        <span className="text-slate-850">
-                          {report.wastage || 0} <span className="text-[9px] text-slate-400 font-extrabold uppercase">kg</span>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-slate-50/30 p-2 rounded-xl border border-slate-100/50">
+                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5">Wastage weight</span>
+                        {report.isStopped ? (
+                          <span className="text-slate-350 font-bold">—</span>
+                        ) : (
+                          <span className="text-slate-850 font-mono text-xs font-bold">
+                            {report.wastage || 0} <span className="text-[9px] text-slate-400 font-extrabold uppercase">kg</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="bg-slate-50/30 p-2 rounded-xl border border-slate-100/50">
+                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5">Data Origin</span>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider ${
+                          report.isAutoGenerated 
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
+                            : 'bg-indigo-50 text-indigo-700 border border-indigo-100'
+                        }`}>
+                          {report.isAutoGenerated ? 'Auto Synced' : 'Manual Override'}
                         </span>
+                      </div>
+                    </div>
+
+                    {report.remarks && (
+                      <div className="bg-amber-50/30 p-2.5 rounded-2xl border border-amber-100/40 text-[11px] text-slate-600 font-medium italic">
+                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block not-italic mb-1">Remarks</span>
+                        "{report.remarks}"
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Card Actions Footer */}
+                  {!viewOnly && (
+                    <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => handleEditClick(report)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-xl transition-all cursor-pointer text-[10px] font-extrabold uppercase tracking-wider border border-slate-200"
+                        title="Edit / Override Report"
+                      >
+                        <Edit2 size={11} className="stroke-[2.5]" />
+                        Edit
+                      </button>
+                      
+                      {!report.isAutoGenerated && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteEntry(report.id, `${formatDateLabel(report.date)} (${report.shift.toUpperCase()})`)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 rounded-xl transition-all cursor-pointer text-[10px] font-extrabold uppercase tracking-wider border border-rose-100"
+                          title="Delete Manual Override"
+                        >
+                          <Trash2 size={11} />
+                          Delete
+                        </button>
                       )}
-                    </td>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
 
-                    {/* Data Origin */}
-                    <td className="py-4 px-6 border-r border-slate-150 text-center">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider ${
-                        report.isAutoGenerated 
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
-                          : 'bg-indigo-50 text-indigo-700 border border-indigo-100'
-                      }`}>
-                        {report.isAutoGenerated ? 'Auto Synced' : 'Manual Override'}
-                      </span>
-                    </td>
-
-                    {/* Remarks Column */}
-                    <td className="py-4 px-6 border-r border-slate-150 text-center font-normal text-slate-500 italic max-w-[180px] truncate" title={report.remarks || ''}>
-                      {report.remarks || '—'}
-                    </td>
-
-                    {/* Actions */}
-                    {!viewOnly && (
-                      <td className="py-4 px-6 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-2.5">
-                          <button
-                            type="button"
-                            onClick={() => handleEditClick(report)}
-                            className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-900 rounded-lg transition-colors cursor-pointer"
-                            title="Edit / Override Report"
-                            id={`edit-btn-${report.id}`}
-                          >
-                            <Edit2 size={13} className="stroke-[2.5]" />
-                          </button>
-                          
-                          {!report.isAutoGenerated && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteEntry(report.id, `${formatDateLabel(report.date)} (${report.shift.toUpperCase()})`)}
-                              className="p-1.5 hover:bg-rose-50 text-rose-500 hover:text-rose-700 rounded-lg transition-colors cursor-pointer"
-                              title="Delete Manual Override"
-                              id={`delete-btn-${report.id}`}
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          )}
+            {/* 💻 Desktop Table View (Hidden on mobile screens, shown on md and up) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full border-collapse text-left">
+                <thead>
+                  <tr className="bg-slate-900 text-slate-200 text-[10px] font-black uppercase tracking-wider border-b border-slate-800 select-none">
+                    <th className="py-3 px-6 border-r border-slate-800">Date</th>
+                    <th className="py-3 px-6 border-r border-slate-800 text-center">Shift</th>
+                    <th className="py-3 px-6 border-r border-slate-800">Raw Material Usage Description</th>
+                    <th className="py-3 px-6 border-r border-slate-800 text-center">Wastage (kg)</th>
+                    <th className="py-3 px-6 border-r border-slate-800 text-center">Data Origin</th>
+                    <th className="py-3 px-6 border-r border-slate-800 text-center">Remarks</th>
+                    {!viewOnly && <th className="py-3 px-6 text-center">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-150 font-bold text-slate-800 text-xs">
+                  {filteredReports.map((report) => (
+                    <tr 
+                      key={report.id} 
+                      className={`hover:bg-slate-50/50 transition-colors ${report.isStopped ? 'bg-rose-50/30' : ''}`}
+                      id={`row-${report.id}`}
+                    >
+                      
+                      {/* Date Column */}
+                      <td className="py-4 px-6 border-r border-slate-150 whitespace-nowrap">
+                        <div className="flex items-center gap-2.5">
+                          <CalendarIcon size={14} className="text-slate-400" />
+                          <span className="font-mono">{formatDateLabel(report.date)}</span>
                         </div>
                       </td>
-                    )}
 
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      {/* Shift Column */}
+                      <td className="py-4 px-6 border-r border-slate-150 text-center">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
+                          report.shift === 'day' 
+                            ? 'bg-amber-50 text-amber-700 border border-amber-100' 
+                            : 'bg-purple-50 text-purple-700 border border-purple-200'
+                        }`}>
+                          {report.shift === 'day' ? (
+                            <Sun size={10} className="text-amber-500 stroke-[2.5]" />
+                          ) : (
+                            <Moon size={10} className="text-purple-600 stroke-[2.5]" />
+                          )}
+                          {report.shift === 'day' ? 'Day Shift' : 'Night Shift'}
+                        </span>
+                      </td>
+
+                      {/* Usage Column */}
+                      <td className="py-4 px-6 border-r border-slate-150 max-w-lg">
+                        {report.isStopped ? (
+                          <div className="flex items-center justify-start py-1">
+                            <span className="inline-flex items-center gap-1.5 bg-rose-100 text-rose-800 border border-rose-200 px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest animate-pulse">
+                              <AlertTriangle size={12} className="shrink-0" />
+                              {report.usage || "Plant Stopped / Not Running"}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-700 font-semibold leading-relaxed">
+                            {report.usage}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Wastage Column */}
+                      <td className="py-4 px-6 border-r border-slate-150 text-center font-mono">
+                        {report.isStopped ? (
+                          <span className="text-slate-350">—</span>
+                        ) : (
+                          <span className="text-slate-850">
+                            {report.wastage || 0} <span className="text-[9px] text-slate-400 font-extrabold uppercase">kg</span>
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Data Origin */}
+                      <td className="py-4 px-6 border-r border-slate-150 text-center">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider ${
+                          report.isAutoGenerated 
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
+                            : 'bg-indigo-50 text-indigo-700 border border-indigo-100'
+                        }`}>
+                          {report.isAutoGenerated ? 'Auto Synced' : 'Manual Override'}
+                        </span>
+                      </td>
+
+                      {/* Remarks Column */}
+                      <td className="py-4 px-6 border-r border-slate-150 text-center font-normal text-slate-500 italic max-w-[180px] truncate" title={report.remarks || ''}>
+                        {report.remarks || '—'}
+                      </td>
+
+                      {/* Actions */}
+                      {!viewOnly && (
+                        <td className="py-4 px-6 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-2.5">
+                            <button
+                              type="button"
+                              onClick={() => handleEditClick(report)}
+                              className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-900 rounded-lg transition-colors cursor-pointer"
+                              title="Edit / Override Report"
+                              id={`edit-btn-${report.id}`}
+                            >
+                              <Edit2 size={13} className="stroke-[2.5]" />
+                            </button>
+                            
+                            {!report.isAutoGenerated && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteEntry(report.id, `${formatDateLabel(report.date)} (${report.shift.toUpperCase()})`)}
+                                className="p-1.5 hover:bg-rose-50 text-rose-500 hover:text-rose-700 rounded-lg transition-colors cursor-pointer"
+                                title="Delete Manual Override"
+                                id={`delete-btn-${report.id}`}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
+
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
       </div>
