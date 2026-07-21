@@ -266,6 +266,13 @@ export default function App() {
             changed = true;
           }
 
+          // Retrieve & restore deleted contractor column data for the 5 known contractor staff
+          const puranChandIds = ['44', '45', '46', '47', '50'];
+          if (puranChandIds.includes(emp.id) && emp.contractor !== 'PURAN CHAND') {
+            updated.contractor = 'PURAN CHAND';
+            changed = true;
+          }
+
           if (changed) {
             migrationNeeded = true;
             migrationBatch.set(doc(db, 'employees', emp.id), updated);
@@ -1585,6 +1592,7 @@ export default function App() {
         name: string;
         designation: string;
         department: string;
+        contractor?: string;
         sundayPaid?: string;
         shiftTime?: string;
         phone?: string;
@@ -1593,10 +1601,20 @@ export default function App() {
         salaryType?: 'daily' | 'fixed';
       }> = [];
 
+      let currentSectionContractor = 'SELF';
+
       lines.forEach(line => {
         const trimmed = line.trim();
         if (!trimmed) return;
-        if (trimmed.startsWith('S.NO.') || trimmed.includes('BASIC SALARY OF THE EMPLOYEES') || trimmed.includes('PLANT STAFF') || trimmed.includes('PURAN CHAND CONTRACTOR')) {
+        if (trimmed.includes('PURAN CHAND CONTRACTOR')) {
+          currentSectionContractor = 'PURAN CHAND';
+          return;
+        }
+        if (trimmed.includes('PLANT STAFF') || trimmed.includes('BASIC SALARY OF THE EMPLOYEES')) {
+          currentSectionContractor = 'SELF';
+          return;
+        }
+        if (trimmed.startsWith('S.NO.')) {
           return;
         }
 
@@ -1644,6 +1662,7 @@ export default function App() {
           name: rawName,
           designation,
           department,
+          contractor: currentSectionContractor,
           sundayPaid: sundayPaidStr ? (sundayPaidStr.toLowerCase().includes('not') ? 'Not Paid' : 'Paid') : undefined,
           shiftTime: dutyTiming === '001' ? '08:00-20:00' : (dutyTiming || undefined),
           phone: contactNo || undefined,
@@ -1684,6 +1703,7 @@ export default function App() {
             department: match.department || emp.department || 'Unassigned',
             designation: match.designation || emp.designation || 'Unassigned',
             role: match.designation || emp.role || 'Unassigned',
+            contractor: match.contractor || emp.contractor || 'SELF',
             monthlySalary: finalSalary,
             salaryType: finalSalaryType,
           };
@@ -1707,15 +1727,20 @@ export default function App() {
           if (updatedEmp.department !== undefined) sanitized.department = updatedEmp.department;
           if (updatedEmp.designation !== undefined) sanitized.designation = updatedEmp.designation;
           if (updatedEmp.role !== undefined) sanitized.role = updatedEmp.role;
+          if (updatedEmp.contractor !== undefined) sanitized.contractor = updatedEmp.contractor;
           if (updatedEmp.shiftTime !== undefined) sanitized.shiftTime = updatedEmp.shiftTime;
+          if (updatedEmp.shift !== undefined) sanitized.shift = updatedEmp.shift;
           if (updatedEmp.phone !== undefined) sanitized.phone = updatedEmp.phone;
+          if (updatedEmp.email !== undefined) sanitized.email = updatedEmp.email;
           if (updatedEmp.address !== undefined) sanitized.address = updatedEmp.address;
           if (updatedEmp.gender !== undefined) sanitized.gender = updatedEmp.gender;
           if (updatedEmp.dob !== undefined) sanitized.dob = updatedEmp.dob;
           if (updatedEmp.notes !== undefined) sanitized.notes = updatedEmp.notes;
           if (updatedEmp.documents !== undefined) sanitized.documents = updatedEmp.documents;
+          if (updatedEmp.advancePayment !== undefined) sanitized.advancePayment = Number(updatedEmp.advancePayment) || 0;
+          if (updatedEmp.foodBalance !== undefined) sanitized.foodBalance = Number(updatedEmp.foodBalance) || 0;
 
-          batch.set(doc(db, 'employees', emp.id), sanitized);
+          batch.set(doc(db, 'employees', emp.id), sanitized, { merge: true });
           return updatedEmp;
         }
 
