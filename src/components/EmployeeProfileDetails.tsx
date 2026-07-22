@@ -640,7 +640,7 @@ export default function EmployeeProfileDetails({
       const isSunday = dateObj.getDay() === 0;
       const isFixed = (employee.salaryType || 'fixed') === 'fixed';
       if (isSunday && isFixed) {
-        if (sundayPaidRule === '26Days') {
+        if (sundayPaidRule === '26Days' && employee.sundayPaid === 'Paid') {
           return true;
         } else if (employee.sundayPaid === 'Not Paid') {
           return true;
@@ -684,7 +684,7 @@ export default function EmployeeProfileDetails({
   const isDailyBasis = employee.salaryType === 'daily';
   
   const isSundayPaid = employee.sundayPaid === 'Paid';
-  const calculationDivisor = (sundayPaidRule === '26Days') ? 26 : (workingDays > 0 ? workingDays : 26);
+  const calculationDivisor = (sundayPaidRule === '26Days' && isSundayPaid) ? 26 : (workingDays > 0 ? workingDays : 26);
   
   const dynamicDailyRate = isDailyBasis ? baseSalary : (baseSalary > 0 && calculationDivisor > 0 ? baseSalary/calculationDivisor : 0);
   const dynamicHourlyRate = dynamicDailyRate > 0 && workingHoursPerDay > 0 ? dynamicDailyRate / workingHoursPerDay : 0;
@@ -703,7 +703,7 @@ export default function EmployeeProfileDetails({
         const dateObj = new Date(d);
         const isSunday = dateObj.getDay() === 0;
         const isFixed = (employee.salaryType || 'fixed') === 'fixed';
-        if (isSunday && isFixed && (sundayPaidRule === '26Days' || employee.sundayPaid === 'Paid')) {
+        if (isSunday && isFixed && isSundayPaid) {
           liveSundayOTDays++;
         }
       }
@@ -713,7 +713,7 @@ export default function EmployeeProfileDetails({
   }
 
   const isFixed = employee.salaryType === 'fixed';
-  const isSundayOTEligible = isFixed && (sundayPaidRule === '26Days' || employee.sundayPaid === 'Paid');
+  const isSundayOTEligible = isFixed && isSundayPaid;
   const liveSundayOTAmount = isSundayOTEligible ? (liveSundayOTDays * dynamicDailyRate) : 0;
   
   // Overtime logs for the specific active ledger month & year
@@ -863,7 +863,7 @@ export default function EmployeeProfileDetails({
           const isSunday = dateObj.getDay() === 0;
           const isFixed = (employee.salaryType || 'fixed') === 'fixed';
           if (isSunday && isFixed) {
-            if (sundayPaidRule === '26Days') {
+            if (sundayPaidRule === '26Days' && employee.sundayPaid === 'Paid') {
               return true;
             } else if (employee.sundayPaid === 'Not Paid') {
               return true;

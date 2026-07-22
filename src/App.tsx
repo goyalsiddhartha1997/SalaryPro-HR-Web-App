@@ -798,22 +798,20 @@ export default function App() {
             const dateObj = new Date(date);
             const isSunday = dateObj.getDay() === 0;
             const isFixed = finalSalaryType === 'fixed';
-            if (isSunday && isFixed) {
-              if (sundayPaidRule === '26Days' || emp.sundayPaid === 'Paid') {
-                sundayOTDays++;
-              }
+            if (isSunday && isFixed && emp.sundayPaid === 'Paid') {
+              sundayOTDays++;
             }
           } else {
             const dateObj = new Date(date);
             const isSunday = dateObj.getDay() === 0;
             const isFixed = finalSalaryType === 'fixed';
             if (isSunday && isFixed) {
-              if (sundayPaidRule === '26Days') {
+              if (sundayPaidRule === '26Days' && emp.sundayPaid === 'Paid') {
                 calculatedAbsentDays++;
               } else if (emp.sundayPaid === 'Not Paid') {
                 calculatedAbsentDays++;
               } else {
-                // Absent on Sunday is not deducted for fixed salary employees
+                // Absent on Sunday is not deducted for fixed salary employees when sundayPaid === 'Paid' under totalMonthDays rule
               }
             } else {
               calculatedAbsentDays++;
