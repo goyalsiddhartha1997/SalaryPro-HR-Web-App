@@ -400,6 +400,8 @@ interface ExcelTableProps {
   ledgerYear?: number;
   setLedgerYear?: (y: number) => void;
   onOpenRecycleBin?: () => void;
+  sundayPaidRule?: 'totalMonthDays' | '26Days';
+  setSundayPaidRule?: React.Dispatch<React.SetStateAction<'totalMonthDays' | '26Days'>>;
 }
 
 export default function ExcelTable({
@@ -418,7 +420,9 @@ export default function ExcelTable({
   setLedgerMonth = () => {},
   ledgerYear = 2026,
   setLedgerYear = () => {},
-  onOpenRecycleBin
+  onOpenRecycleBin,
+  sundayPaidRule = 'totalMonthDays',
+  setSundayPaidRule
 }: ExcelTableProps) {
   // Search & Filter state
   const [filterOpts, setFilterOpts] = useState<FilterOptions>({
@@ -1004,6 +1008,21 @@ export default function ExcelTable({
               ))}
             </select>
           </div>
+
+          {/* Sunday Paid Calculation Rule Selector */}
+          {setSundayPaidRule && (
+            <div className="flex items-center gap-1.5 bg-emerald-50/90 border border-emerald-200 rounded-lg px-2 py-1 text-xs font-semibold text-emerald-900 shadow-2xs" title="Sunday Paid Calculation Rule: choose 26 Days Rule or Total Month Days">
+              <span className="text-[10px] font-extrabold uppercase text-emerald-700 tracking-wider hidden sm:inline select-none">Sunday Rule:</span>
+              <select
+                value={sundayPaidRule}
+                onChange={(e) => setSundayPaidRule(e.target.value as 'totalMonthDays' | '26Days')}
+                className="bg-white border border-emerald-300 rounded-md text-xs font-bold text-slate-800 px-2 py-0.5 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 cursor-pointer shadow-2xs"
+              >
+                <option value="26Days">26 Days Rule</option>
+                <option value="totalMonthDays">Total Month Days</option>
+              </select>
+            </div>
+          )}
 
           {/* Lock/Unlock Switch */}
           {!isUnlocked ? (

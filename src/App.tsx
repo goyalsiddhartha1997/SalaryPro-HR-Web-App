@@ -798,15 +798,19 @@ export default function App() {
             const dateObj = new Date(date);
             const isSunday = dateObj.getDay() === 0;
             const isFixed = finalSalaryType === 'fixed';
-            if (isSunday && isFixed && emp.sundayPaid === 'Paid') {
-              sundayOTDays++;
+            if (isSunday && isFixed) {
+              if (sundayPaidRule === '26Days' || emp.sundayPaid === 'Paid') {
+                sundayOTDays++;
+              }
             }
           } else {
             const dateObj = new Date(date);
             const isSunday = dateObj.getDay() === 0;
             const isFixed = finalSalaryType === 'fixed';
             if (isSunday && isFixed) {
-              if (emp.sundayPaid === 'Not Paid') {
+              if (sundayPaidRule === '26Days') {
+                calculatedAbsentDays++;
+              } else if (emp.sundayPaid === 'Not Paid') {
                 calculatedAbsentDays++;
               } else {
                 // Absent on Sunday is not deducted for fixed salary employees
@@ -857,7 +861,7 @@ export default function App() {
         elapsedDays: elapsedDays,
       };
     });
-  }, [employees, allPunchLogs, allMonthlyOverrides, ledgerMonth, ledgerYear]);
+  }, [employees, allPunchLogs, allMonthlyOverrides, ledgerMonth, ledgerYear, sundayPaidRule]);
 
   // Compute calculated row fields dynamically on active dataset changes
   const computedEmployees = useMemo(() => {
@@ -2897,6 +2901,8 @@ export default function App() {
                   setLedgerMonth={setLedgerMonth}
                   ledgerYear={ledgerYear}
                   setLedgerYear={setLedgerYear}
+                  sundayPaidRule={sundayPaidRule}
+                  setSundayPaidRule={setSundayPaidRule}
                 />
               </div>
             </div>

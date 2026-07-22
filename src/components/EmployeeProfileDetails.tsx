@@ -640,7 +640,9 @@ export default function EmployeeProfileDetails({
       const isSunday = dateObj.getDay() === 0;
       const isFixed = (employee.salaryType || 'fixed') === 'fixed';
       if (isSunday && isFixed) {
-        if (employee.sundayPaid === 'Not Paid') {
+        if (sundayPaidRule === '26Days') {
+          return true;
+        } else if (employee.sundayPaid === 'Not Paid') {
           return true;
         }
         return false; // Absent on Sunday is not counted for fixed basis salary employees if Sunday is Paid
@@ -682,7 +684,7 @@ export default function EmployeeProfileDetails({
   const isDailyBasis = employee.salaryType === 'daily';
   
   const isSundayPaid = employee.sundayPaid === 'Paid';
-  const calculationDivisor = (sundayPaidRule === '26Days' && isSundayPaid) ? 26 : (workingDays > 0 ? workingDays : 26);
+  const calculationDivisor = (sundayPaidRule === '26Days') ? 26 : (workingDays > 0 ? workingDays : 26);
   
   const dynamicDailyRate = isDailyBasis ? baseSalary : (baseSalary > 0 && calculationDivisor > 0 ? baseSalary/calculationDivisor : 0);
   const dynamicHourlyRate = dynamicDailyRate > 0 && workingHoursPerDay > 0 ? dynamicDailyRate / workingHoursPerDay : 0;
@@ -701,7 +703,7 @@ export default function EmployeeProfileDetails({
         const dateObj = new Date(d);
         const isSunday = dateObj.getDay() === 0;
         const isFixed = (employee.salaryType || 'fixed') === 'fixed';
-        if (isSunday && isFixed && employee.sundayPaid === 'Paid') {
+        if (isSunday && isFixed && (sundayPaidRule === '26Days' || employee.sundayPaid === 'Paid')) {
           liveSundayOTDays++;
         }
       }
@@ -711,7 +713,8 @@ export default function EmployeeProfileDetails({
   }
 
   const isFixed = employee.salaryType === 'fixed';
-  const liveSundayOTAmount = (isFixed && employee.sundayPaid === 'Paid') ? (liveSundayOTDays * dynamicDailyRate) : 0;
+  const isSundayOTEligible = isFixed && (sundayPaidRule === '26Days' || employee.sundayPaid === 'Paid');
+  const liveSundayOTAmount = isSundayOTEligible ? (liveSundayOTDays * dynamicDailyRate) : 0;
   
   // Overtime logs for the specific active ledger month & year
   const calendarMonthlyOtLogs = employeeOvertimeLogs.filter(log => {
@@ -860,7 +863,9 @@ export default function EmployeeProfileDetails({
           const isSunday = dateObj.getDay() === 0;
           const isFixed = (employee.salaryType || 'fixed') === 'fixed';
           if (isSunday && isFixed) {
-            if (employee.sundayPaid === 'Not Paid') {
+            if (sundayPaidRule === '26Days') {
+              return true;
+            } else if (employee.sundayPaid === 'Not Paid') {
               return true;
             }
             return false;
@@ -1462,7 +1467,7 @@ export default function EmployeeProfileDetails({
                     <span className="text-xs font-bold text-slate-700 font-mono" title={isDailyBasis ? `${baseSalary} / ${workingHoursPerDay}` : `(${baseSalary} / ${calculationDivisor}) / ${workingHoursPerDay}`}>{formatINR(dynamicHourlyRate)} / hour</span>
                   </div>
 
-                  {isFixed && employee.sundayPaid === 'Paid' && (
+                  {isFixed && (sundayPaidRule === '26Days' || employee.sundayPaid === 'Paid') && (
                     <div className="flex justify-between items-center border-t border-slate-100/70 pt-2.5">
                       <div>
                         <span className="text-xs font-semibold text-slate-500 block">Sunday Overtime (OT)</span>

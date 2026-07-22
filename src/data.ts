@@ -64,9 +64,8 @@ export function calculateSalary(emp: Employee, sundayPaidRule: 'totalMonthDays' 
   const safeAbsHours = Math.max(0, absHours);
   const safeAbsMins = Math.max(0, Math.min(59, absMins));
 
-  // Determine the dynamic calculation divisor for Sunday paid employees
-  const isSundayPaid = emp.sundayPaid === 'Paid';
-  const calculationDivisor = (sundayPaidRule === '26Days' && isSundayPaid) ? 26 : safeDays;
+  // Determine the dynamic calculation divisor
+  const calculationDivisor = (sundayPaidRule === '26Days') ? 26 : safeDays;
 
   // Intermediate Calculations in full precision based on salary basis
   let rawDailyRate = 0;
@@ -96,10 +95,11 @@ export function calculateSalary(emp: Employee, sundayPaidRule: 'totalMonthDays' 
     });
   }
   
-  // Calculate Sunday OT for fixed basis salary employees when Sunday is Paid and they worked it
+  // Calculate Sunday OT for fixed basis salary employees when Sunday is worked (under 26Days rule or when Sunday is Paid)
   const isFixed = salaryType === 'fixed';
   const sundayOTDays = emp.sundayOTDays || 0;
-  const rawSundayOTAmount = (isFixed && emp.sundayPaid === 'Paid') ? (sundayOTDays * rawDailyRate) : 0;
+  const isSundayOTEligible = isFixed && (sundayPaidRule === '26Days' || emp.sundayPaid === 'Paid');
+  const rawSundayOTAmount = isSundayOTEligible ? (sundayOTDays * rawDailyRate) : 0;
 
   const rawTotalDeduction = rawDeductionFullDay + rawDeductionHourly + rawDeductionPartialDay + advance + food;
   const rawFinalPayable = Math.max(0, rawBaseMonthly + rawSundayOTAmount - rawTotalDeduction);
