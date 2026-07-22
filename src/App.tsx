@@ -994,10 +994,13 @@ export default function App() {
         if (emp.designation !== undefined) sanitized.designation = emp.designation;
         if (emp.sundayPaid !== undefined) sanitized.sundayPaid = emp.sundayPaid;
         if (emp.salaryType !== undefined) sanitized.salaryType = emp.salaryType;
+        if (emp.contractor !== undefined) sanitized.contractor = emp.contractor;
+        if (emp.activeStatus !== undefined) sanitized.activeStatus = emp.activeStatus;
+        if (emp.shift !== undefined) sanitized.shift = emp.shift;
         if (emp.advancePayment !== undefined) sanitized.advancePayment = Number(emp.advancePayment) || 0;
         if (emp.foodBalance !== undefined) sanitized.foodBalance = Number(emp.foodBalance) || 0;
 
-        batch.set(doc(db, 'employees', emp.id), sanitized);
+        batch.set(doc(db, 'employees', emp.id), sanitized, { merge: true });
       });
 
       // 2. Erase records that exist currently but were absent in the restored history checkpoint
@@ -1245,15 +1248,15 @@ export default function App() {
     if (targetEmployee.department !== undefined) sanitized.department = targetEmployee.department;
     if (targetEmployee.designation !== undefined) sanitized.designation = targetEmployee.designation;
     if (targetEmployee.role !== undefined) sanitized.role = targetEmployee.role;
-    if (targetEmployee.contractor !== undefined) sanitized.contractor = targetEmployee.contractor;
-    if (targetEmployee.activeStatus !== undefined) sanitized.activeStatus = targetEmployee.activeStatus;
+    sanitized.contractor = targetEmployee.contractor !== undefined ? targetEmployee.contractor : "";
+    sanitized.activeStatus = targetEmployee.activeStatus !== undefined ? targetEmployee.activeStatus : "ACTIVE";
+    sanitized.shift = targetEmployee.shift !== undefined ? targetEmployee.shift : "DAY";
     if (targetEmployee.email !== undefined) sanitized.email = targetEmployee.email;
     if (targetEmployee.phone !== undefined) sanitized.phone = targetEmployee.phone;
     if (targetEmployee.gender !== undefined) sanitized.gender = targetEmployee.gender;
     if (targetEmployee.dob !== undefined) sanitized.dob = targetEmployee.dob;
     if (targetEmployee.address !== undefined) sanitized.address = targetEmployee.address;
     if (targetEmployee.shiftTime !== undefined) sanitized.shiftTime = targetEmployee.shiftTime;
-    if (targetEmployee.shift !== undefined) sanitized.shift = targetEmployee.shift;
     if (targetEmployee.notes !== undefined) sanitized.notes = targetEmployee.notes;
     if (targetEmployee.documents !== undefined) sanitized.documents = targetEmployee.documents;
     if (targetEmployee.advancePayment !== undefined) sanitized.advancePayment = Number(targetEmployee.advancePayment) || 0;
@@ -1262,7 +1265,7 @@ export default function App() {
     try {
       if (isIdChange) {
         const batch = writeBatch(db);
-        batch.set(doc(db, 'employees', finalDocId), sanitized);
+        batch.set(doc(db, 'employees', finalDocId), sanitized, { merge: true });
         batch.delete(doc(db, 'employees', id));
 
         // 1. Fetch and copy punches logs subcollection
@@ -1315,7 +1318,7 @@ export default function App() {
           setSelectedEmployeeId(finalDocId);
         }
       } else {
-        await setDoc(doc(db, 'employees', id), sanitized);
+        await setDoc(doc(db, 'employees', id), sanitized, { merge: true });
       }
 
       if (updatedFields.monthlySalary !== undefined || updatedFields.salaryType !== undefined) {
@@ -1388,6 +1391,11 @@ export default function App() {
       absentHours: 0,
       absentMinutes: 0,
       role: 'Staff Consultant',
+      designation: 'Staff Consultant',
+      department: 'Unassigned',
+      contractor: '',
+      activeStatus: 'ACTIVE',
+      shift: 'DAY',
       shiftTime: '08:00 - 17:00',
       notes: [],
       documents: []
