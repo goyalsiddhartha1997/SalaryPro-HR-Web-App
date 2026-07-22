@@ -93,6 +93,28 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [inlineLaminationSelection, setInlineLaminationSelection] = useState<string>('LAMINATION');
   const [inlineLaminationCustom, setInlineLaminationCustom] = useState<string>('');
 
+  // --- ROLL NUMBERS POP-UP MODAL STATES ---
+  const [isRollModalOpen, setIsRollModalOpen] = useState<boolean>(false);
+  const [rollModalContext, setRollModalContext] = useState<{
+    orderId?: string;
+    subOrderIdx?: number;
+    isDraftNew?: boolean;
+    isInlineEdit?: boolean;
+  } | null>(null);
+  const [rollModalTitle, setRollModalTitle] = useState<string>('');
+  const [rollModalTargetNoOfRolls, setRollModalTargetNoOfRolls] = useState<number>(0);
+  const [rollNumbersList, setRollNumbersList] = useState<string[]>([]);
+  const [newRollInput, setNewRollInput] = useState<string>('');
+  const [bulkRollInput, setBulkRollInput] = useState<string>('');
+  const [isBulkRollMode, setIsBulkRollMode] = useState<boolean>(false);
+  const [rollSearchQuery, setRollSearchQuery] = useState<string>('');
+
+  // Suborder draft roll numbers (for new sub-order being created)
+  const [subRollNumbers, setSubRollNumbers] = useState<string[]>([]);
+
+  // Suborder inline edit roll numbers
+  const [inlineRollNumbers, setInlineRollNumbers] = useState<string[]>([]);
+
   // --- FILTER & SEARCH STATES ---
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchDate, setSearchDate] = useState<string>('');
@@ -279,7 +301,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         ["PP FABRIC MANUFACTURING SPECIFICATIONS SHEET"],
         ["Order Reference:", modalOrder.orderNo, "", "Logged Date:", modalOrder.date, "", "Overall Status:", modalOrder.status],
         [], // empty spacer row
-        ["#", "Weave Quality", "Lamination Type", "Size / Width", "GSM", "Denier", "Fabric Weight (g)", "Target (Tons)", "Completed (Tons)", "Status", "Remarks"]
+        ["#", "Weave Quality", "Lamination Type", "Size / Width", "GSM", "Denier", "Fabric Weight (g)", "No. of Rolls", "Roll Numbers List", "Target (Tons)", "Completed (Tons)", "Status", "Remarks"]
       ];
 
       // 2. Prepare items rows
@@ -291,6 +313,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         row.gsm || 0,
         row.denier || 0,
         row.fabricWeight || 0,
+        row.noOfRolls || 0,
+        (row.rollNumbers || []).join(', '),
         row.totalQuantity || 0,
         row.productionCompleted || 0,
         row.status || 'Pending',
@@ -314,6 +338,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         { wch: 10 }, // GSM
         { wch: 10 }, // Denier
         { wch: 15 }, // Fabric weight
+        { wch: 12 }, // No of rolls
+        { wch: 30 }, // Roll numbers
         { wch: 15 }, // Target Quantity
         { wch: 18 }, // Production Completed
         { wch: 12 }, // Status
@@ -384,6 +410,144 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     } else {
       setInlineNoOfRolls(String(current - 1));
     }
+  };
+
+  // Helper to sort roll numbers in ascending natural alphanumeric order
+  const sortRollNumbersAscending = (rolls: string[]): string[] => {
+    return [...rolls].sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    );
+  };
+
+  // --- ROLL NUMBERS MODAL HANDLERS ---
+  const handleOpenRollModal = (
+    context: { orderId?: string; subOrderIdx?: number; isDraftNew?: boolean; isInlineEdit?: boolean },
+    title: string,
+    targetRolls: number,
+    existingRolls: string[]
+  ) => {
+    setRollModalContext(context);
+    setRollModalTitle(title);
+    setRollModalTargetNoOfRolls(targetRolls);
+    setRollNumbersList(sortRollNumbersAscending(existingRolls || []));
+    setNewRollInput('');
+    setBulkRollInput('');
+    setRollSearchQuery('');
+    setIsBulkRollMode(false);
+    setIsRollModalOpen(true);
+  };
+
+  const syncRollNumbersStateAndFirestore = async (updatedRolls: string[]) => {
+    if (!rollModalContext) return;
+
+    const sortedRolls = sortRollNumbersAscending(updatedRolls);
+
+    if (rollModalContext.isDraftNew) {
+      setSubRollNumbers(sortedRolls);
+      if (!subNoOfRolls || parseInt(subNoOfRolls, 10) < sortedRolls.length) {
+        setSubNoOfRolls(String(sortedRolls.length));
+      }
+    } else if (rollModalContext.isInlineEdit) {
+      setInlineRollNumbers(sortedRolls);
+      if (!inlineNoOfRolls || parseInt(inlineNoOfRolls, 10) < sortedRolls.length) {
+        setInlineNoOfRolls(String(sortedRolls.length));
+      }
+    } else if (rollModalContext.orderId !== undefined && rollModalContext.subOrderIdx !== undefined) {
+      // Saved order in Firestore
+      const targetOrder = orders.find(o => o.id === rollModalContext.orderId);
+      if (!targetOrder) return;
+
+      const updatedRows = [...targetOrder.rows];
+      const targetRow = { ...updatedRows[rollModalContext.subOrderIdx] };
+
+      targetRow.rollNumbers = sortedRolls;
+      if (targetRow.noOfRolls === undefined || targetRow.noOfRolls < sortedRolls.length) {
+        targetRow.noOfRolls = sortedRolls.length;
+      }
+
+      updatedRows[rollModalContext.subOrderIdx] = targetRow;
+
+      try {
+        const orderRef = doc(db, 'loomOrders', targetOrder.id);
+        await setDoc(orderRef, {
+          ...targetOrder,
+          rows: updatedRows
+        });
+      } catch (err) {
+        console.error("Failed to update roll numbers in Firestore", err);
+        triggerAlert('warn', 'Failed to save roll numbers update to database.');
+      }
+    }
+  };
+
+  const handleRecordSingleRollNumber = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const rollNo = newRollInput.trim();
+    if (!rollNo) {
+      triggerAlert('warn', 'Please enter a valid Roll Number.');
+      return;
+    }
+
+    if (rollNumbersList.includes(rollNo)) {
+      triggerAlert('warn', `Roll Number "${rollNo}" is already added to this sub-order.`);
+      return;
+    }
+
+    const updated = sortRollNumbersAscending([...rollNumbersList, rollNo]);
+    setRollNumbersList(updated);
+    setNewRollInput('');
+
+    await syncRollNumbersStateAndFirestore(updated);
+    triggerAlert('success', `Recorded Roll Number "${rollNo}".`);
+  };
+
+  const handleRecordBulkRollNumbers = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!bulkRollInput.trim()) {
+      triggerAlert('warn', 'Please enter comma or line separated roll numbers.');
+      return;
+    }
+
+    const items = bulkRollInput
+      .split(/[\n,]+/)
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    if (items.length === 0) {
+      triggerAlert('warn', 'No valid roll numbers found in input.');
+      return;
+    }
+
+    const newAdded: string[] = [];
+    const currentSet = new Set<string>(rollNumbersList);
+
+    items.forEach(item => {
+      if (!currentSet.has(item)) {
+        currentSet.add(item);
+        newAdded.push(item);
+      }
+    });
+
+    if (newAdded.length === 0) {
+      triggerAlert('warn', 'All entered roll numbers already exist in this list.');
+      return;
+    }
+
+    const updated = sortRollNumbersAscending(Array.from(currentSet));
+    setRollNumbersList(updated);
+    setBulkRollInput('');
+    setIsBulkRollMode(false);
+
+    await syncRollNumbersStateAndFirestore(updated);
+    triggerAlert('success', `Recorded ${newAdded.length} new roll numbers.`);
+  };
+
+  const handleDeleteRollNumber = async (indexToDelete: number) => {
+    const updated = sortRollNumbersAscending(rollNumbersList.filter((_, idx) => idx !== indexToDelete));
+    setRollNumbersList(updated);
+
+    await syncRollNumbersStateAndFirestore(updated);
+    triggerAlert('info', 'Roll number removed.');
   };
 
   // Add individual sub-order under the active Modal Order or Selected Order
@@ -465,6 +629,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
     if (rollsVal !== undefined) {
       newSubOrder.noOfRolls = rollsVal;
+    } else if (subRollNumbers.length > 0) {
+      newSubOrder.noOfRolls = subRollNumbers.length;
+    }
+
+    if (subRollNumbers.length > 0) {
+      newSubOrder.rollNumbers = subRollNumbers;
     }
 
     const updatedRows = [...(targetOrder.rows || []), newSubOrder];
@@ -490,6 +660,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       setSubNoOfRolls('');
       setSubLaminationSelection('LAMINATION');
       setSubLaminationCustom('');
+      setSubRollNumbers([]);
     } catch (err) {
       console.error("Failed to save sub-order", err);
       triggerAlert('warn', 'Failed to append sub-order item.');
@@ -509,6 +680,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     setInlineRemarks(row.remarks || '');
     setInlineRowStatus(row.status || 'Pending');
     setInlineNoOfRolls(row.noOfRolls !== undefined ? String(row.noOfRolls) : '');
+    setInlineRollNumbers(row.rollNumbers || []);
     
     const normalizedLaminationType = (row.laminationType || 'NON-LAMINATION').toUpperCase();
     if (normalizedLaminationType === 'LAMINATION' || normalizedLaminationType === 'LAMINATED') {
@@ -592,6 +764,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
     if (rollsVal !== undefined) {
       editedRow.noOfRolls = rollsVal;
+    } else if (inlineRollNumbers.length > 0) {
+      editedRow.noOfRolls = inlineRollNumbers.length;
+    }
+
+    if (inlineRollNumbers.length > 0) {
+      editedRow.rollNumbers = inlineRollNumbers;
+    } else if (targetOrder.rows[index]?.rollNumbers) {
+      editedRow.rollNumbers = targetOrder.rows[index].rollNumbers;
     }
 
     updatedRows[index] = editedRow;
@@ -1554,27 +1734,44 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
                                   {/* Rolls Input with Plus/Minus buttons */}
                                   <td className="py-2 px-1">
-                                    <div className="flex items-center gap-1 justify-center min-w-[120px]">
+                                    <div className="flex flex-col items-center gap-1 min-w-[120px]">
+                                      <div className="flex items-center gap-1 justify-center">
+                                        <button
+                                          type="button"
+                                          onClick={decrementInlineRolls}
+                                          className="h-7 w-7 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded border border-zinc-300 flex items-center justify-center font-bold text-xs select-none cursor-pointer"
+                                        >
+                                          -
+                                        </button>
+                                        <input
+                                          type="number"
+                                          value={inlineNoOfRolls}
+                                          onChange={(e) => setInlineNoOfRolls(e.target.value)}
+                                          placeholder="Rolls"
+                                          className="w-12 bg-white border border-zinc-300 rounded-lg px-1 py-1 text-xs text-center font-mono font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={incrementInlineRolls}
+                                          className="h-7 w-7 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded border border-zinc-300 flex items-center justify-center font-bold text-xs select-none cursor-pointer"
+                                        >
+                                          +
+                                        </button>
+                                      </div>
                                       <button
                                         type="button"
-                                        onClick={decrementInlineRolls}
-                                        className="h-7 w-7 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded border border-zinc-300 flex items-center justify-center font-bold text-xs select-none cursor-pointer"
+                                        onClick={() => {
+                                          handleOpenRollModal(
+                                            { isInlineEdit: true, orderId: modalOrder.id, subOrderIdx: originalIndex },
+                                            `Edit: ${inlineQuality || 'Quality'} - ${inlineSize || 'Size'}`,
+                                            parseInt(inlineNoOfRolls, 10) || 0,
+                                            inlineRollNumbers
+                                          );
+                                        }}
+                                        className="text-[9.5px] font-extrabold text-amber-700 hover:underline flex items-center gap-0.5 cursor-pointer"
                                       >
-                                        -
-                                      </button>
-                                      <input
-                                        type="number"
-                                        value={inlineNoOfRolls}
-                                        onChange={(e) => setInlineNoOfRolls(e.target.value)}
-                                        placeholder="Rolls"
-                                        className="w-12 bg-white border border-zinc-300 rounded-lg px-1 py-1 text-xs text-center font-mono font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={incrementInlineRolls}
-                                        className="h-7 w-7 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded border border-zinc-300 flex items-center justify-center font-bold text-xs select-none cursor-pointer"
-                                      >
-                                        +
+                                        <Layers size={10} className="text-amber-600" />
+                                        <span>Record Rolls ({inlineRollNumbers.length})</span>
                                       </button>
                                     </div>
                                   </td>
@@ -1685,8 +1882,28 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                   {row.fabricWeight}g
                                 </td>
 
-                                <td className="py-3 px-3 text-center font-mono text-xs font-bold text-zinc-800">
-                                  {row.noOfRolls !== undefined ? `${row.noOfRolls} rolls` : '—'}
+                                <td className="py-3 px-3 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleOpenRollModal(
+                                        { orderId: modalOrder.id, subOrderIdx: originalIndex },
+                                        `${row.quality} - ${row.size} (${row.gsm} GSM)`,
+                                        row.noOfRolls || 0,
+                                        row.rollNumbers || []
+                                      );
+                                    }}
+                                    className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-250 font-mono text-xs font-black transition-all shadow-3xs cursor-pointer group hover:scale-[1.02]"
+                                    title="Click to View & Record Roll Numbers"
+                                  >
+                                    <Layers size={13} className="text-amber-600 group-hover:scale-110 transition-transform" />
+                                    <span>{row.noOfRolls !== undefined ? `${row.noOfRolls} rolls` : '0 rolls'}</span>
+                                    {(row.rollNumbers?.length || 0) > 0 && (
+                                      <span className="bg-amber-600 text-white text-[9px] px-1.5 py-0.2 rounded-full font-sans font-black">
+                                        {row.rollNumbers?.length}
+                                      </span>
+                                    )}
+                                  </button>
                                 </td>
 
                                 <td className="py-3 px-3 text-right font-mono text-xs font-black text-zinc-900">
@@ -1736,7 +1953,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       </button>
                                     </div>
                                   ) : (
-                                    <div className="flex items-center justify-end gap-3">
+                                    <div className="flex items-center justify-end gap-2">
                                       <button
                                         onClick={() => {
                                           setDeleteConfirmSubIdx(null);
@@ -1892,6 +2109,21 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       +
                                     </button>
                                   </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleOpenRollModal(
+                                        { isInlineEdit: true, orderId: modalOrder.id, subOrderIdx: originalIndex },
+                                        `Edit: ${inlineQuality || 'Quality'} - ${inlineSize || 'Size'}`,
+                                        parseInt(inlineNoOfRolls, 10) || 0,
+                                        inlineRollNumbers
+                                      );
+                                    }}
+                                    className="mt-1 w-full text-[9.5px] font-extrabold text-amber-700 hover:underline flex items-center justify-center gap-1 cursor-pointer bg-amber-50 py-1 rounded border border-amber-200"
+                                  >
+                                    <Layers size={10} className="text-amber-600" />
+                                    <span>Record Rolls ({inlineRollNumbers.length})</span>
+                                  </button>
                                 </div>
                                 <div>
                                   <label className="text-[8px] font-black text-zinc-500 uppercase">Target (Tons)</label>
@@ -1983,8 +2215,31 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 <span className="font-bold text-zinc-800 font-mono">{row.fabricWeight}g</span>
                               </div>
                               <div>
-                                <span className="text-[7.5px] font-bold text-zinc-400 uppercase block">Rolls</span>
-                                <span className="font-bold text-zinc-800 font-mono">{row.noOfRolls || '—'}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleOpenRollModal(
+                                      { orderId: modalOrder.id, subOrderIdx: originalIndex },
+                                      `${row.quality} - ${row.size} (${row.gsm} GSM)`,
+                                      row.noOfRolls || 0,
+                                      row.rollNumbers || []
+                                    );
+                                  }}
+                                  className="w-full h-full flex flex-col items-center justify-center rounded bg-amber-50/80 hover:bg-amber-100/80 transition-colors cursor-pointer border border-amber-200/50 p-0.5"
+                                  title="View & Record Roll Numbers"
+                                >
+                                  <span className="text-[7.5px] font-extrabold text-amber-700 uppercase block flex items-center justify-center gap-0.5">
+                                    <Layers size={9} className="text-amber-600" /> Rolls
+                                  </span>
+                                  <span className="font-black text-amber-950 font-mono text-xs block">
+                                    {row.noOfRolls !== undefined ? `${row.noOfRolls}` : '0'}
+                                    {(row.rollNumbers?.length || 0) > 0 && (
+                                      <span className="ml-1 bg-amber-600 text-white text-[8px] px-1 py-0.2 rounded-full font-sans font-black">
+                                        {row.rollNumbers?.length}
+                                      </span>
+                                    )}
+                                  </span>
+                                </button>
                               </div>
                             </div>
 
@@ -2195,6 +2450,21 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           +
                         </button>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleOpenRollModal(
+                            { isDraftNew: true },
+                            `New Sub-Order: ${subQuality || 'Unspecified Quality'} - ${subSize || 'Unspecified Size'}`,
+                            parseInt(subNoOfRolls, 10) || 0,
+                            subRollNumbers
+                          );
+                        }}
+                        className="mt-1 text-[9.5px] font-extrabold text-amber-700 hover:text-amber-800 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Layers size={11} className="text-amber-600" />
+                        <span>+ Record Roll Numbers ({subRollNumbers.length})</span>
+                      </button>
                     </div>
                     <div>
                       <label className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">Remarks</label>
@@ -2231,6 +2501,261 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 className="bg-zinc-900 hover:bg-zinc-850 text-amber-400 font-extrabold text-xs uppercase tracking-wider py-2 px-6 rounded-xl border border-zinc-800 transition-all shadow-3xs"
               >
                 Close specifications ledger
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* POP-UP WINDOW: SUB-ORDER ROLL NUMBERS MANAGEMENT MODAL                    */}
+      {/* ========================================================================= */}
+      {isRollModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[96vh] sm:max-h-[90vh]">
+            
+            {/* Modal Header */}
+            <div className="bg-zinc-900 text-white px-3.5 py-3 sm:px-6 sm:py-4 flex justify-between items-center border-b border-zinc-800 shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-2">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                  <Layers size={18} className="sm:hidden" />
+                  <Layers size={20} className="hidden sm:block" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-400 leading-tight">
+                    Roll Numbers Directory
+                  </h3>
+                  <p className="text-[10.5px] sm:text-xs text-zinc-400 font-semibold truncate max-w-[190px] sm:max-w-md">
+                    {rollModalTitle || 'Sub-Order Specification Rolls'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsRollModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-400 hover:text-white flex items-center justify-center transition-all cursor-pointer shrink-0"
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-3 sm:p-6 overflow-y-auto space-y-3.5 sm:space-y-6">
+              
+              {/* Summary Stats Banner */}
+              <div className="bg-zinc-50 border border-zinc-200/90 rounded-xl sm:rounded-2xl p-2 sm:p-4 grid grid-cols-3 gap-1.5 sm:gap-3 text-center shadow-3xs">
+                <div className="bg-white border border-zinc-200/80 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 shadow-3xs">
+                  <span className="text-[8px] sm:text-[9px] font-black text-zinc-400 uppercase tracking-wider block truncate">
+                    Recorded
+                  </span>
+                  <span className="text-base sm:text-xl font-black text-amber-600 font-mono mt-0.5 block">
+                    {rollNumbersList.length}
+                  </span>
+                </div>
+                <div className="bg-white border border-zinc-200/80 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 shadow-3xs">
+                  <span className="text-[8px] sm:text-[9px] font-black text-zinc-400 uppercase tracking-wider block truncate">
+                    Target
+                  </span>
+                  <span className="text-base sm:text-xl font-black text-zinc-800 font-mono mt-0.5 block">
+                    {rollModalTargetNoOfRolls || '—'}
+                  </span>
+                </div>
+                <div className="bg-white border border-zinc-200/80 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 shadow-3xs">
+                  <span className="text-[8px] sm:text-[9px] font-black text-zinc-400 uppercase tracking-wider block truncate">
+                    Completion
+                  </span>
+                  <span className={`text-base sm:text-xl font-black font-mono mt-0.5 block ${
+                    rollModalTargetNoOfRolls > 0 && rollNumbersList.length >= rollModalTargetNoOfRolls
+                      ? 'text-emerald-600'
+                      : 'text-zinc-700'
+                  }`}>
+                    {rollModalTargetNoOfRolls > 0
+                      ? `${Math.round((rollNumbersList.length / rollModalTargetNoOfRolls) * 100)}%`
+                      : 'N/A'}
+                  </span>
+                </div>
+              </div>
+
+              {/* RECORD ENTRY SECTION */}
+              <div className="bg-amber-50/40 border border-amber-200/80 rounded-xl sm:rounded-2xl p-3 sm:p-4 space-y-2.5 sm:space-y-3">
+                <div className="flex flex-row justify-between items-center gap-2">
+                  <h4 className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-amber-950 flex items-center gap-1.5">
+                    <PlusCircle size={14} className="text-amber-600 shrink-0" />
+                    <span>Record Roll Entry</span>
+                  </h4>
+                  <div className="flex bg-white border border-zinc-200/90 rounded-lg p-0.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsBulkRollMode(false)}
+                      className={`px-2.5 py-1 text-[9.5px] sm:text-[10px] font-black rounded-md transition-all cursor-pointer ${
+                        !isBulkRollMode ? 'bg-amber-500 text-zinc-950 shadow-3xs' : 'text-zinc-500 hover:text-zinc-800'
+                      }`}
+                    >
+                      Single Roll
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsBulkRollMode(true)}
+                      className={`px-2.5 py-1 text-[9.5px] sm:text-[10px] font-black rounded-md transition-all cursor-pointer ${
+                        isBulkRollMode ? 'bg-amber-500 text-zinc-950 shadow-3xs' : 'text-zinc-500 hover:text-zinc-800'
+                      }`}
+                    >
+                      Bulk Batch
+                    </button>
+                  </div>
+                </div>
+
+                {!isBulkRollMode ? (
+                  /* Single Entry Form - Mobile optimized layout */
+                  <form onSubmit={handleRecordSingleRollNumber} className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={newRollInput}
+                      onChange={(e) => setNewRollInput(e.target.value)}
+                      placeholder="Enter Roll Number (e.g. R-101)..."
+                      className="flex-1 min-w-0 bg-white border border-zinc-300 rounded-xl px-3.5 py-2.5 sm:py-2 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 shadow-3xs"
+                      autoFocus
+                    />
+                    <button
+                      type="submit"
+                      className="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 active:scale-95 text-zinc-950 font-black text-xs uppercase tracking-wider px-5 py-2.5 sm:py-2 rounded-xl transition-all shadow-3xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                    >
+                      <Plus size={14} className="stroke-[3]" />
+                      <span>Record Entry</span>
+                    </button>
+                  </form>
+                ) : (
+                  /* Bulk Batch Form */
+                  <form onSubmit={handleRecordBulkRollNumbers} className="space-y-2">
+                    <textarea
+                      value={bulkRollInput}
+                      onChange={(e) => setBulkRollInput(e.target.value)}
+                      rows={3}
+                      placeholder="Enter multiple Roll Numbers separated by commas or new lines&#10;Example: R-101, R-102, R-103"
+                      className="w-full bg-white border border-zinc-300 rounded-xl p-2.5 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 shadow-3xs"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="submit"
+                        className="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 active:scale-95 text-zinc-950 font-black text-xs uppercase tracking-wider px-5 py-2.5 sm:py-2 rounded-xl transition-all shadow-3xs flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Check size={14} className="stroke-[3]" />
+                        <span>Record Batch Entries</span>
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+
+              {/* LIST OF RECORDED ROLL NUMBERS */}
+              <div className="border border-zinc-200 rounded-xl sm:rounded-2xl overflow-hidden bg-white shadow-3xs flex flex-col">
+                <div className="bg-zinc-100 px-3 py-2 sm:px-4 sm:py-2.5 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-zinc-700 flex items-center gap-1.5">
+                    <Layers size={12} className="text-amber-600 shrink-0" />
+                    <span>Recorded Rolls ({rollNumbersList.length})</span>
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    {rollNumbersList.length > 5 && (
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={rollSearchQuery}
+                          onChange={(e) => setRollSearchQuery(e.target.value)}
+                          placeholder="Search..."
+                          className="w-24 sm:w-32 bg-white border border-zinc-300 rounded-lg px-2 py-0.5 text-[10px] font-mono font-semibold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                      </div>
+                    )}
+                    {rollNumbersList.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm("Are you sure you want to clear all roll numbers from this sub-order?")) {
+                            setRollNumbersList([]);
+                            syncRollNumbersStateAndFirestore([]);
+                            triggerAlert('info', 'Cleared all recorded roll numbers.');
+                          }
+                        }}
+                        className="text-[9.5px] font-black text-rose-600 hover:text-rose-700 hover:underline uppercase tracking-wider cursor-pointer"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {rollNumbersList.length === 0 ? (
+                  <div className="py-8 sm:py-10 text-center select-none px-4">
+                    <FileText className="mx-auto text-zinc-300 mb-2" size={28} />
+                    <p className="text-xs font-black uppercase text-zinc-400 tracking-wider">
+                      No roll numbers recorded yet
+                    </p>
+                    <p className="text-[10px] text-zinc-500 max-w-xs mx-auto mt-0.5">
+                      Type individual roll numbers above or paste in bulk to maintain precise trackability.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-2.5 sm:p-4 max-h-[220px] sm:max-h-[260px] overflow-y-auto">
+                    {(() => {
+                      const filteredList = rollSearchQuery.trim()
+                        ? rollNumbersList.filter(r => r.toLowerCase().includes(rollSearchQuery.trim().toLowerCase()))
+                        : rollNumbersList;
+
+                      if (filteredList.length === 0) {
+                        return (
+                          <div className="py-6 text-center text-xs font-bold text-zinc-400">
+                            No rolls match "{rollSearchQuery}"
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 sm:gap-2">
+                          {filteredList.map((rollNo, idx) => (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-between bg-zinc-50 border border-zinc-250 hover:border-amber-300 rounded-lg sm:rounded-xl px-2.5 py-1.5 transition-all shadow-3xs group"
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0 pr-1">
+                                <span className="text-[9px] font-black text-zinc-400 font-mono shrink-0">
+                                  #{idx + 1}
+                                </span>
+                                <span className="text-xs font-black font-mono text-zinc-800 truncate" title={rollNo}>
+                                  {rollNo}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRollNumber(rollNumbersList.indexOf(rollNo))}
+                                className="text-zinc-400 hover:text-rose-600 active:scale-90 p-1.5 rounded-md hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
+                                title={`Remove Roll ${rollNo}`}
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-zinc-50 px-3.5 py-3 sm:px-6 sm:py-3.5 border-t border-zinc-200 flex justify-between items-center shrink-0">
+              <span className="text-[10px] sm:text-xs font-bold text-zinc-600 font-mono">
+                {rollNumbersList.length} of {rollModalTargetNoOfRolls || '—'} rolls logged
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsRollModalOpen(false)}
+                className="bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-amber-400 font-black text-xs uppercase tracking-wider py-2.5 px-4 sm:px-6 rounded-xl border border-zinc-800 transition-all shadow-3xs cursor-pointer"
+              >
+                Done / Save Entry
               </button>
             </div>
 

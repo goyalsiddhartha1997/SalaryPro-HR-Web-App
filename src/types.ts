@@ -94,6 +94,7 @@ export interface LoomOrderRow {
   status?: 'Pending' | 'Production' | 'Completed';
   noOfRolls?: number;
   laminationType?: string;
+  rollNumbers?: string[]; // Array of unique roll numbers (e.g., ["R-101", "R-102"])
 }
 
 export interface LoomOrder {
