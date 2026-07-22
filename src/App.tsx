@@ -266,13 +266,6 @@ export default function App() {
             changed = true;
           }
 
-          // Retrieve & restore deleted contractor column data for the 5 known contractor staff
-          const puranChandIds = ['44', '45', '46', '47', '50'];
-          if (puranChandIds.includes(emp.id) && emp.contractor !== 'PURAN CHAND') {
-            updated.contractor = 'PURAN CHAND';
-            changed = true;
-          }
-
           if (changed) {
             migrationNeeded = true;
             migrationBatch.set(doc(db, 'employees', emp.id), updated);
@@ -1084,6 +1077,7 @@ export default function App() {
       updatedFields.notes !== undefined ||
       updatedFields.documents !== undefined ||
       updatedFields.contractor !== undefined ||
+      updatedFields.activeStatus !== undefined ||
       updatedFields.id !== undefined;
 
     const isMonthlyFieldOnly = isMonthlyField && !hasProfileFields;
@@ -1252,6 +1246,7 @@ export default function App() {
     if (targetEmployee.designation !== undefined) sanitized.designation = targetEmployee.designation;
     if (targetEmployee.role !== undefined) sanitized.role = targetEmployee.role;
     if (targetEmployee.contractor !== undefined) sanitized.contractor = targetEmployee.contractor;
+    if (targetEmployee.activeStatus !== undefined) sanitized.activeStatus = targetEmployee.activeStatus;
     if (targetEmployee.email !== undefined) sanitized.email = targetEmployee.email;
     if (targetEmployee.phone !== undefined) sanitized.phone = targetEmployee.phone;
     if (targetEmployee.gender !== undefined) sanitized.gender = targetEmployee.gender;
@@ -1703,7 +1698,7 @@ export default function App() {
             department: match.department || emp.department || 'Unassigned',
             designation: match.designation || emp.designation || 'Unassigned',
             role: match.designation || emp.role || 'Unassigned',
-            contractor: match.contractor || emp.contractor || 'SELF',
+            contractor: emp.contractor !== undefined ? emp.contractor : (match.contractor || ''),
             monthlySalary: finalSalary,
             salaryType: finalSalaryType,
           };

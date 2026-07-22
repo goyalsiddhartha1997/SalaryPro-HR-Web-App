@@ -66,7 +66,7 @@ function CellInput({ value, onBlur, className, type = "text", ...props }: CellIn
   );
 }
 
-export type ColumnFilterKey = 'id' | 'name' | 'contractor' | 'department' | 'designation' | 'sundayPaid' | 'shift' | 'salaryType' | 'monthlySalary';
+export type ColumnFilterKey = 'id' | 'name' | 'contractor' | 'activeStatus' | 'department' | 'designation' | 'sundayPaid' | 'shift' | 'salaryType' | 'monthlySalary';
 
 export interface ExcelColumnFilter {
   searchQuery: string;
@@ -102,6 +102,9 @@ function ExcelColumnFilterDropdown({
     const vals = employees.map(emp => {
       if (columnKey === 'monthlySalary') {
         return String(emp.monthlySalary || 0);
+      }
+      if (columnKey === 'activeStatus') {
+        return emp.activeStatus || 'ACTIVE';
       }
       const val = emp[columnKey as keyof Employee];
       return val !== undefined && val !== null ? String(val).trim() : '(Blank)';
@@ -432,6 +435,7 @@ export default function ExcelTable({
     id: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
     name: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
     contractor: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
+    activeStatus: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
     department: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
     designation: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
     sundayPaid: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
@@ -508,6 +512,8 @@ export default function ExcelTable({
           let val = '';
           if (colKey === 'monthlySalary') {
             val = String(emp.monthlySalary || 0);
+          } else if (colKey === 'activeStatus') {
+            val = emp.activeStatus || 'ACTIVE';
           } else {
             const v = emp[colKey as keyof Employee];
             val = v !== undefined && v !== null ? String(v).trim() : '(Blank)';
@@ -567,6 +573,9 @@ export default function ExcelTable({
       if (filterOpts.sortBy === 'contractor') {
         valA = a.contractor || '';
         valB = b.contractor || '';
+      } else if (filterOpts.sortBy === 'activeStatus') {
+        valA = a.activeStatus || 'ACTIVE';
+        valB = b.activeStatus || 'ACTIVE';
       } else if (filterOpts.sortBy === 'salary' || (filterOpts.sortBy as string) === 'monthlySalary') {
         valA = a.monthlySalary || 0;
         valB = b.monthlySalary || 0;
@@ -680,6 +689,11 @@ export default function ExcelTable({
       return;
     }
 
+    if (field === 'activeStatus') {
+      onUpdateEmployee(id, { activeStatus: value as 'ACTIVE' | 'INACTIVE' });
+      return;
+    }
+
     if (field === 'department') {
       const trimmedVal = value.trim();
       onUpdateEmployee(id, { department: trimmedVal });
@@ -742,6 +756,7 @@ export default function ExcelTable({
       'Employee ID': emp.id,
       'Employee Name': emp.name,
       'Contractor Name': emp.contractor || '',
+      'Active Status': emp.activeStatus || 'ACTIVE',
       'Department': emp.department || '',
       'Designation': emp.designation || emp.role || '',
       'Shift': String(emp.shift || 'DAY'),
@@ -785,6 +800,7 @@ export default function ExcelTable({
       'Employee ID': 'TOTAL ROWS: ' + employees.length,
       'Employee Name': 'Summary Ledger Sums',
       'Contractor Name': '',
+      'Active Status': '',
       'Department': '',
       'Designation': '',
       'Shift': '',
@@ -867,6 +883,8 @@ export default function ExcelTable({
         const name = String(findFuzzyValue(row, ['Employee Name', 'name', 'Name', 'FullName', 'StaffName']) || 'Imported Staff');
         const department = String(findFuzzyValue(row, ['Department', 'department', 'Dept', 'Dept.', 'Section', 'Division']) || '');
         const contractor = String(findFuzzyValue(row, ['Contractor Name', 'Contractor', 'contractor', 'ContractorName', 'Agent']) || '');
+        const rawStatusStr = String(findFuzzyValue(row, ['Active Status', 'activeStatus', 'Status', 'Status [ACTIVE/INACTIVE]', 'Active']) || 'ACTIVE').toUpperCase();
+        const activeStatus = rawStatusStr.includes('INACTIVE') ? 'INACTIVE' : 'ACTIVE';
         const designation = String(findFuzzyValue(row, ['Designation', 'designation', 'Role', 'role', 'Post', 'Job Title']) || '');
         const rawShiftStr = String(findFuzzyValue(row, ['Shift', 'shift', 'Shift [DAY/NIGHT]']) || 'DAY').toUpperCase();
         const shift = rawShiftStr.includes('NIGHT') ? 'NIGHT' : 'DAY';
@@ -886,6 +904,7 @@ export default function ExcelTable({
           name,
           department,
           contractor,
+          activeStatus,
           designation,
           role: designation || String(findFuzzyValue(row, ['role', 'Role']) || ''),
           shift,
@@ -918,6 +937,7 @@ export default function ExcelTable({
   const isIdFiltered = columnFilters.id.selectedValues !== null || columnFilters.id.greaterThan !== '' || columnFilters.id.smallerThan !== '';
   const isNameFiltered = columnFilters.name.selectedValues !== null || columnFilters.name.greaterThan !== '' || columnFilters.name.smallerThan !== '';
   const isContractorFiltered = columnFilters.contractor.selectedValues !== null || columnFilters.contractor.greaterThan !== '' || columnFilters.contractor.smallerThan !== '';
+  const isActiveStatusFiltered = columnFilters.activeStatus.selectedValues !== null || columnFilters.activeStatus.greaterThan !== '' || columnFilters.activeStatus.smallerThan !== '';
   const isDepartmentFiltered = columnFilters.department.selectedValues !== null || columnFilters.department.greaterThan !== '' || columnFilters.department.smallerThan !== '';
   const isDesignationFiltered = columnFilters.designation.selectedValues !== null || columnFilters.designation.greaterThan !== '' || columnFilters.designation.smallerThan !== '';
   const isSundayPaidFiltered = columnFilters.sundayPaid.selectedValues !== null || columnFilters.sundayPaid.greaterThan !== '' || columnFilters.sundayPaid.smallerThan !== '';
@@ -1329,6 +1349,37 @@ export default function ExcelTable({
                 </div>
               </th>
 
+              <th className="w-32 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 text-[11px]">
+                <div className="flex items-center justify-between px-1 relative">
+                  <span>Active Status</span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveFilterDropdown(activeFilterDropdown === 'activeStatus' ? null : 'activeStatus');
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`cursor-pointer p-0.5 rounded transition-colors ${
+                      isActiveStatusFiltered ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-slate-400 hover:text-slate-650 hover:bg-slate-100'
+                    }`}
+                    title="Filter / Sort"
+                  >
+                    <Filter size={11} />
+                  </button>
+                  {activeFilterDropdown === 'activeStatus' && (
+                    <ExcelColumnFilterDropdown
+                      columnKey="activeStatus"
+                      displayName="Active Status"
+                      employees={employees}
+                      filterOpts={filterOpts}
+                      setFilterOpts={setFilterOpts}
+                      columnFilters={columnFilters}
+                      setColumnFilters={setColumnFilters}
+                      onClose={() => setActiveFilterDropdown(null)}
+                    />
+                  )}
+                </div>
+              </th>
+
               <th className="w-36 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 text-[11px]">
                 <div className="flex items-center justify-between px-1 relative">
                   <span>Department</span>
@@ -1654,6 +1705,18 @@ export default function ExcelTable({
                       placeholder="e.g. Agency A"
                       className="w-full h-7 border-0 px-2 bg-transparent text-left font-medium rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:shadow-xs disabled:text-slate-500"
                     />
+                  </td>
+
+                  <td className={`p-1 border-r border-slate-150 align-middle text-center ${emp.activeStatus === 'INACTIVE' ? 'bg-rose-50/40' : 'bg-emerald-50/40'}`}>
+                    <select 
+                      value={emp.activeStatus || 'ACTIVE'}
+                      onChange={(e) => handleCellBlur(emp.id, 'activeStatus', e.target.value)}
+                      disabled={viewOnly}
+                      className={`w-full h-7 border-0 bg-transparent text-center font-bold text-[10px] rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer uppercase py-0 ${emp.activeStatus === 'INACTIVE' ? 'text-rose-700' : 'text-emerald-800'}`}
+                    >
+                      <option value="ACTIVE" className="text-emerald-800 font-bold">ACTIVE</option>
+                      <option value="INACTIVE" className="text-rose-700 font-bold">INACTIVE</option>
+                    </select>
                   </td>
 
                   <td className="bg-sky-50 text-slate-800 text-left align-middle border-r border-slate-150 px-1 pr-2">
@@ -2219,6 +2282,21 @@ function MobileEmployeeCard({
                 placeholder="e.g. Agency A"
                 className="w-full h-9 px-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-medium focus:outline-hidden focus:ring-1 focus:ring-blue-400 disabled:opacity-65"
               />
+            </div>
+
+            <div className="space-y-1 col-span-2 sm:col-span-1">
+              <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Active Status</label>
+              <select
+                value={emp.activeStatus || 'ACTIVE'}
+                onChange={(e) => handleCellBlur(emp.id, 'activeStatus', e.target.value)}
+                disabled={viewOnly}
+                className={`w-full h-9 px-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-bold focus:outline-hidden focus:ring-1 focus:ring-blue-400 disabled:opacity-65 text-xs ${
+                  emp.activeStatus === 'INACTIVE' ? 'text-rose-700' : 'text-emerald-700'
+                }`}
+              >
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="INACTIVE">INACTIVE</option>
+              </select>
             </div>
 
             <div className="space-y-1 col-span-2 sm:col-span-1">

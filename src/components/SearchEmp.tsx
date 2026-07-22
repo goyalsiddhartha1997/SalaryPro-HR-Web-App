@@ -17,7 +17,8 @@ import {
   DollarSign, 
   SlidersHorizontal,
   ChevronRight,
-  Calendar
+  Calendar,
+  UserCheck
 } from 'lucide-react';
 import { ComputedEmployee } from '../types';
 
@@ -40,6 +41,7 @@ export default function SearchEmp({
 }: SearchEmpProps) {
   // Query States
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedActiveStatus, setSelectedActiveStatus] = useState('');
   const [selectedDept, setSelectedDept] = useState('');
   const [selectedDesignation, setSelectedDesignation] = useState('');
   const [selectedShift, setSelectedShift] = useState('');
@@ -95,6 +97,7 @@ export default function SearchEmp({
   // Reset helper
   const handleResetFilters = () => {
     setSearchQuery('');
+    setSelectedActiveStatus('');
     setSelectedDept('');
     setSelectedDesignation('');
     setSelectedShift('');
@@ -117,6 +120,14 @@ export default function SearchEmp({
         const matchesName = emp.name.toLowerCase().includes(query);
         const matchesId = emp.id.toLowerCase().includes(query);
         if (!matchesName && !matchesId) return false;
+      }
+
+      // Active Status Match
+      if (selectedActiveStatus) {
+        const status = emp.activeStatus || 'ACTIVE';
+        if (status !== selectedActiveStatus) {
+          return false;
+        }
       }
 
       // Department Match
@@ -168,9 +179,11 @@ export default function SearchEmp({
   }, [
     employees, 
     searchQuery, 
+    selectedActiveStatus,
     selectedDept, 
     selectedDesignation, 
     selectedShift, 
+    selectedShiftMode,
     selectedSalaryType, 
     minAbsences, 
     maxAbsences
@@ -223,6 +236,7 @@ export default function SearchEmp({
 
   // Determine if any filters are currently active/applied
   const hasActiveFilters = searchQuery !== '' ||
+    selectedActiveStatus !== '' ||
     selectedDept !== '' ||
     selectedDesignation !== '' ||
     selectedShift !== '' ||
@@ -406,8 +420,30 @@ export default function SearchEmp({
         </div>
 
         {/* Filter Dropdowns Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           
+          {/* Active Status dropdown */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-1 select-none">
+              <UserCheck size={11} className="text-emerald-600" />
+              Active Status
+            </label>
+            <div className="relative">
+              <select
+                value={selectedActiveStatus}
+                onChange={(e) => setSelectedActiveStatus(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200.5 rounded-1.5xl px-3 py-2.5 text-xs font-bold text-slate-700 focus:outline-hidden focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 appearance-none cursor-pointer"
+              >
+                <option value="">All Employees</option>
+                <option value="ACTIVE">Active Employees Only</option>
+                <option value="INACTIVE">Inactive Employees Only</option>
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-400">
+                <span className="text-[10px]">▼</span>
+              </div>
+            </div>
+          </div>
+
           {/* 1. Department dropdown */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-1 select-none">
@@ -652,6 +688,13 @@ export default function SearchEmp({
                             {emp.shiftTime || 'Not Set'}
                           </p>
                           <div className="flex flex-wrap items-center gap-1 mt-0.5 max-w-40">
+                            <span className={`inline-block text-[8px] font-black uppercase px-1 pb-0.5 rounded-sm select-none ${
+                              emp.activeStatus === 'INACTIVE' 
+                                ? 'bg-rose-100 text-rose-800' 
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}>
+                              {emp.activeStatus || 'ACTIVE'}
+                            </span>
                             <span className={`inline-block text-[8px] font-black uppercase px-1 pb-0.5 rounded-sm select-none ${
                               emp.shift === 'NIGHT' 
                                 ? 'bg-purple-50 text-purple-700' 

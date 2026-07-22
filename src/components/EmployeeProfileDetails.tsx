@@ -205,6 +205,7 @@ export default function EmployeeProfileDetails({
   const [editedSundayPaid, setEditedSundayPaid] = useState<'Paid' | 'Not Paid'>('Not Paid');
   const [editedMonthlySalary, setEditedMonthlySalary] = useState<number>(0);
   const [editedContractor, setEditedContractor] = useState('');
+  const [editedActiveStatus, setEditedActiveStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
 
   // Interactive local states for Notes & Documents
   const [newNote, setNewNote] = useState('');
@@ -501,6 +502,7 @@ export default function EmployeeProfileDetails({
     setEditedSundayPaid(employee.sundayPaid || 'Not Paid');
     setEditedMonthlySalary(employee.monthlySalary || 0);
     setEditedContractor(employee.contractor || '');
+    setEditedActiveStatus(employee.activeStatus || 'ACTIVE');
     setIsEditingProfile(true);
   };
 
@@ -520,7 +522,8 @@ export default function EmployeeProfileDetails({
       salaryType: editedSalaryType,
       sundayPaid: editedSundayPaid,
       monthlySalary: editedMonthlySalary,
-      contractor: editedContractor
+      contractor: editedContractor,
+      activeStatus: editedActiveStatus
     });
     setIsEditingProfile(false);
   };
@@ -1110,10 +1113,17 @@ export default function EmployeeProfileDetails({
                   <span className="bg-slate-100 text-slate-500 rounded-md font-mono text-[9px] sm:text-[10px] font-bold px-2 py-0.5 sm:px-2.5 sm:py-1">
                     {employee.id.startsWith('EMP_TEMP_') ? 'TEMP' : employee.id}
                   </span>
-                  <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-md flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-                    Active
-                  </span>
+                  {employee.activeStatus === 'INACTIVE' ? (
+                    <span className="bg-rose-50 text-rose-700 border border-rose-100 text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-md flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block"></span>
+                      Inactive
+                    </span>
+                  ) : (
+                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-md flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+                      Active
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -1160,6 +1170,12 @@ export default function EmployeeProfileDetails({
                 <span className="text-slate-400 font-medium">Contractor</span>
                 <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">
                   {employee.contractor || ''}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-medium">Active Status</span>
+                <span className={`font-bold px-2 py-0.5 rounded uppercase ${employee.activeStatus === 'INACTIVE' ? 'text-rose-700 bg-rose-50' : 'text-emerald-700 bg-emerald-50'}`}>
+                  {employee.activeStatus || 'ACTIVE'}
                 </span>
               </div>
             </div>
@@ -2352,6 +2368,18 @@ export default function EmployeeProfileDetails({
                   placeholder="e.g. Agency A"
                   className="w-full bg-slate-50 border-0 focus:ring-1 focus:ring-teal-500 rounded-xl p-2.5 text-slate-800 font-semibold"
                 />
+              </div>
+
+              <div>
+                <label className="block mb-1 text-slate-400">Active Status</label>
+                <select 
+                  value={editedActiveStatus} 
+                  onChange={(e) => setEditedActiveStatus(e.target.value as 'ACTIVE' | 'INACTIVE')}
+                  className="w-full bg-slate-50 border-0 focus:ring-1 focus:ring-teal-500 rounded-xl p-2.5 text-slate-800 font-bold"
+                >
+                  <option value="ACTIVE" className="text-emerald-800 font-bold">ACTIVE</option>
+                  <option value="INACTIVE" className="text-rose-700 font-bold">INACTIVE</option>
+                </select>
               </div>
 
             </div>
