@@ -674,6 +674,123 @@ export default function App() {
     }
   };
 
+  // Database Export State & Handler (Restricted to sandydalhousie@gmail.com)
+  const [isExportingDb, setIsExportingDb] = useState(false);
+
+  const handleExportFirestoreBackup = async () => {
+    if (loggedInEmail?.toLowerCase() !== 'sandydalhousie@gmail.com') {
+      triggerAlert('warn', 'Only sandydalhousie@gmail.com is authorized to export database backups.');
+      return;
+    }
+
+    setIsExportingDb(true);
+    try {
+      triggerAlert('info', 'Reading database collections... Please wait.');
+
+      const fetchCollection = async (colName: string) => {
+        try {
+          const snap = await getDocs(collection(db, colName));
+          return snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        } catch (err) {
+          console.warn(`Could not fetch collection ${colName}:`, err);
+          return [];
+        }
+      };
+
+      // 1. Fetch main collections
+      const [
+        empDocs,
+        gatePassesDocs,
+        overtimeLogsDocs,
+        canteenFoodBillsDocs,
+        rawMaterialsDocs,
+        loomOrdersDocs,
+        loomProductionsDocs,
+        loomRunningReportsDocs,
+        tapePlantProductionsDocs,
+        userPermissionsDocs
+      ] = await Promise.all([
+        fetchCollection('employees'),
+        fetchCollection('gatePasses'),
+        fetchCollection('overtimeLogs'),
+        fetchCollection('canteenFoodBills'),
+        fetchCollection('rawMaterials'),
+        fetchCollection('loomOrders'),
+        fetchCollection('loomProductions'),
+        fetchCollection('loomRunningReports'),
+        fetchCollection('tapePlantProductions'),
+        fetchCollection('userPermissions')
+      ]);
+
+      // 2. Fetch subcollections for employees (punches and monthlyPayroll)
+      const employeesWithSubcollections = await Promise.all(
+        empDocs.map(async (emp: any) => {
+          try {
+            const [punchesSnap, payrollSnap] = await Promise.all([
+              getDocs(collection(db, 'employees', emp.id, 'punches')),
+              getDocs(collection(db, 'employees', emp.id, 'monthlyPayroll'))
+            ]);
+
+            const punches = punchesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const monthlyPayroll = payrollSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+            return {
+              ...emp,
+              _subcollections: {
+                punches,
+                monthlyPayroll
+              }
+            };
+          } catch (e) {
+            return emp;
+          }
+        })
+      );
+
+      const backupPayload = {
+        metadata: {
+          exportedAt: new Date().toISOString(),
+          exportedBy: loggedInEmail,
+          appName: 'Dalhousie Jute Mill Management System',
+          databaseId: 'ai-studio-bc717a76-5bf1-4104-a6c8-538252b8c7da',
+          version: '1.0',
+          note: 'Complete read-only export of Firestore collections for database cloning into SalaryPro.'
+        },
+        collections: {
+          employees: employeesWithSubcollections,
+          gatePasses: gatePassesDocs,
+          overtimeLogs: overtimeLogsDocs,
+          canteenFoodBills: canteenFoodBillsDocs,
+          rawMaterials: rawMaterialsDocs,
+          loomOrders: loomOrdersDocs,
+          loomProductions: loomProductionsDocs,
+          loomRunningReports: loomRunningReportsDocs,
+          tapePlantProductions: tapePlantProductionsDocs,
+          userPermissions: userPermissionsDocs
+        }
+      };
+
+      const jsonString = JSON.stringify(backupPayload, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const dateStr = new Date().toISOString().split('T')[0];
+      link.href = url;
+      link.download = `firestore-backup-salarypro-${dateStr}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      triggerAlert('success', 'Database JSON export downloaded! No database data was modified.');
+    } catch (err: any) {
+      console.error('Export error:', err);
+      triggerAlert('warn', `Export failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsExportingDb(false);
+    }
+  };
+
   const [otpError, setOtpError] = useState<string | null>(null);
   
   // Custom Email Login States
@@ -2421,6 +2538,21 @@ export default function App() {
           </nav>
 
           <div className="p-4 mr-3 mt-auto ml-1 mb-2">
+            {loggedInEmail?.toLowerCase() === 'sandydalhousie@gmail.com' && (
+              <button 
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  handleExportFirestoreBackup();
+                }}
+                disabled={isExportingDb}
+                className="w-full mb-2 h-9 flex items-center justify-center gap-2 px-4 bg-amber-500 hover:bg-amber-400 text-zinc-950 rounded-xl text-xs font-black transition-all cursor-pointer border border-amber-600 shadow-2xs disabled:opacity-50"
+                title="Download complete JSON export of all Firestore collections"
+              >
+                <Download size={14} className={isExportingDb ? 'animate-bounce' : ''} />
+                <span>{isExportingDb ? 'Exporting...' : 'Export DB JSON'}</span>
+              </button>
+            )}
+
             {/* Elegant Log Out button */}
             <button 
               onClick={handleLogout}
@@ -2553,6 +2685,19 @@ export default function App() {
           {/* 3. Right Action buttons & profile block (Direct Sibling) */}
           <div className="flex items-center gap-2 select-none shrink-0 justify-between md:justify-end">
             
+            {/* Admin Database Export Button (Exclusive to sandydalhousie@gmail.com) */}
+            {loggedInEmail?.toLowerCase() === 'sandydalhousie@gmail.com' && (
+              <button 
+                onClick={handleExportFirestoreBackup}
+                disabled={isExportingDb}
+                className="h-8 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 border border-amber-600 text-zinc-950 font-black text-[9.5px] uppercase tracking-wider flex items-center gap-1.5 shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-95 disabled:opacity-50"
+                title="Export all Firestore collections as JSON backup (Exclusive to sandydalhousie@gmail.com)"
+              >
+                <Download size={13} className={`shrink-0 ${isExportingDb ? 'animate-bounce' : ''}`} />
+                <span>{isExportingDb ? 'Exporting...' : 'Export DB JSON'}</span>
+              </button>
+            )}
+
             {/* Back up saving trigger */}
             <button 
               onClick={triggerManualSave}

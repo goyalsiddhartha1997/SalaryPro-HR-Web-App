@@ -27,6 +27,9 @@ import {
   FileText,
   Activity,
   CheckCircle,
+  CheckCircle2,
+  ShieldAlert,
+  SearchCheck,
   BarChart4,
   ExternalLink,
   PlusCircle,
@@ -114,6 +117,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
   // Suborder inline edit roll numbers
   const [inlineRollNumbers, setInlineRollNumbers] = useState<string[]>([]);
+
+  // --- DUPLICATE ROLL NUMBERS AUDIT MODAL STATES ---
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState<boolean>(false);
+  const [duplicateSearchQuery, setDuplicateSearchQuery] = useState<string>('');
 
   // --- FILTER & SEARCH STATES ---
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -863,6 +870,86 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     };
   }, [filteredOrders]);
 
+  // --- DUPLICATE ROLL NUMBERS MULTI-ORDER AUDIT LOGIC ---
+  const rollAuditResults = useMemo(() => {
+    let totalOrdersScanned = orders.length;
+    let totalSubOrdersScanned = 0;
+    let totalRollsRecorded = 0;
+
+    const rollOccurrenceMap: Map<string, Array<{
+      orderId: string;
+      orderNo: string;
+      orderDate: string;
+      subOrderIdx: number;
+      quality: string;
+      size: string;
+      laminationType?: string;
+      gsm?: number;
+    }>> = new Map();
+
+    orders.forEach((order) => {
+      (order.rows || []).forEach((row, sIdx) => {
+        totalSubOrdersScanned++;
+        const rolls = row.rollNumbers || [];
+        rolls.forEach((r) => {
+          const trimmed = (r || '').trim();
+          if (trimmed) {
+            totalRollsRecorded++;
+            const key = trimmed.toUpperCase();
+            const existing = rollOccurrenceMap.get(key) || [];
+            existing.push({
+              orderId: order.id,
+              orderNo: order.orderNo,
+              orderDate: order.date,
+              subOrderIdx: sIdx + 1,
+              quality: row.quality || 'Unspecified Quality',
+              size: row.size || 'N/A',
+              laminationType: row.laminationType,
+              gsm: row.gsm
+            });
+            rollOccurrenceMap.set(key, existing);
+          }
+        });
+      });
+    });
+
+    const duplicates: Array<{
+      rollNo: string;
+      count: number;
+      occurrences: Array<{
+        orderId: string;
+        orderNo: string;
+        orderDate: string;
+        subOrderIdx: number;
+        quality: string;
+        size: string;
+        laminationType?: string;
+        gsm?: number;
+      }>;
+    }> = [];
+
+    rollOccurrenceMap.forEach((occurrences, key) => {
+      if (occurrences.length > 1) {
+        duplicates.push({
+          rollNo: key,
+          count: occurrences.length,
+          occurrences
+        });
+      }
+    });
+
+    duplicates.sort((a, b) => b.count - a.count || a.rollNo.localeCompare(b.rollNo));
+
+    return {
+      totalOrdersScanned,
+      totalSubOrdersScanned,
+      totalRollsRecorded,
+      totalUniqueRollsCount: rollOccurrenceMap.size,
+      duplicatesCount: duplicates.length,
+      duplicates
+    };
+  }, [orders]);
+
   // Aggregate stats for the currently opened Modal Order
   const modalStats = useMemo(() => {
     if (!modalOrder) return { totalTarget: 0, totalCompleted: 0, completionRate: 0, pendingCount: 0, prodCount: 0, compCount: 0, totalRollsReady: 0, totalRolls: 0 };
@@ -1046,9 +1133,29 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           
           {/* Advanced Controls Card */}
           <div className="bg-white rounded-3xl border border-zinc-200 p-4 mb-4 shadow-3xs" id="loom-search-box">
-            <div className="flex items-center gap-1.5 text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-3">
-              <SlidersHorizontal size={12} className="text-zinc-500" />
-              <span>Refine Loom ledger search</span>
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <div className="flex items-center gap-1.5 text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                <SlidersHorizontal size={12} className="text-zinc-500" />
+                <span>Refine Loom ledger search</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setDuplicateSearchQuery('');
+                  setIsDuplicateModalOpen(true);
+                }}
+                className="bg-amber-500 hover:bg-amber-400 active:scale-95 text-zinc-950 font-black text-xs uppercase tracking-wider px-3.5 py-1.5 rounded-xl border border-amber-600 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Audit all orders and sub-orders for duplicate roll numbers"
+              >
+                <ShieldAlert size={15} className="shrink-0 text-zinc-950" />
+                <span>Check Duplicate Rolls</span>
+                {rollAuditResults.duplicatesCount > 0 && (
+                  <span className="bg-rose-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full font-mono">
+                    {rollAuditResults.duplicatesCount}
+                  </span>
+                )}
+              </button>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
@@ -2756,6 +2863,227 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 className="bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-amber-400 font-black text-xs uppercase tracking-wider py-2.5 px-4 sm:px-6 rounded-xl border border-zinc-800 transition-all shadow-3xs cursor-pointer"
               >
                 Done / Save Entry
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* POP-UP WINDOW: DUPLICATE ROLL NUMBERS AUDIT MODAL */}
+      {isDuplicateModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[96vh] sm:max-h-[90vh]">
+            
+            {/* Modal Header */}
+            <div className="bg-zinc-900 text-white px-3.5 py-3 sm:px-6 sm:py-4 flex justify-between items-center border-b border-zinc-800 shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-2">
+                <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl border flex items-center justify-center shrink-0 ${
+                  rollAuditResults.duplicatesCount > 0 
+                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-400' 
+                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                }`}>
+                  <ShieldAlert size={20} className="hidden sm:block" />
+                  <ShieldAlert size={18} className="sm:hidden" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-400 leading-tight">
+                    Roll Numbers Audit Directory
+                  </h3>
+                  <p className="text-[10.5px] sm:text-xs text-zinc-400 font-semibold truncate max-w-[200px] sm:max-w-md">
+                    Multi-Order Roll Integrity & Duplicate Checker
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDuplicateModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-400 hover:text-white flex items-center justify-center transition-all cursor-pointer shrink-0"
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-3 sm:p-6 overflow-y-auto space-y-4">
+              
+              {/* Stat Overview Banner */}
+              <div className="bg-zinc-50 border border-zinc-200 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center shadow-3xs">
+                <div className="bg-white border border-zinc-200/80 rounded-lg sm:rounded-xl p-2 shadow-3xs">
+                  <span className="text-[8px] sm:text-[9px] font-black text-zinc-400 uppercase tracking-wider block truncate">
+                    Orders Scanned
+                  </span>
+                  <span className="text-base sm:text-xl font-black text-zinc-800 font-mono mt-0.5 block">
+                    {rollAuditResults.totalOrdersScanned}
+                  </span>
+                </div>
+                <div className="bg-white border border-zinc-200/80 rounded-lg sm:rounded-xl p-2 shadow-3xs">
+                  <span className="text-[8px] sm:text-[9px] font-black text-zinc-400 uppercase tracking-wider block truncate">
+                    Sub-Orders
+                  </span>
+                  <span className="text-base sm:text-xl font-black text-zinc-800 font-mono mt-0.5 block">
+                    {rollAuditResults.totalSubOrdersScanned}
+                  </span>
+                </div>
+                <div className="bg-white border border-zinc-200/80 rounded-lg sm:rounded-xl p-2 shadow-3xs">
+                  <span className="text-[8px] sm:text-[9px] font-black text-zinc-400 uppercase tracking-wider block truncate">
+                    Total Rolls Logged
+                  </span>
+                  <span className="text-base sm:text-xl font-black text-amber-600 font-mono mt-0.5 block">
+                    {rollAuditResults.totalRollsRecorded}
+                  </span>
+                </div>
+                <div className="bg-white border border-zinc-200/80 rounded-lg sm:rounded-xl p-2 shadow-3xs">
+                  <span className="text-[8px] sm:text-[9px] font-black text-zinc-400 uppercase tracking-wider block truncate">
+                    Duplicate Status
+                  </span>
+                  <span className={`text-base sm:text-xl font-black font-mono mt-0.5 block ${
+                    rollAuditResults.duplicatesCount > 0 ? 'text-rose-600' : 'text-emerald-600'
+                  }`}>
+                    {rollAuditResults.duplicatesCount > 0 ? `${rollAuditResults.duplicatesCount} Duplicates` : '0 Duplicates'}
+                  </span>
+                </div>
+              </div>
+
+              {/* IF NO DUPLICATES FOUND */}
+              {rollAuditResults.duplicatesCount === 0 ? (
+                <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-6 text-center space-y-3">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-100 border border-emerald-200 text-emerald-600 flex items-center justify-center mx-auto shadow-sm">
+                    <CheckCircle2 size={32} />
+                  </div>
+                  <div>
+                    <h4 className="text-base sm:text-lg font-black text-emerald-950 uppercase tracking-tight">
+                      No Duplicate Roll Numbers Found!
+                    </h4>
+                    <p className="text-xs sm:text-sm font-medium text-emerald-800 max-w-lg mx-auto mt-1 leading-relaxed">
+                      All <strong className="font-mono font-bold text-emerald-950">{rollAuditResults.totalRollsRecorded}</strong> recorded roll numbers across <strong className="font-mono font-bold text-emerald-950">{rollAuditResults.totalOrdersScanned}</strong> orders and <strong className="font-mono font-bold text-emerald-950">{rollAuditResults.totalSubOrdersScanned}</strong> sub-orders are completely unique.
+                    </p>
+                  </div>
+                  <div className="bg-white/80 border border-emerald-200/60 rounded-xl p-3 text-[11px] font-semibold text-emerald-900 max-w-md mx-auto">
+                    ✨ Every recorded roll number is distinct and uniquely tracked across your entire PP Fabric database.
+                  </div>
+                </div>
+              ) : (
+                /* IF DUPLICATES ARE FOUND */
+                <div className="space-y-3">
+                  {/* Alert message banner */}
+                  <div className="bg-rose-50 border border-rose-200/90 rounded-xl p-3 flex items-start gap-2.5">
+                    <ShieldAlert size={18} className="text-rose-600 shrink-0 mt-0.5" />
+                    <div className="text-xs text-rose-950 leading-snug">
+                      <span className="font-black uppercase tracking-wider block mb-0.5">
+                        Attention Required: Duplicate Roll Entries Detected
+                      </span>
+                      Found <strong className="font-mono font-bold">{rollAuditResults.duplicatesCount}</strong> duplicate roll number key(s) logged across multiple entries. Click "Manage Order" on any entry below to open that sub-order and correct or remove the duplicate roll number.
+                    </div>
+                  </div>
+
+                  {/* Filter search input for duplicate list if there are many */}
+                  {rollAuditResults.duplicatesCount > 3 && (
+                    <div className="relative">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                      <input
+                        type="text"
+                        value={duplicateSearchQuery}
+                        onChange={(e) => setDuplicateSearchQuery(e.target.value)}
+                        placeholder="Filter duplicate roll numbers..."
+                        className="w-full pl-9 pr-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono font-bold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                  )}
+
+                  {/* List of Duplicate Roll Groups */}
+                  <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                    {rollAuditResults.duplicates
+                      .filter(d => !duplicateSearchQuery.trim() || d.rollNo.toLowerCase().includes(duplicateSearchQuery.trim().toLowerCase()))
+                      .map((dup, dIdx) => (
+                        <div key={dIdx} className="bg-white border-2 border-rose-200/90 rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm space-y-2.5">
+                          
+                          <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-rose-100">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2.5 py-1 bg-rose-600 text-white text-xs sm:text-sm font-black font-mono rounded-lg shadow-3xs">
+                                Roll #: {dup.rollNo}
+                              </span>
+                              <span className="text-[10.5px] sm:text-xs font-bold text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-md border border-rose-200">
+                                Found in {dup.count} entries
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* List of locations */}
+                          <div className="space-y-2 pt-0.5">
+                            {dup.occurrences.map((occ, oIdx) => (
+                              <div
+                                key={oIdx}
+                                className="bg-zinc-50 border border-zinc-200/80 hover:border-amber-300 rounded-xl p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-all"
+                              >
+                                <div className="space-y-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-[9.5px] font-mono font-bold text-zinc-400">
+                                      Location #{oIdx + 1}
+                                    </span>
+                                    <span className="font-mono font-black text-xs text-zinc-900 bg-amber-100/90 px-2 py-0.5 rounded border border-amber-300/80">
+                                      Order: {occ.orderNo}
+                                    </span>
+                                    <span className="text-[11px] text-zinc-500 font-medium">
+                                      ({occ.orderDate})
+                                    </span>
+                                  </div>
+                                  <div className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-amber-800 font-bold">Sub-Order #{occ.subOrderIdx}:</span>
+                                    <span>{occ.quality}</span>
+                                    <span className="text-zinc-400">•</span>
+                                    <span>{occ.size}</span>
+                                    {occ.gsm && (
+                                      <>
+                                        <span className="text-zinc-400">•</span>
+                                        <span className="font-mono text-zinc-600">{occ.gsm} GSM</span>
+                                      </>
+                                    )}
+                                    {occ.laminationType && (
+                                      <span className="text-[10px] bg-zinc-200/80 text-zinc-700 px-1.5 py-0.2 rounded uppercase font-extrabold">
+                                        {occ.laminationType}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsDuplicateModalOpen(false);
+                                    setActiveModalOrderId(occ.orderId);
+                                  }}
+                                  className="self-end sm:self-auto bg-amber-500 hover:bg-amber-600 active:scale-95 text-zinc-950 text-[10.5px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg border border-amber-600 shadow-3xs flex items-center gap-1 transition-all cursor-pointer shrink-0"
+                                >
+                                  <span>Manage Order</span>
+                                  <ArrowRight size={12} className="stroke-[3]" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-zinc-50 px-3.5 py-3 sm:px-6 sm:py-3.5 border-t border-zinc-200 flex justify-between items-center shrink-0">
+              <span className="text-[10px] sm:text-xs font-bold text-zinc-500 font-mono">
+                {rollAuditResults.duplicatesCount === 0 
+                  ? `${rollAuditResults.totalRollsRecorded} rolls verified unique` 
+                  : `${rollAuditResults.duplicatesCount} duplicate issue(s) flagged`}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsDuplicateModalOpen(false)}
+                className="bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-amber-400 font-black text-xs uppercase tracking-wider py-2.5 px-5 sm:px-6 rounded-xl border border-zinc-800 transition-all shadow-3xs cursor-pointer"
+              >
+                Close Audit Window
               </button>
             </div>
 
