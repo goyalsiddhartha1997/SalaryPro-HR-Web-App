@@ -34,7 +34,11 @@ import {
   ExternalLink,
   PlusCircle,
   Settings,
-  Hammer
+  Hammer,
+  BookOpen,
+  Table,
+  Download,
+  RotateCcw
 } from 'lucide-react';
 import { LoomOrder, LoomOrderRow } from '../types';
 import * as XLSX from 'xlsx';
@@ -121,6 +125,26 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   // --- DUPLICATE ROLL NUMBERS AUDIT MODAL STATES ---
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState<boolean>(false);
   const [duplicateSearchQuery, setDuplicateSearchQuery] = useState<string>('');
+
+  // --- MASTER ROLL LEDGER MODAL STATES ---
+  const [isMasterLedgerOpen, setIsMasterLedgerOpen] = useState<boolean>(false);
+  const [masterLedgerSearchQuery, setMasterLedgerSearchQuery] = useState<string>('');
+  const [editingMasterRollId, setEditingMasterRollId] = useState<string | null>(null);
+
+  // Master Ledger Inline Edit draft fields
+  const [masterEditRollNo, setMasterEditRollNo] = useState<string>('');
+  const [masterEditSize, setMasterEditSize] = useState<string>('');
+  const [masterEditGsm, setMasterEditGsm] = useState<string>('');
+  const [masterEditDenier, setMasterEditDenier] = useState<string>('');
+  const [masterEditFabricWeight, setMasterEditFabricWeight] = useState<string>('');
+  const [masterEditQuality, setMasterEditQuality] = useState<string>('');
+  const [masterEditRemarks, setMasterEditRemarks] = useState<string>('');
+
+  // Master Ledger "Add Roll" panel states
+  const [isAddingRollInLedger, setIsAddingRollInLedger] = useState<boolean>(false);
+  const [ledgerAddOrderId, setLedgerAddOrderId] = useState<string>('');
+  const [ledgerAddSubOrderIdx, setLedgerAddSubOrderIdx] = useState<number>(0);
+  const [ledgerAddRollNo, setLedgerAddRollNo] = useState<string>('');
 
   // --- FILTER & SEARCH STATES ---
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -950,6 +974,293 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     };
   }, [orders]);
 
+  // --- MASTER ROLL LEDGER DATA AGGREGATOR & EDIT HANDLERS ---
+  const masterRollLedgerData = useMemo(() => {
+    const list: Array<{
+      id: string;
+      rollNo: string;
+      orderId: string;
+      orderNo: string;
+      orderDate: string;
+      subOrderIdx: number;
+      rollNoIdx: number;
+      size: string;
+      gsm: number;
+      denier: number;
+      fabricWeight: number;
+      quality: string;
+      remarks: string;
+    }> = [];
+
+    orders.forEach((order) => {
+      (order.rows || []).forEach((row, subIdx) => {
+        const rolls = row.rollNumbers || [];
+        rolls.forEach((r, rIdx) => {
+          const trimmed = (r || '').trim();
+          if (trimmed) {
+            list.push({
+              id: `${order.id}___${subIdx}___${rIdx}___${trimmed}`,
+              rollNo: trimmed,
+              orderId: order.id,
+              orderNo: order.orderNo,
+              orderDate: order.date,
+              subOrderIdx: subIdx,
+              rollNoIdx: rIdx,
+              size: row.size || '',
+              gsm: row.gsm || 0,
+              denier: row.denier || 0,
+              fabricWeight: row.fabricWeight || 0,
+              quality: row.quality || '',
+              remarks: (row.rollRemarks && row.rollRemarks[trimmed]) || '',
+            });
+          }
+        });
+      });
+    });
+
+    // Always sorted ascending by Roll Number (using natural alphanumeric sort)
+    list.sort((a, b) =>
+      a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' })
+    );
+
+    return list;
+  }, [orders]);
+
+  // Master Ledger Inline Edit Handlers
+  const handleStartEditMasterRoll = (item: typeof masterRollLedgerData[0]) => {
+    setEditingMasterRollId(item.id);
+    setMasterEditRollNo(item.rollNo);
+    setMasterEditSize(item.size);
+    setMasterEditGsm(item.gsm ? String(item.gsm) : '');
+    setMasterEditDenier(item.denier ? String(item.denier) : '');
+    setMasterEditFabricWeight(item.fabricWeight ? String(item.fabricWeight) : '');
+    setMasterEditQuality(item.quality);
+    setMasterEditRemarks(item.remarks);
+  };
+
+  const handleCancelEditMasterRoll = () => {
+    setEditingMasterRollId(null);
+  };
+
+  const handleSaveMasterRollEdit = async (item: typeof masterRollLedgerData[0]) => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+
+    const trimmedNewRollNo = masterEditRollNo.trim();
+    if (!trimmedNewRollNo) {
+      triggerAlert('warn', 'Roll number cannot be empty.');
+      return;
+    }
+
+    const targetOrder = orders.find(o => o.id === item.orderId);
+    if (!targetOrder) {
+      triggerAlert('warn', 'Order not found.');
+      return;
+    }
+
+    const updatedRows = [...(targetOrder.rows || [])];
+    if (!updatedRows[item.subOrderIdx]) {
+      triggerAlert('warn', 'Sub-order row not found.');
+      return;
+    }
+
+    const targetRow = { ...updatedRows[item.subOrderIdx] };
+    const rollsArray = [...(targetRow.rollNumbers || [])];
+
+    let targetRollIdx = item.rollNoIdx;
+    if (targetRollIdx < 0 || targetRollIdx >= rollsArray.length || rollsArray[targetRollIdx] !== item.rollNo) {
+      targetRollIdx = rollsArray.indexOf(item.rollNo);
+    }
+
+    if (targetRollIdx === -1) {
+      triggerAlert('warn', `Roll "${item.rollNo}" could not be located in Order #${item.orderNo}.`);
+      return;
+    }
+
+    // Replace roll number and sort ascending
+    rollsArray[targetRollIdx] = trimmedNewRollNo;
+    targetRow.rollNumbers = sortRollNumbersAscending(rollsArray);
+
+    // Update sub-order row specs
+    targetRow.size = masterEditSize.trim();
+    targetRow.gsm = Number(masterEditGsm) || 0;
+    targetRow.denier = Number(masterEditDenier) || 0;
+    targetRow.fabricWeight = Number(masterEditFabricWeight) || 0;
+    targetRow.quality = masterEditQuality.trim();
+
+    // Store per-roll remarks (unsynced across rolls)
+    const existingRollRemarks = { ...(targetRow.rollRemarks || {}) };
+    if (item.rollNo !== trimmedNewRollNo && item.rollNo in existingRollRemarks) {
+      delete existingRollRemarks[item.rollNo];
+    }
+    existingRollRemarks[trimmedNewRollNo] = masterEditRemarks.trim();
+    targetRow.rollRemarks = existingRollRemarks;
+
+    updatedRows[item.subOrderIdx] = targetRow;
+
+    try {
+      const orderRef = doc(db, 'loomOrders', targetOrder.id);
+      await setDoc(orderRef, {
+        ...targetOrder,
+        rows: updatedRows
+      });
+      setEditingMasterRollId(null);
+      triggerAlert('success', `Roll "${trimmedNewRollNo}" details updated successfully.`);
+    } catch (err) {
+      console.error("Failed to save master roll edit", err);
+      triggerAlert('warn', 'Failed to save changes to database.');
+    }
+  };
+
+  const handleDeleteMasterRoll = async (item: typeof masterRollLedgerData[0]) => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete Roll "${item.rollNo}" from Order #${item.orderNo}?`)) {
+      return;
+    }
+
+    const targetOrder = orders.find(o => o.id === item.orderId);
+    if (!targetOrder) return;
+
+    const updatedRows = [...(targetOrder.rows || [])];
+    if (!updatedRows[item.subOrderIdx]) return;
+
+    const targetRow = { ...updatedRows[item.subOrderIdx] };
+    const rollsArray = [...(targetRow.rollNumbers || [])];
+
+    let targetRollIdx = item.rollNoIdx;
+    if (targetRollIdx < 0 || targetRollIdx >= rollsArray.length || rollsArray[targetRollIdx] !== item.rollNo) {
+      targetRollIdx = rollsArray.indexOf(item.rollNo);
+    }
+
+    if (targetRollIdx !== -1) {
+      rollsArray.splice(targetRollIdx, 1);
+    }
+
+    targetRow.rollNumbers = sortRollNumbersAscending(rollsArray);
+    updatedRows[item.subOrderIdx] = targetRow;
+
+    try {
+      const orderRef = doc(db, 'loomOrders', targetOrder.id);
+      await setDoc(orderRef, {
+        ...targetOrder,
+        rows: updatedRows
+      });
+      triggerAlert('success', `Roll "${item.rollNo}" removed from Order #${item.orderNo}.`);
+    } catch (err) {
+      console.error("Failed to delete master roll", err);
+      triggerAlert('warn', 'Failed to remove roll.');
+    }
+  };
+
+  const handleAddMasterRollDirectly = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+
+    const trimmedRollNo = ledgerAddRollNo.trim();
+    if (!trimmedRollNo) {
+      triggerAlert('warn', 'Please enter a valid Roll Number.');
+      return;
+    }
+
+    if (!ledgerAddOrderId) {
+      triggerAlert('warn', 'Please select an Order.');
+      return;
+    }
+
+    const targetOrder = orders.find(o => o.id === ledgerAddOrderId);
+    if (!targetOrder) {
+      triggerAlert('warn', 'Selected order was not found.');
+      return;
+    }
+
+    const updatedRows = [...(targetOrder.rows || [])];
+    if (!updatedRows[ledgerAddSubOrderIdx]) {
+      triggerAlert('warn', 'Selected sub-order was not found.');
+      return;
+    }
+
+    const targetRow = { ...updatedRows[ledgerAddSubOrderIdx] };
+    const currentRolls = [...(targetRow.rollNumbers || [])];
+
+    if (currentRolls.includes(trimmedRollNo)) {
+      triggerAlert('warn', `Roll "${trimmedRollNo}" already exists in Sub-Order #${ledgerAddSubOrderIdx + 1}.`);
+      return;
+    }
+
+    currentRolls.push(trimmedRollNo);
+    targetRow.rollNumbers = sortRollNumbersAscending(currentRolls);
+    if (targetRow.noOfRolls === undefined || targetRow.noOfRolls < targetRow.rollNumbers.length) {
+      targetRow.noOfRolls = targetRow.rollNumbers.length;
+    }
+
+    updatedRows[ledgerAddSubOrderIdx] = targetRow;
+
+    try {
+      const orderRef = doc(db, 'loomOrders', targetOrder.id);
+      await setDoc(orderRef, {
+        ...targetOrder,
+        rows: updatedRows
+      });
+      setLedgerAddRollNo('');
+      setIsAddingRollInLedger(false);
+      triggerAlert('success', `Added Roll "${trimmedRollNo}" to Order #${targetOrder.orderNo}.`);
+    } catch (err) {
+      console.error("Failed to add roll from master ledger", err);
+      triggerAlert('warn', 'Failed to add roll.');
+    }
+  };
+
+  const handleExportMasterRollLedgerToExcel = () => {
+    try {
+      const exportRows = masterRollLedgerData.map((item, index) => ({
+        'S.No': index + 1,
+        'Roll Number': item.rollNo,
+        'Size': item.size,
+        'GSM': item.gsm,
+        'Denier': item.denier,
+        'Fabric Weight': item.fabricWeight,
+        'Weave Quality': item.quality,
+        'Remarks': item.remarks || '-',
+        'Order No': item.orderNo,
+        'Order Date': item.orderDate,
+        'Sub-Order #': item.subOrderIdx + 1
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(exportRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Master Roll Ledger');
+
+      worksheet['!cols'] = [
+        { wch: 6 },
+        { wch: 18 },
+        { wch: 15 },
+        { wch: 10 },
+        { wch: 10 },
+        { wch: 15 },
+        { wch: 25 },
+        { wch: 25 },
+        { wch: 15 },
+        { wch: 12 },
+        { wch: 12 },
+      ];
+
+      XLSX.writeFile(workbook, `PP_Fabric_Master_Roll_Ledger_${new Date().toISOString().split('T')[0]}.xlsx`);
+      triggerAlert('success', 'Master Roll Ledger exported to Excel successfully.');
+    } catch (err) {
+      console.error("Failed to export Master Roll Ledger", err);
+      triggerAlert('warn', 'Failed to export ledger to Excel.');
+    }
+  };
+
   // Aggregate stats for the currently opened Modal Order
   const modalStats = useMemo(() => {
     if (!modalOrder) return { totalTarget: 0, totalCompleted: 0, completionRate: 0, pendingCount: 0, prodCount: 0, compCount: 0, totalRollsReady: 0, totalRolls: 0 };
@@ -1139,23 +1450,42 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 <span>Refine Loom ledger search</span>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setDuplicateSearchQuery('');
-                  setIsDuplicateModalOpen(true);
-                }}
-                className="bg-amber-500 hover:bg-amber-400 active:scale-95 text-zinc-950 font-black text-xs uppercase tracking-wider px-3.5 py-1.5 rounded-xl border border-amber-600 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
-                title="Audit all orders and sub-orders for duplicate roll numbers"
-              >
-                <ShieldAlert size={15} className="shrink-0 text-zinc-950" />
-                <span>Check Duplicate Rolls</span>
-                {rollAuditResults.duplicatesCount > 0 && (
-                  <span className="bg-rose-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full font-mono">
-                    {rollAuditResults.duplicatesCount}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMasterLedgerSearchQuery('');
+                    setEditingMasterRollId(null);
+                    setIsMasterLedgerOpen(true);
+                  }}
+                  className="bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-amber-400 font-black text-xs uppercase tracking-wider px-3.5 py-1.5 rounded-xl border border-zinc-800 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Open Master Roll Ledger window for all orders & sub-orders"
+                >
+                  <BookOpen size={15} className="shrink-0 text-amber-400" />
+                  <span>Master Roll Ledger</span>
+                  <span className="bg-amber-400/20 text-amber-300 text-[10px] font-black px-1.5 py-0.2 rounded-full font-mono border border-amber-400/30">
+                    {masterRollLedgerData.length}
                   </span>
-                )}
-              </button>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDuplicateSearchQuery('');
+                    setIsDuplicateModalOpen(true);
+                  }}
+                  className="bg-amber-500 hover:bg-amber-400 active:scale-95 text-zinc-950 font-black text-xs uppercase tracking-wider px-3.5 py-1.5 rounded-xl border border-amber-600 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Audit all orders and sub-orders for duplicate roll numbers"
+                >
+                  <ShieldAlert size={15} className="shrink-0 text-zinc-950" />
+                  <span>Check Duplicate Rolls</span>
+                  {rollAuditResults.duplicatesCount > 0 && (
+                    <span className="bg-rose-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full font-mono">
+                      {rollAuditResults.duplicatesCount}
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
@@ -3084,6 +3414,583 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 className="bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-amber-400 font-black text-xs uppercase tracking-wider py-2.5 px-5 sm:px-6 rounded-xl border border-zinc-800 transition-all shadow-3xs cursor-pointer"
               >
                 Close Audit Window
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* POP-UP WINDOW: MASTER ROLL LEDGER DIRECTORY MODAL */}
+      {isMasterLedgerOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col max-h-[96vh] sm:max-h-[92vh]">
+            
+            {/* Modal Header */}
+            <div className="bg-zinc-900 text-white px-3.5 py-3 sm:px-6 sm:py-4 flex justify-between items-center border-b border-zinc-800 shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-2">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0">
+                  <BookOpen size={20} className="hidden sm:block" />
+                  <BookOpen size={18} className="sm:hidden" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-400 leading-tight flex items-center gap-2">
+                    <span>Master Roll Ledger Directory</span>
+                    <span className="bg-amber-400/20 text-amber-300 text-[10px] px-2 py-0.5 rounded-full font-mono border border-amber-400/30 font-bold">
+                      {masterRollLedgerData.length} Rolls
+                    </span>
+                  </h3>
+                  <p className="text-[10.5px] sm:text-xs text-zinc-400 font-semibold truncate max-w-[200px] sm:max-w-md">
+                    All-in-one unified roll registry across all orders & sub-orders
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMasterLedgerOpen(false)}
+                className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-400 hover:text-white flex items-center justify-center transition-all cursor-pointer shrink-0"
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Controls Bar */}
+            <div className="bg-zinc-50 border-b border-zinc-200 p-3 sm:p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0">
+              
+              {/* Search input */}
+              <div className="relative flex-1 min-w-[200px]">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                <input
+                  type="text"
+                  value={masterLedgerSearchQuery}
+                  onChange={(e) => setMasterLedgerSearchQuery(e.target.value)}
+                  placeholder="Search by Roll No, Size, GSM, Quality, Order No, or Remarks..."
+                  className="w-full pl-9 pr-8 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-3xs"
+                />
+                {masterLedgerSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setMasterLedgerSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 flex-wrap shrink-0">
+                {!viewOnly && (
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingRollInLedger(!isAddingRollInLedger)}
+                    className="bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-black uppercase tracking-wider px-3.5 py-2 rounded-xl border border-amber-600 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <Plus size={15} />
+                    <span>{isAddingRollInLedger ? 'Close Add Form' : 'Add New Roll'}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleExportMasterRollLedgerToExcel}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider px-3.5 py-2 rounded-xl border border-emerald-700 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Export Master Ledger to Excel"
+                >
+                  <FileSpreadsheet size={15} />
+                  <span className="hidden sm:inline">Export Excel</span>
+                </button>
+              </div>
+
+            </div>
+
+            {/* Quick Add Roll Form Panel (Collapsible) */}
+            {isAddingRollInLedger && !viewOnly && (
+              <form onSubmit={handleAddMasterRollDirectly} className="bg-amber-50/90 border-b border-amber-200 p-3.5 sm:p-4 space-y-3 shrink-0 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
+                    <PlusCircle size={15} className="text-amber-600" />
+                    Quick Add Roll to Sub-Order Registry
+                  </span>
+                  <span className="text-[10.5px] font-semibold text-amber-800">
+                    Will auto-inherit specs & sort ascending
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+                  <div className="sm:col-span-5">
+                    <label className="text-[10px] font-black text-amber-900 uppercase tracking-wider block mb-1">
+                      Select Target Order & Sub-Order
+                    </label>
+                    <select
+                      value={`${ledgerAddOrderId}___${ledgerAddSubOrderIdx}`}
+                      onChange={(e) => {
+                        const [oId, subIdxStr] = e.target.value.split('___');
+                        setLedgerAddOrderId(oId || '');
+                        setLedgerAddSubOrderIdx(Number(subIdxStr) || 0);
+                      }}
+                      className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs font-bold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      required
+                    >
+                      <option value="">-- Choose Order & Sub-Order --</option>
+                      {orders.map(o => 
+                        (o.rows || []).map((r, subIdx) => (
+                          <option key={`${o.id}_${subIdx}`} value={`${o.id}___${subIdx}`}>
+                            Order #{o.orderNo} ({o.date}) — Sub #{subIdx + 1}: {r.quality || 'N/A'} [{r.size || 'N/A'}]
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-4">
+                    <label className="text-[10px] font-black text-amber-900 uppercase tracking-wider block mb-1">
+                      New Roll Number
+                    </label>
+                    <input
+                      type="text"
+                      value={ledgerAddRollNo}
+                      onChange={(e) => setLedgerAddRollNo(e.target.value)}
+                      placeholder="e.g. R-101 or RN-205"
+                      className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-zinc-900 uppercase placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      required
+                    />
+                  </div>
+
+                  <div className="sm:col-span-3 flex items-end">
+                    <button
+                      type="submit"
+                      className="w-full bg-amber-600 hover:bg-amber-500 text-white font-black text-xs uppercase tracking-wider py-2 rounded-xl shadow-3xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Plus size={14} />
+                      <span>Add Roll</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+
+            {/* Modal Body: Ledger Table / Cards */}
+            <div className="p-3 sm:p-6 overflow-y-auto flex-1 space-y-4">
+              
+              {masterRollLedgerData.length === 0 ? (
+                <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-8 text-center space-y-2">
+                  <BookOpen size={36} className="mx-auto text-zinc-300" />
+                  <h4 className="text-sm font-black text-zinc-700 uppercase tracking-wider">
+                    No Roll Numbers Recorded Yet
+                  </h4>
+                  <p className="text-xs text-zinc-500 max-w-md mx-auto">
+                    Roll numbers generated or assigned in sub-orders will automatically appear here in this master roll ledger sorted ascending.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Sorting Notice Banner */}
+                  <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl px-3.5 py-2 flex items-center justify-between text-[11px] text-amber-900 font-semibold">
+                    <div className="flex items-center gap-1.5">
+                      <Table size={14} className="text-amber-700 shrink-0" />
+                      <span>Roll Numbers are automatically kept sorted in <strong>ascending alphanumeric order</strong>.</span>
+                    </div>
+                    <span className="font-mono text-[10.5px] font-bold text-amber-800 hidden sm:inline">
+                      Showing {masterRollLedgerData.filter(i => {
+                        if (!masterLedgerSearchQuery.trim()) return true;
+                        const q = masterLedgerSearchQuery.toLowerCase().trim();
+                        return (
+                          i.rollNo.toLowerCase().includes(q) ||
+                          i.size.toLowerCase().includes(q) ||
+                          i.quality.toLowerCase().includes(q) ||
+                          i.orderNo.toLowerCase().includes(q) ||
+                          i.remarks.toLowerCase().includes(q) ||
+                          String(i.gsm).includes(q) ||
+                          String(i.denier).includes(q)
+                        );
+                      }).length} of {masterRollLedgerData.length} rolls
+                    </span>
+                  </div>
+
+                  {/* DESKTOP / TABLET RESPONSIVE TABLE VIEW */}
+                  <div className="hidden sm:block overflow-x-auto rounded-2xl border border-zinc-200 shadow-3xs bg-white">
+                    <table className="w-full text-left border-collapse min-w-[950px]">
+                      <thead>
+                        <tr className="bg-zinc-900 text-zinc-300 text-[10px] font-black uppercase tracking-wider border-b border-zinc-800">
+                          <th className="py-3 px-3.5 text-amber-400 font-mono">Roll Number ⬆</th>
+                          <th className="py-3 px-3">Size</th>
+                          <th className="py-3 px-3">GSM</th>
+                          <th className="py-3 px-3">Denier</th>
+                          <th className="py-3 px-3">Fabric Weight</th>
+                          <th className="py-3 px-3">Weave Quality</th>
+                          <th className="py-3 px-3">Remarks</th>
+                          <th className="py-3 px-3.5 text-right">Order Ref & Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100 text-xs">
+                        {masterRollLedgerData
+                          .filter(item => {
+                            if (!masterLedgerSearchQuery.trim()) return true;
+                            const q = masterLedgerSearchQuery.toLowerCase().trim();
+                            return (
+                              item.rollNo.toLowerCase().includes(q) ||
+                              item.size.toLowerCase().includes(q) ||
+                              item.quality.toLowerCase().includes(q) ||
+                              item.orderNo.toLowerCase().includes(q) ||
+                              item.remarks.toLowerCase().includes(q) ||
+                              String(item.gsm).includes(q) ||
+                              String(item.denier).includes(q)
+                            );
+                          })
+                          .map((item) => {
+                            const isEditing = editingMasterRollId === item.id;
+
+                            if (isEditing) {
+                              return (
+                                <tr key={item.id} className="bg-amber-50/90 border-2 border-amber-400 animate-fade-in">
+                                  {/* Col 1: Roll Number */}
+                                  <td className="py-2.5 px-3">
+                                    <input
+                                      type="text"
+                                      value={masterEditRollNo}
+                                      onChange={(e) => setMasterEditRollNo(e.target.value)}
+                                      className="w-28 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-black text-amber-950 uppercase focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      placeholder="Roll #"
+                                    />
+                                  </td>
+                                  {/* Col 2: Size */}
+                                  <td className="py-2.5 px-2">
+                                    <input
+                                      type="text"
+                                      value={masterEditSize}
+                                      onChange={(e) => setMasterEditSize(e.target.value)}
+                                      className="w-24 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      placeholder="Size"
+                                    />
+                                  </td>
+                                  {/* Col 3: GSM */}
+                                  <td className="py-2.5 px-2">
+                                    <input
+                                      type="number"
+                                      value={masterEditGsm}
+                                      onChange={(e) => setMasterEditGsm(e.target.value)}
+                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      placeholder="GSM"
+                                    />
+                                  </td>
+                                  {/* Col 4: Denier */}
+                                  <td className="py-2.5 px-2">
+                                    <input
+                                      type="number"
+                                      value={masterEditDenier}
+                                      onChange={(e) => setMasterEditDenier(e.target.value)}
+                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      placeholder="Denier"
+                                    />
+                                  </td>
+                                  {/* Col 5: Fabric Weight */}
+                                  <td className="py-2.5 px-2">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={masterEditFabricWeight}
+                                      onChange={(e) => setMasterEditFabricWeight(e.target.value)}
+                                      className="w-24 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      placeholder="Weight"
+                                    />
+                                  </td>
+                                  {/* Col 6: Weave Quality */}
+                                  <td className="py-2.5 px-2">
+                                    <input
+                                      type="text"
+                                      value={masterEditQuality}
+                                      onChange={(e) => setMasterEditQuality(e.target.value)}
+                                      className="w-32 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      placeholder="Quality"
+                                    />
+                                  </td>
+                                  {/* Col 7: Remarks */}
+                                  <td className="py-2.5 px-2">
+                                    <input
+                                      type="text"
+                                      value={masterEditRemarks}
+                                      onChange={(e) => setMasterEditRemarks(e.target.value)}
+                                      className="w-full min-w-[140px] bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-medium text-zinc-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      placeholder="Remarks..."
+                                    />
+                                  </td>
+                                  {/* Col 8: Actions */}
+                                  <td className="py-2.5 px-3 text-right">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveMasterRollEdit(item)}
+                                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-3xs transition-all cursor-pointer"
+                                        title="Save roll details"
+                                      >
+                                        <Check size={13} className="stroke-[3]" />
+                                        <span>Save</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={handleCancelEditMasterRoll}
+                                        className="bg-zinc-200 hover:bg-zinc-300 text-zinc-800 font-bold text-[11px] px-2 py-1 rounded-lg transition-all cursor-pointer"
+                                        title="Cancel edit"
+                                      >
+                                        <X size={13} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return (
+                              <tr key={item.id} className="hover:bg-amber-50/40 transition-colors">
+                                {/* 1. Roll Number */}
+                                <td className="py-2.5 px-3.5 font-mono">
+                                  <span className="bg-amber-100 text-amber-950 font-black px-2.5 py-1 rounded-lg border border-amber-300/80 text-xs inline-block shadow-3xs">
+                                    {item.rollNo}
+                                  </span>
+                                </td>
+                                {/* 2. Size */}
+                                <td className="py-2.5 px-3 font-semibold text-zinc-800">
+                                  {item.size || <span className="text-zinc-300 italic">-</span>}
+                                </td>
+                                {/* 3. GSM */}
+                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-700">
+                                  {item.gsm ? `${item.gsm}` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* 4. Denier */}
+                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-700">
+                                  {item.denier ? `${item.denier}` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* 5. Fabric Weight */}
+                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-700">
+                                  {item.fabricWeight ? `${item.fabricWeight}` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* 6. Weave Quality */}
+                                <td className="py-2.5 px-3 font-semibold text-zinc-900">
+                                  {item.quality || <span className="text-zinc-300 italic">-</span>}
+                                </td>
+                                {/* 7. Remarks */}
+                                <td className="py-2.5 px-3 text-zinc-600 text-xs max-w-[180px] truncate">
+                                  {item.remarks ? (
+                                    <span className="font-medium">{item.remarks}</span>
+                                  ) : (
+                                    <span className="text-zinc-300 italic text-[11px]">No remarks</span>
+                                  )}
+                                </td>
+                                {/* Order Ref & Actions */}
+                                <td className="py-2.5 px-3.5 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <span className="bg-zinc-100 text-zinc-600 font-mono font-bold text-[10px] px-2 py-0.5 rounded border border-zinc-200">
+                                      Ord #{item.orderNo} (Sub #{item.subOrderIdx + 1})
+                                    </span>
+                                    {!viewOnly && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleStartEditMasterRoll(item)}
+                                          className="p-1.5 text-zinc-500 hover:text-amber-600 hover:bg-amber-100/60 rounded-lg transition-all cursor-pointer"
+                                          title="Edit roll details"
+                                        >
+                                          <Edit size={14} />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteMasterRoll(item)}
+                                          className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
+                                          title="Delete roll"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* MOBILE OPTIMIZED CARD VIEW (For Small Screens) */}
+                  <div className="sm:hidden space-y-3">
+                    {masterRollLedgerData
+                      .filter(item => {
+                        if (!masterLedgerSearchQuery.trim()) return true;
+                        const q = masterLedgerSearchQuery.toLowerCase().trim();
+                        return (
+                          item.rollNo.toLowerCase().includes(q) ||
+                          item.size.toLowerCase().includes(q) ||
+                          item.quality.toLowerCase().includes(q) ||
+                          item.orderNo.toLowerCase().includes(q) ||
+                          item.remarks.toLowerCase().includes(q) ||
+                          String(item.gsm).includes(q) ||
+                          String(item.denier).includes(q)
+                        );
+                      })
+                      .map((item) => {
+                        const isEditing = editingMasterRollId === item.id;
+
+                        if (isEditing) {
+                          return (
+                            <div key={item.id} className="bg-amber-50 border-2 border-amber-500 rounded-xl p-3 space-y-2 shadow-sm animate-fade-in">
+                              <div className="flex justify-between items-center pb-2 border-b border-amber-200">
+                                <span className="text-[10px] font-black text-amber-900 uppercase">
+                                  Editing Roll Details
+                                </span>
+                                <span className="text-[10px] font-mono text-zinc-500">
+                                  Order #{item.orderNo}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Roll Number</label>
+                                  <input
+                                    type="text"
+                                    value={masterEditRollNo}
+                                    onChange={(e) => setMasterEditRollNo(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 font-mono font-bold text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Size</label>
+                                  <input
+                                    type="text"
+                                    value={masterEditSize}
+                                    onChange={(e) => setMasterEditSize(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">GSM</label>
+                                  <input
+                                    type="number"
+                                    value={masterEditGsm}
+                                    onChange={(e) => setMasterEditGsm(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 font-mono text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Denier</label>
+                                  <input
+                                    type="number"
+                                    value={masterEditDenier}
+                                    onChange={(e) => setMasterEditDenier(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 font-mono text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Fabric Weight</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={masterEditFabricWeight}
+                                    onChange={(e) => setMasterEditFabricWeight(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 font-mono text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Weave Quality</label>
+                                  <input
+                                    type="text"
+                                    value={masterEditQuality}
+                                    onChange={(e) => setMasterEditQuality(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 text-xs"
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="text-[9px] font-bold text-zinc-500 uppercase block">Remarks</label>
+                                <input
+                                  type="text"
+                                  value={masterEditRemarks}
+                                  onChange={(e) => setMasterEditRemarks(e.target.value)}
+                                  className="w-full bg-white border border-amber-400 rounded px-2 py-1 text-xs"
+                                  placeholder="Remarks..."
+                                />
+                              </div>
+
+                              <div className="flex gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveMasterRollEdit(item)}
+                                  className="flex-1 bg-emerald-600 text-white font-black text-xs py-1.5 rounded-lg text-center"
+                                >
+                                  Save Changes
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleCancelEditMasterRoll}
+                                  className="bg-zinc-200 text-zinc-800 font-bold text-xs px-3 py-1.5 rounded-lg"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div key={item.id} className="bg-white border border-zinc-200 rounded-xl p-3 space-y-2 shadow-3xs">
+                            <div className="flex justify-between items-center">
+                              <span className="bg-amber-100 text-amber-950 font-black font-mono px-2.5 py-0.5 rounded-md border border-amber-300 text-xs">
+                                Roll #: {item.rollNo}
+                              </span>
+                              <span className="text-[10px] font-mono font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded">
+                                Order #{item.orderNo}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-1.5 text-xs pt-1 border-t border-zinc-100">
+                              <div><span className="text-zinc-400 text-[10px]">Size:</span> <strong className="text-zinc-800">{item.size || '-'}</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">GSM:</span> <strong className="text-zinc-800 font-mono">{item.gsm || '-'}</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Denier:</span> <strong className="text-zinc-800 font-mono">{item.denier || '-'}</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Fabric Wt:</span> <strong className="text-zinc-800 font-mono">{item.fabricWeight || '-'}</strong></div>
+                              <div className="col-span-2"><span className="text-zinc-400 text-[10px]">Quality:</span> <strong className="text-zinc-900">{item.quality || '-'}</strong></div>
+                              <div className="col-span-2"><span className="text-zinc-400 text-[10px]">Remarks:</span> <span className="text-zinc-700 italic">{item.remarks || 'None'}</span></div>
+                            </div>
+
+                            {!viewOnly && (
+                              <div className="flex justify-end gap-2 pt-1 border-t border-zinc-100">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditMasterRoll(item)}
+                                  className="bg-amber-100 text-amber-900 font-bold text-[11px] px-2.5 py-1 rounded-md flex items-center gap-1"
+                                >
+                                  <Edit size={12} /> Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMasterRoll(item)}
+                                  className="bg-rose-50 text-rose-700 font-bold text-[11px] px-2.5 py-1 rounded-md flex items-center gap-1"
+                                >
+                                  <Trash2 size={12} /> Delete
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                </>
+              )}
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-zinc-50 px-3.5 py-3 sm:px-6 sm:py-3.5 border-t border-zinc-200 flex justify-between items-center shrink-0">
+              <span className="text-[10px] sm:text-xs font-bold text-zinc-500 font-mono">
+                Total {masterRollLedgerData.length} roll(s) registered in database
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsMasterLedgerOpen(false)}
+                className="bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-amber-400 font-black text-xs uppercase tracking-wider py-2.5 px-5 sm:px-6 rounded-xl border border-zinc-800 transition-all shadow-3xs cursor-pointer"
+              >
+                Close Ledger Window
               </button>
             </div>
 

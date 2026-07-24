@@ -95,6 +95,7 @@ export interface LoomOrderRow {
   noOfRolls?: number;
   laminationType?: string;
   rollNumbers?: string[]; // Array of unique roll numbers (e.g., ["R-101", "R-102"])
+  rollRemarks?: Record<string, string>; // Map of roll number to individual roll remarks
 }
 
 export interface LoomOrder {
