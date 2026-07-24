@@ -38,7 +38,11 @@ import {
   BookOpen,
   Table,
   Download,
-  RotateCcw
+  RotateCcw,
+  Truck,
+  PackageCheck,
+  PackageX,
+  Filter
 } from 'lucide-react';
 import { LoomOrder, LoomOrderRow } from '../types';
 import * as XLSX from 'xlsx';
@@ -115,6 +119,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [bulkRollInput, setBulkRollInput] = useState<string>('');
   const [isBulkRollMode, setIsBulkRollMode] = useState<boolean>(false);
   const [rollSearchQuery, setRollSearchQuery] = useState<string>('');
+  const [rollModalDispatchFilter, setRollModalDispatchFilter] = useState<'all' | 'not_dispatched' | 'dispatched'>('all');
 
   // Suborder draft roll numbers (for new sub-order being created)
   const [subRollNumbers, setSubRollNumbers] = useState<string[]>([]);
@@ -129,6 +134,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   // --- MASTER ROLL LEDGER MODAL STATES ---
   const [isMasterLedgerOpen, setIsMasterLedgerOpen] = useState<boolean>(false);
   const [masterLedgerSearchQuery, setMasterLedgerSearchQuery] = useState<string>('');
+  const [masterLedgerDispatchFilter, setMasterLedgerDispatchFilter] = useState<'all' | 'not_dispatched' | 'dispatched'>('all');
   const [editingMasterRollId, setEditingMasterRollId] = useState<string | null>(null);
 
   // Master Ledger Inline Edit draft fields
@@ -139,6 +145,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [masterEditFabricWeight, setMasterEditFabricWeight] = useState<string>('');
   const [masterEditQuality, setMasterEditQuality] = useState<string>('');
   const [masterEditRemarks, setMasterEditRemarks] = useState<string>('');
+  const [masterEditDispatchStatus, setMasterEditDispatchStatus] = useState<'Dispatched' | 'Not Dispatched'>('Not Dispatched');
 
   // Master Ledger "Add Roll" panel states
   const [isAddingRollInLedger, setIsAddingRollInLedger] = useState<boolean>(false);
@@ -464,8 +471,61 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     setNewRollInput('');
     setBulkRollInput('');
     setRollSearchQuery('');
+    setRollModalDispatchFilter('all');
     setIsBulkRollMode(false);
     setIsRollModalOpen(true);
+  };
+
+  const handleToggleRollDispatchStatusInModal = async (rollNo: string, newStatus: 'Dispatched' | 'Not Dispatched') => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+
+    if (!rollModalContext?.orderId || rollModalContext.subOrderIdx === undefined) {
+      triggerAlert('info', `Roll status set to ${newStatus}. Save sub-order to persist.`);
+      return;
+    }
+
+    const targetOrder = orders.find(o => o.id === rollModalContext.orderId);
+    if (!targetOrder) {
+      triggerAlert('warn', 'Order not found.');
+      return;
+    }
+
+    const updatedRows = [...(targetOrder.rows || [])];
+    if (!updatedRows[rollModalContext.subOrderIdx]) {
+      triggerAlert('warn', 'Sub-order row not found.');
+      return;
+    }
+
+    const targetRow = { ...updatedRows[rollModalContext.subOrderIdx] };
+    const currentDispatchedSet = new Set(targetRow.dispatchedRolls || []);
+    const currentDispatchStatusMap = { ...(targetRow.rollDispatchStatus || {}) };
+
+    if (newStatus === 'Dispatched') {
+      currentDispatchedSet.add(rollNo);
+      currentDispatchStatusMap[rollNo] = 'Dispatched';
+    } else {
+      currentDispatchedSet.delete(rollNo);
+      currentDispatchStatusMap[rollNo] = 'Not Dispatched';
+    }
+
+    targetRow.dispatchedRolls = Array.from(currentDispatchedSet);
+    targetRow.rollDispatchStatus = currentDispatchStatusMap;
+    updatedRows[rollModalContext.subOrderIdx] = targetRow;
+
+    try {
+      const orderRef = doc(db, 'loomOrders', targetOrder.id);
+      await setDoc(orderRef, {
+        ...targetOrder,
+        rows: updatedRows
+      });
+      triggerAlert('success', `Roll "${rollNo}" status updated to ${newStatus}.`);
+    } catch (err) {
+      console.error("Failed to update roll status in modal", err);
+      triggerAlert('warn', 'Failed to update roll dispatch status.');
+    }
   };
 
   const syncRollNumbersStateAndFirestore = async (updatedRolls: string[]) => {
@@ -990,14 +1050,20 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       fabricWeight: number;
       quality: string;
       remarks: string;
+      dispatchStatus: 'Dispatched' | 'Not Dispatched';
     }> = [];
 
     orders.forEach((order) => {
       (order.rows || []).forEach((row, subIdx) => {
         const rolls = row.rollNumbers || [];
+        const dispList = row.dispatchedRolls || [];
+        const dispMap = row.rollDispatchStatus || {};
+
         rolls.forEach((r, rIdx) => {
           const trimmed = (r || '').trim();
           if (trimmed) {
+            const isDispatched = dispMap[trimmed] === 'Dispatched' || dispList.includes(trimmed);
+
             list.push({
               id: `${order.id}___${subIdx}___${rIdx}___${trimmed}`,
               rollNo: trimmed,
@@ -1012,6 +1078,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               fabricWeight: row.fabricWeight || 0,
               quality: row.quality || '',
               remarks: (row.rollRemarks && row.rollRemarks[trimmed]) || '',
+              dispatchStatus: isDispatched ? 'Dispatched' : 'Not Dispatched',
             });
           }
         });
@@ -1036,10 +1103,58 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     setMasterEditFabricWeight(item.fabricWeight ? String(item.fabricWeight) : '');
     setMasterEditQuality(item.quality);
     setMasterEditRemarks(item.remarks);
+    setMasterEditDispatchStatus(item.dispatchStatus);
   };
 
   const handleCancelEditMasterRoll = () => {
     setEditingMasterRollId(null);
+  };
+
+  const handleUpdateRollDispatchStatus = async (item: typeof masterRollLedgerData[0], newStatus: 'Dispatched' | 'Not Dispatched') => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+
+    const targetOrder = orders.find(o => o.id === item.orderId);
+    if (!targetOrder) {
+      triggerAlert('warn', 'Order not found.');
+      return;
+    }
+
+    const updatedRows = [...(targetOrder.rows || [])];
+    if (!updatedRows[item.subOrderIdx]) {
+      triggerAlert('warn', 'Sub-order row not found.');
+      return;
+    }
+
+    const targetRow = { ...updatedRows[item.subOrderIdx] };
+    const currentDispatchedSet = new Set(targetRow.dispatchedRolls || []);
+    const currentDispatchStatusMap = { ...(targetRow.rollDispatchStatus || {}) };
+
+    if (newStatus === 'Dispatched') {
+      currentDispatchedSet.add(item.rollNo);
+      currentDispatchStatusMap[item.rollNo] = 'Dispatched';
+    } else {
+      currentDispatchedSet.delete(item.rollNo);
+      currentDispatchStatusMap[item.rollNo] = 'Not Dispatched';
+    }
+
+    targetRow.dispatchedRolls = Array.from(currentDispatchedSet);
+    targetRow.rollDispatchStatus = currentDispatchStatusMap;
+    updatedRows[item.subOrderIdx] = targetRow;
+
+    try {
+      const orderRef = doc(db, 'loomOrders', targetOrder.id);
+      await setDoc(orderRef, {
+        ...targetOrder,
+        rows: updatedRows
+      });
+      triggerAlert('success', `Roll "${item.rollNo}" status updated to ${newStatus}.`);
+    } catch (err) {
+      console.error("Failed to update roll dispatch status", err);
+      triggerAlert('warn', 'Failed to update dispatch status in database.');
+    }
   };
 
   const handleSaveMasterRollEdit = async (item: typeof masterRollLedgerData[0]) => {
@@ -1097,6 +1212,26 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     }
     existingRollRemarks[trimmedNewRollNo] = masterEditRemarks.trim();
     targetRow.rollRemarks = existingRollRemarks;
+
+    // Update dispatch status
+    const currentDispatchedSet = new Set(targetRow.dispatchedRolls || []);
+    const currentDispatchStatusMap = { ...(targetRow.rollDispatchStatus || {}) };
+
+    if (item.rollNo !== trimmedNewRollNo) {
+      currentDispatchedSet.delete(item.rollNo);
+      delete currentDispatchStatusMap[item.rollNo];
+    }
+
+    if (masterEditDispatchStatus === 'Dispatched') {
+      currentDispatchedSet.add(trimmedNewRollNo);
+      currentDispatchStatusMap[trimmedNewRollNo] = 'Dispatched';
+    } else {
+      currentDispatchedSet.delete(trimmedNewRollNo);
+      currentDispatchStatusMap[trimmedNewRollNo] = 'Not Dispatched';
+    }
+
+    targetRow.dispatchedRolls = Array.from(currentDispatchedSet);
+    targetRow.rollDispatchStatus = currentDispatchStatusMap;
 
     updatedRows[item.subOrderIdx] = targetRow;
 
@@ -1229,6 +1364,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         'Denier': item.denier,
         'Fabric Weight': item.fabricWeight,
         'Weave Quality': item.quality,
+        'Dispatch Status': item.dispatchStatus,
         'Remarks': item.remarks || '-',
         'Order No': item.orderNo,
         'Order Date': item.orderDate,
@@ -2981,38 +3117,59 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
             <div className="p-3 sm:p-6 overflow-y-auto space-y-3.5 sm:space-y-6">
               
               {/* Summary Stats Banner */}
-              <div className="bg-zinc-50 border border-zinc-200/90 rounded-xl sm:rounded-2xl p-2 sm:p-4 grid grid-cols-3 gap-1.5 sm:gap-3 text-center shadow-3xs">
-                <div className="bg-white border border-zinc-200/80 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 shadow-3xs">
-                  <span className="text-[8px] sm:text-[9px] font-black text-zinc-400 uppercase tracking-wider block truncate">
-                    Recorded
-                  </span>
-                  <span className="text-base sm:text-xl font-black text-amber-600 font-mono mt-0.5 block">
-                    {rollNumbersList.length}
-                  </span>
-                </div>
-                <div className="bg-white border border-zinc-200/80 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 shadow-3xs">
-                  <span className="text-[8px] sm:text-[9px] font-black text-zinc-400 uppercase tracking-wider block truncate">
-                    Target
-                  </span>
-                  <span className="text-base sm:text-xl font-black text-zinc-800 font-mono mt-0.5 block">
-                    {rollModalTargetNoOfRolls || '—'}
-                  </span>
-                </div>
-                <div className="bg-white border border-zinc-200/80 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 shadow-3xs">
-                  <span className="text-[8px] sm:text-[9px] font-black text-zinc-400 uppercase tracking-wider block truncate">
-                    Completion
-                  </span>
-                  <span className={`text-base sm:text-xl font-black font-mono mt-0.5 block ${
-                    rollModalTargetNoOfRolls > 0 && rollNumbersList.length >= rollModalTargetNoOfRolls
-                      ? 'text-emerald-600'
-                      : 'text-zinc-700'
-                  }`}>
-                    {rollModalTargetNoOfRolls > 0
-                      ? `${Math.round((rollNumbersList.length / rollModalTargetNoOfRolls) * 100)}%`
-                      : 'N/A'}
-                  </span>
-                </div>
-              </div>
+              {(() => {
+                const targetOrderForModal = rollModalContext?.orderId ? orders.find(o => o.id === rollModalContext.orderId) : null;
+                const targetSubRowForModal = (targetOrderForModal && rollModalContext?.subOrderIdx !== undefined)
+                  ? targetOrderForModal.rows[rollModalContext.subOrderIdx]
+                  : null;
+
+                const modalDispatchStatusMap = targetSubRowForModal?.rollDispatchStatus || {};
+                const modalDispatchedRollsSet = new Set(targetSubRowForModal?.dispatchedRolls || []);
+
+                const modalNotDispatchedCount = rollNumbersList.filter(
+                  r => modalDispatchStatusMap[r] !== 'Dispatched' && !modalDispatchedRollsSet.has(r)
+                ).length;
+                const modalDispatchedCount = rollNumbersList.filter(
+                  r => modalDispatchStatusMap[r] === 'Dispatched' || modalDispatchedRollsSet.has(r)
+                ).length;
+
+                return (
+                  <div className="bg-zinc-50 border border-zinc-200/90 rounded-xl sm:rounded-2xl p-2 sm:p-3.5 grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-3 text-center shadow-3xs">
+                    <div className="bg-white border border-zinc-200/80 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 shadow-3xs">
+                      <span className="text-[8px] sm:text-[9px] font-black text-zinc-400 uppercase tracking-wider block truncate">
+                        Total Recorded
+                      </span>
+                      <span className="text-base sm:text-xl font-black text-zinc-900 font-mono mt-0.5 block">
+                        {rollNumbersList.length}
+                      </span>
+                    </div>
+                    <div className="bg-white border border-amber-200/80 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 shadow-3xs">
+                      <span className="text-[8px] sm:text-[9px] font-black text-amber-700 uppercase tracking-wider block truncate">
+                        Not Dispatched
+                      </span>
+                      <span className="text-base sm:text-xl font-black text-amber-600 font-mono mt-0.5 block">
+                        {modalNotDispatchedCount}
+                      </span>
+                    </div>
+                    <div className="bg-white border border-emerald-200/80 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 shadow-3xs">
+                      <span className="text-[8px] sm:text-[9px] font-black text-emerald-700 uppercase tracking-wider block truncate">
+                        Dispatched
+                      </span>
+                      <span className="text-base sm:text-xl font-black text-emerald-600 font-mono mt-0.5 block">
+                        {modalDispatchedCount}
+                      </span>
+                    </div>
+                    <div className="bg-white border border-zinc-200/80 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 shadow-3xs">
+                      <span className="text-[8px] sm:text-[9px] font-black text-zinc-400 uppercase tracking-wider block truncate">
+                        Target & Completion
+                      </span>
+                      <span className="text-base sm:text-xl font-black text-zinc-800 font-mono mt-0.5 block">
+                        {rollModalTargetNoOfRolls ? `${rollNumbersList.length}/${rollModalTargetNoOfRolls}` : '—'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* RECORD ENTRY SECTION */}
               <div className="bg-amber-50/40 border border-amber-200/80 rounded-xl sm:rounded-2xl p-3 sm:p-4 space-y-2.5 sm:space-y-3">
@@ -3087,97 +3244,257 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
               {/* LIST OF RECORDED ROLL NUMBERS */}
               <div className="border border-zinc-200 rounded-xl sm:rounded-2xl overflow-hidden bg-white shadow-3xs flex flex-col">
-                <div className="bg-zinc-100 px-3 py-2 sm:px-4 sm:py-2.5 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-zinc-700 flex items-center gap-1.5">
-                    <Layers size={12} className="text-amber-600 shrink-0" />
-                    <span>Recorded Rolls ({rollNumbersList.length})</span>
-                  </span>
+                {(() => {
+                  const targetOrderForModal = rollModalContext?.orderId ? orders.find(o => o.id === rollModalContext.orderId) : null;
+                  const targetSubRowForModal = (targetOrderForModal && rollModalContext?.subOrderIdx !== undefined)
+                    ? targetOrderForModal.rows[rollModalContext.subOrderIdx]
+                    : null;
 
-                  <div className="flex items-center gap-2">
-                    {rollNumbersList.length > 5 && (
-                      <div className="relative">
-                        <input
-                          type="text"
-                          value={rollSearchQuery}
-                          onChange={(e) => setRollSearchQuery(e.target.value)}
-                          placeholder="Search..."
-                          className="w-24 sm:w-32 bg-white border border-zinc-300 rounded-lg px-2 py-0.5 text-[10px] font-mono font-semibold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                        />
-                      </div>
-                    )}
-                    {rollNumbersList.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm("Are you sure you want to clear all roll numbers from this sub-order?")) {
-                            setRollNumbersList([]);
-                            syncRollNumbersStateAndFirestore([]);
-                            triggerAlert('info', 'Cleared all recorded roll numbers.');
-                          }
-                        }}
-                        className="text-[9.5px] font-black text-rose-600 hover:text-rose-700 hover:underline uppercase tracking-wider cursor-pointer"
-                      >
-                        Clear All
-                      </button>
-                    )}
-                  </div>
-                </div>
+                  const modalDispatchStatusMap = targetSubRowForModal?.rollDispatchStatus || {};
+                  const modalDispatchedRollsSet = new Set(targetSubRowForModal?.dispatchedRolls || []);
 
-                {rollNumbersList.length === 0 ? (
-                  <div className="py-8 sm:py-10 text-center select-none px-4">
-                    <FileText className="mx-auto text-zinc-300 mb-2" size={28} />
-                    <p className="text-xs font-black uppercase text-zinc-400 tracking-wider">
-                      No roll numbers recorded yet
-                    </p>
-                    <p className="text-[10px] text-zinc-500 max-w-xs mx-auto mt-0.5">
-                      Type individual roll numbers above or paste in bulk to maintain precise trackability.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="p-2.5 sm:p-4 max-h-[220px] sm:max-h-[260px] overflow-y-auto">
-                    {(() => {
-                      const filteredList = rollSearchQuery.trim()
-                        ? rollNumbersList.filter(r => r.toLowerCase().includes(rollSearchQuery.trim().toLowerCase()))
-                        : rollNumbersList;
+                  const notDispatchedList = rollNumbersList.filter(
+                    r => modalDispatchStatusMap[r] !== 'Dispatched' && !modalDispatchedRollsSet.has(r)
+                  );
+                  const dispatchedList = rollNumbersList.filter(
+                    r => modalDispatchStatusMap[r] === 'Dispatched' || modalDispatchedRollsSet.has(r)
+                  );
 
-                      if (filteredList.length === 0) {
-                        return (
-                          <div className="py-6 text-center text-xs font-bold text-zinc-400">
-                            No rolls match "{rollSearchQuery}"
-                          </div>
-                        );
-                      }
+                  return (
+                    <>
+                      <div className="bg-zinc-100 px-3 py-2 sm:px-4 sm:py-2.5 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-zinc-800 flex items-center gap-1.5 mr-1">
+                            <Layers size={13} className="text-amber-600 shrink-0" />
+                            <span>Recorded Rolls ({rollNumbersList.length})</span>
+                          </span>
 
-                      return (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 sm:gap-2">
-                          {filteredList.map((rollNo, idx) => (
-                            <div
-                              key={idx}
-                              className="flex items-center justify-between bg-zinc-50 border border-zinc-250 hover:border-amber-300 rounded-lg sm:rounded-xl px-2.5 py-1.5 transition-all shadow-3xs group"
+                          {/* Filter Pills */}
+                          <div className="flex items-center gap-1 bg-zinc-200/80 p-0.5 rounded-lg border border-zinc-300">
+                            <button
+                              type="button"
+                              onClick={() => setRollModalDispatchFilter('all')}
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-black transition-all cursor-pointer ${
+                                rollModalDispatchFilter === 'all'
+                                  ? 'bg-white text-zinc-950 shadow-3xs'
+                                  : 'text-zinc-600 hover:text-zinc-900'
+                              }`}
                             >
-                              <div className="flex items-center gap-1.5 min-w-0 pr-1">
-                                <span className="text-[9px] font-black text-zinc-400 font-mono shrink-0">
-                                  #{idx + 1}
-                                </span>
-                                <span className="text-xs font-black font-mono text-zinc-800 truncate" title={rollNo}>
-                                  {rollNo}
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteRollNumber(rollNumbersList.indexOf(rollNo))}
-                                className="text-zinc-400 hover:text-rose-600 active:scale-90 p-1.5 rounded-md hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
-                                title={`Remove Roll ${rollNo}`}
-                              >
-                                <X size={13} />
-                              </button>
-                            </div>
-                          ))}
+                              All ({rollNumbersList.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRollModalDispatchFilter('not_dispatched')}
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-black transition-all cursor-pointer flex items-center gap-1 ${
+                                rollModalDispatchFilter === 'not_dispatched'
+                                  ? 'bg-amber-500 text-zinc-950 shadow-3xs'
+                                  : 'text-zinc-600 hover:text-zinc-900'
+                              }`}
+                            >
+                              <PackageX size={11} />
+                              <span>Not Dispatched ({notDispatchedList.length})</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRollModalDispatchFilter('dispatched')}
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-black transition-all cursor-pointer flex items-center gap-1 ${
+                                rollModalDispatchFilter === 'dispatched'
+                                  ? 'bg-emerald-600 text-white shadow-3xs'
+                                  : 'text-zinc-600 hover:text-zinc-900'
+                              }`}
+                            >
+                              <Truck size={11} />
+                              <span>Dispatched ({dispatchedList.length})</span>
+                            </button>
+                          </div>
                         </div>
-                      );
-                    })()}
-                  </div>
-                )}
+
+                        <div className="flex items-center gap-2">
+                          {rollNumbersList.length > 5 && (
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={rollSearchQuery}
+                                onChange={(e) => setRollSearchQuery(e.target.value)}
+                                placeholder="Search..."
+                                className="w-24 sm:w-32 bg-white border border-zinc-300 rounded-lg px-2 py-0.5 text-[10px] font-mono font-semibold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                              />
+                            </div>
+                          )}
+                          {rollNumbersList.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm("Are you sure you want to clear all roll numbers from this sub-order?")) {
+                                  setRollNumbersList([]);
+                                  syncRollNumbersStateAndFirestore([]);
+                                  triggerAlert('info', 'Cleared all recorded roll numbers.');
+                                }
+                              }}
+                              className="text-[9.5px] font-black text-rose-600 hover:text-rose-700 hover:underline uppercase tracking-wider cursor-pointer"
+                            >
+                              Clear All
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {rollNumbersList.length === 0 ? (
+                        <div className="py-8 sm:py-10 text-center select-none px-4">
+                          <FileText className="mx-auto text-zinc-300 mb-2" size={28} />
+                          <p className="text-xs font-black uppercase text-zinc-400 tracking-wider">
+                            No roll numbers recorded yet
+                          </p>
+                          <p className="text-[10px] text-zinc-500 max-w-xs mx-auto mt-0.5">
+                            Type individual roll numbers above or paste in bulk to maintain precise trackability.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="p-3 sm:p-4 max-h-[300px] sm:max-h-[360px] overflow-y-auto space-y-4">
+                          {(() => {
+                            const query = rollSearchQuery.trim().toLowerCase();
+                            const filterBySearch = (list: string[]) => query ? list.filter(r => r.toLowerCase().includes(query)) : list;
+
+                            const visibleNotDispatched = filterBySearch(notDispatchedList);
+                            const visibleDispatched = filterBySearch(dispatchedList);
+
+                            const showNotDispatchedSection = (rollModalDispatchFilter === 'all' || rollModalDispatchFilter === 'not_dispatched') && visibleNotDispatched.length > 0;
+                            const showDispatchedSection = (rollModalDispatchFilter === 'all' || rollModalDispatchFilter === 'dispatched') && visibleDispatched.length > 0;
+
+                            if (!showNotDispatchedSection && !showDispatchedSection) {
+                              return (
+                                <div className="py-6 text-center text-xs font-bold text-zinc-400">
+                                  No rolls found matching the current filter or search query.
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <>
+                                {/* SECTION 1: NOT DISPATCHED ROLLS */}
+                                {showNotDispatchedSection && (
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between bg-amber-50/80 px-3 py-1.5 rounded-lg border border-amber-200">
+                                      <span className="text-[11px] font-black uppercase tracking-wider text-amber-950 flex items-center gap-1.5">
+                                        <PackageX size={13} className="text-amber-600" />
+                                        <span>Not Dispatched / Recorded Rolls</span>
+                                      </span>
+                                      <span className="bg-amber-200 text-amber-950 text-[10px] font-mono font-black px-2 py-0.2 rounded-full">
+                                        {visibleNotDispatched.length}
+                                      </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                      {visibleNotDispatched.map((rollNo) => {
+                                        const originalIndex = rollNumbersList.indexOf(rollNo);
+                                        return (
+                                          <div
+                                            key={rollNo}
+                                            className="flex items-center justify-between bg-zinc-50 border border-zinc-250 hover:border-amber-300 rounded-xl px-3 py-2 transition-all shadow-3xs group"
+                                          >
+                                            <div className="flex items-center gap-2 min-w-0 pr-1">
+                                              <span className="text-[10px] font-mono font-black text-zinc-400 shrink-0">
+                                                #{originalIndex + 1}
+                                              </span>
+                                              <span className="text-xs sm:text-sm font-extrabold font-mono text-zinc-900 whitespace-nowrap" title={rollNo}>
+                                                {rollNo}
+                                              </span>
+                                            </div>
+
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                              <select
+                                                value="Not Dispatched"
+                                                onChange={(e) => handleToggleRollDispatchStatusInModal(rollNo, e.target.value as 'Dispatched' | 'Not Dispatched')}
+                                                disabled={viewOnly}
+                                                className="text-xs font-bold bg-white border border-zinc-250 hover:border-amber-400 text-zinc-800 rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-500 shadow-3xs"
+                                              >
+                                                <option value="Not Dispatched">Not Dispatched</option>
+                                                <option value="Dispatched">Dispatched</option>
+                                              </select>
+
+                                              <button
+                                                type="button"
+                                                onClick={() => handleDeleteRollNumber(originalIndex)}
+                                                className="text-zinc-400 hover:text-rose-600 active:scale-90 p-1 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                                title={`Remove Roll ${rollNo}`}
+                                              >
+                                                <X size={15} />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* SECTION 2: DISPATCHED ROLLS */}
+                                {showDispatchedSection && (
+                                  <div className="space-y-2 pt-1">
+                                    <div className="flex items-center justify-between bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+                                      <span className="text-[11px] font-black uppercase tracking-wider text-emerald-950 flex items-center gap-1.5">
+                                        <Truck size={13} className="text-emerald-600" />
+                                        <span>Dispatched Rolls History</span>
+                                      </span>
+                                      <span className="bg-emerald-200 text-emerald-950 text-[10px] font-mono font-black px-2 py-0.2 rounded-full">
+                                        {visibleDispatched.length}
+                                      </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                      {visibleDispatched.map((rollNo) => {
+                                        const originalIndex = rollNumbersList.indexOf(rollNo);
+                                        return (
+                                          <div
+                                            key={rollNo}
+                                            className="flex items-center justify-between bg-emerald-50/70 border border-emerald-300 hover:border-emerald-400 rounded-xl px-3 py-2 transition-all shadow-3xs group"
+                                          >
+                                            <div className="flex items-center gap-2 min-w-0 pr-1">
+                                              <span className="text-[10px] font-mono font-black text-emerald-600 shrink-0">
+                                                #{originalIndex + 1}
+                                              </span>
+                                              <span className="text-xs sm:text-sm font-extrabold font-mono text-emerald-950 whitespace-nowrap" title={rollNo}>
+                                                {rollNo}
+                                              </span>
+                                              <span className="bg-emerald-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded shrink-0 uppercase tracking-wider">
+                                                DISPATCHED
+                                              </span>
+                                            </div>
+
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                              <select
+                                                value="Dispatched"
+                                                onChange={(e) => handleToggleRollDispatchStatusInModal(rollNo, e.target.value as 'Dispatched' | 'Not Dispatched')}
+                                                disabled={viewOnly}
+                                                className="text-xs font-bold bg-white border border-emerald-400 text-emerald-950 rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-3xs"
+                                              >
+                                                <option value="Dispatched">Dispatched</option>
+                                                <option value="Not Dispatched">Not Dispatched</option>
+                                              </select>
+
+                                              <button
+                                                type="button"
+                                                onClick={() => handleDeleteRollNumber(originalIndex)}
+                                                className="text-emerald-700 hover:text-rose-600 active:scale-90 p-1 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                                title={`Remove Roll ${rollNo}`}
+                                              >
+                                                <X size={15} />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
             </div>
@@ -3465,7 +3782,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   type="text"
                   value={masterLedgerSearchQuery}
                   onChange={(e) => setMasterLedgerSearchQuery(e.target.value)}
-                  placeholder="Search by Roll No, Size, GSM, Quality, Order No, or Remarks..."
+                  placeholder="Search by Roll No, Size, GSM, Quality, Order No, Dispatch Status, or Remarks..."
                   className="w-full pl-9 pr-8 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 shadow-3xs"
                 />
                 {masterLedgerSearchQuery && (
@@ -3479,8 +3796,58 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 )}
               </div>
 
-              {/* Action Buttons */}
+              {/* Action Buttons & Dispatch Filters */}
               <div className="flex items-center gap-2 flex-wrap shrink-0">
+                {/* Dispatch Status Filter Tabs */}
+                <div className="flex items-center gap-1 bg-zinc-200/80 p-1 rounded-xl border border-zinc-300">
+                  <button
+                    type="button"
+                    onClick={() => setMasterLedgerDispatchFilter('all')}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
+                      masterLedgerDispatchFilter === 'all'
+                        ? 'bg-white text-zinc-950 shadow-3xs border border-zinc-250'
+                        : 'text-zinc-600 hover:text-zinc-900'
+                    }`}
+                  >
+                    <span>All Rolls</span>
+                    <span className="bg-zinc-200 text-zinc-800 text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold">
+                      {masterRollLedgerData.length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMasterLedgerDispatchFilter('not_dispatched')}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
+                      masterLedgerDispatchFilter === 'not_dispatched'
+                        ? 'bg-amber-500 text-zinc-950 shadow-3xs border border-amber-600'
+                        : 'text-zinc-600 hover:text-zinc-900'
+                    }`}
+                  >
+                    <PackageX size={12} className="text-amber-900" />
+                    <span>Not Dispatched</span>
+                    <span className="bg-amber-100 text-amber-950 text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold">
+                      {masterRollLedgerData.filter(i => i.dispatchStatus === 'Not Dispatched').length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMasterLedgerDispatchFilter('dispatched')}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
+                      masterLedgerDispatchFilter === 'dispatched'
+                        ? 'bg-emerald-600 text-white shadow-3xs border border-emerald-700'
+                        : 'text-zinc-600 hover:text-zinc-900'
+                    }`}
+                  >
+                    <Truck size={12} className="text-emerald-300" />
+                    <span>Dispatched</span>
+                    <span className="bg-emerald-800 text-emerald-100 text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold">
+                      {masterRollLedgerData.filter(i => i.dispatchStatus === 'Dispatched').length}
+                    </span>
+                  </button>
+                </div>
+
                 {!viewOnly && (
                   <button
                     type="button"
@@ -3488,14 +3855,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                     className="bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-black uppercase tracking-wider px-3.5 py-2 rounded-xl border border-amber-600 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
                   >
                     <Plus size={15} />
-                    <span>{isAddingRollInLedger ? 'Close Add Form' : 'Add New Roll'}</span>
+                    <span>{isAddingRollInLedger ? 'Close Add' : 'Add Roll'}</span>
                   </button>
                 )}
 
                 <button
                   type="button"
                   onClick={handleExportMasterRollLedgerToExcel}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider px-3.5 py-2 rounded-xl border border-emerald-700 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider px-3 py-2 rounded-xl border border-emerald-700 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
                   title="Export Master Ledger to Excel"
                 >
                   <FileSpreadsheet size={15} />
@@ -3611,7 +3978,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
                   {/* DESKTOP / TABLET RESPONSIVE TABLE VIEW */}
                   <div className="hidden sm:block overflow-x-auto rounded-2xl border border-zinc-200 shadow-3xs bg-white">
-                    <table className="w-full text-left border-collapse min-w-[950px]">
+                    <table className="w-full text-left border-collapse min-w-[1050px]">
                       <thead>
                         <tr className="bg-zinc-900 text-zinc-300 text-[10px] font-black uppercase tracking-wider border-b border-zinc-800">
                           <th className="py-3 px-3.5 text-amber-400 font-mono">Roll Number ⬆</th>
@@ -3620,6 +3987,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           <th className="py-3 px-3">Denier</th>
                           <th className="py-3 px-3">Fabric Weight</th>
                           <th className="py-3 px-3">Weave Quality</th>
+                          <th className="py-3 px-3 text-amber-300">Dispatch Status</th>
                           <th className="py-3 px-3">Remarks</th>
                           <th className="py-3 px-3.5 text-right">Order Ref & Actions</th>
                         </tr>
@@ -3627,6 +3995,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                       <tbody className="divide-y divide-zinc-100 text-xs">
                         {masterRollLedgerData
                           .filter(item => {
+                            // Filter by Dispatch Status tab
+                            if (masterLedgerDispatchFilter === 'not_dispatched' && item.dispatchStatus !== 'Not Dispatched') {
+                              return false;
+                            }
+                            if (masterLedgerDispatchFilter === 'dispatched' && item.dispatchStatus !== 'Dispatched') {
+                              return false;
+                            }
+
                             if (!masterLedgerSearchQuery.trim()) return true;
                             const q = masterLedgerSearchQuery.toLowerCase().trim();
                             return (
@@ -3635,6 +4011,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               item.quality.toLowerCase().includes(q) ||
                               item.orderNo.toLowerCase().includes(q) ||
                               item.remarks.toLowerCase().includes(q) ||
+                              item.dispatchStatus.toLowerCase().includes(q) ||
                               String(item.gsm).includes(q) ||
                               String(item.denier).includes(q)
                             );
@@ -3702,21 +4079,32 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       type="text"
                                       value={masterEditQuality}
                                       onChange={(e) => setMasterEditQuality(e.target.value)}
-                                      className="w-32 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      className="w-28 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
                                       placeholder="Quality"
                                     />
                                   </td>
-                                  {/* Col 7: Remarks */}
+                                  {/* Col 7: Dispatch Status */}
+                                  <td className="py-2.5 px-2">
+                                    <select
+                                      value={masterEditDispatchStatus}
+                                      onChange={(e) => setMasterEditDispatchStatus(e.target.value as 'Dispatched' | 'Not Dispatched')}
+                                      className="w-32 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-black text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                    >
+                                      <option value="Not Dispatched">Not Dispatched</option>
+                                      <option value="Dispatched">Dispatched</option>
+                                    </select>
+                                  </td>
+                                  {/* Col 8: Remarks */}
                                   <td className="py-2.5 px-2">
                                     <input
                                       type="text"
                                       value={masterEditRemarks}
                                       onChange={(e) => setMasterEditRemarks(e.target.value)}
-                                      className="w-full min-w-[140px] bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-medium text-zinc-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      className="w-full min-w-[120px] bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-medium text-zinc-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
                                       placeholder="Remarks..."
                                     />
                                   </td>
-                                  {/* Col 8: Actions */}
+                                  {/* Col 9: Actions */}
                                   <td className="py-2.5 px-3 text-right">
                                     <div className="flex items-center justify-end gap-1.5">
                                       <button
@@ -3770,15 +4158,31 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 <td className="py-2.5 px-3 font-semibold text-zinc-900">
                                   {item.quality || <span className="text-zinc-300 italic">-</span>}
                                 </td>
-                                {/* 7. Remarks */}
-                                <td className="py-2.5 px-3 text-zinc-600 text-xs max-w-[180px] truncate">
+                                {/* 7. Dispatch Status Dropdown */}
+                                <td className="py-2.5 px-3">
+                                  <select
+                                    value={item.dispatchStatus}
+                                    onChange={(e) => handleUpdateRollDispatchStatus(item, e.target.value as 'Dispatched' | 'Not Dispatched')}
+                                    disabled={viewOnly}
+                                    className={`text-xs font-black px-2.5 py-1 rounded-xl border transition-all cursor-pointer focus:outline-none focus:ring-2 ${
+                                      item.dispatchStatus === 'Dispatched'
+                                        ? 'bg-emerald-100 text-emerald-950 border-emerald-300 focus:ring-emerald-500 shadow-3xs'
+                                        : 'bg-zinc-100 text-zinc-700 border-zinc-250 hover:border-amber-400 focus:ring-amber-500'
+                                    }`}
+                                  >
+                                    <option value="Not Dispatched">Not Dispatched</option>
+                                    <option value="Dispatched">Dispatched</option>
+                                  </select>
+                                </td>
+                                {/* 8. Remarks */}
+                                <td className="py-2.5 px-3 text-zinc-600 text-xs max-w-[150px] truncate">
                                   {item.remarks ? (
                                     <span className="font-medium">{item.remarks}</span>
                                   ) : (
                                     <span className="text-zinc-300 italic text-[11px]">No remarks</span>
                                   )}
                                 </td>
-                                {/* Order Ref & Actions */}
+                                {/* 9. Order Ref & Actions */}
                                 <td className="py-2.5 px-3.5 text-right">
                                   <div className="flex items-center justify-end gap-2">
                                     <span className="bg-zinc-100 text-zinc-600 font-mono font-bold text-[10px] px-2 py-0.5 rounded border border-zinc-200">
@@ -3817,6 +4221,13 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   <div className="sm:hidden space-y-3">
                     {masterRollLedgerData
                       .filter(item => {
+                        if (masterLedgerDispatchFilter === 'not_dispatched' && item.dispatchStatus !== 'Not Dispatched') {
+                          return false;
+                        }
+                        if (masterLedgerDispatchFilter === 'dispatched' && item.dispatchStatus !== 'Dispatched') {
+                          return false;
+                        }
+
                         if (!masterLedgerSearchQuery.trim()) return true;
                         const q = masterLedgerSearchQuery.toLowerCase().trim();
                         return (
@@ -3825,6 +4236,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           item.quality.toLowerCase().includes(q) ||
                           item.orderNo.toLowerCase().includes(q) ||
                           item.remarks.toLowerCase().includes(q) ||
+                          item.dispatchStatus.toLowerCase().includes(q) ||
                           String(item.gsm).includes(q) ||
                           String(item.denier).includes(q)
                         );
@@ -3900,6 +4312,17 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                     className="w-full bg-white border border-amber-400 rounded px-2 py-1 text-xs"
                                   />
                                 </div>
+                                <div className="col-span-2">
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Dispatch Status</label>
+                                  <select
+                                    value={masterEditDispatchStatus}
+                                    onChange={(e) => setMasterEditDispatchStatus(e.target.value as 'Dispatched' | 'Not Dispatched')}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 text-xs font-bold"
+                                  >
+                                    <option value="Not Dispatched">Not Dispatched</option>
+                                    <option value="Dispatched">Dispatched</option>
+                                  </select>
+                                </div>
                               </div>
 
                               <div>
@@ -3950,6 +4373,25 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               <div><span className="text-zinc-400 text-[10px]">Denier:</span> <strong className="text-zinc-800 font-mono">{item.denier || '-'}</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">Fabric Wt:</span> <strong className="text-zinc-800 font-mono">{item.fabricWeight || '-'}</strong></div>
                               <div className="col-span-2"><span className="text-zinc-400 text-[10px]">Quality:</span> <strong className="text-zinc-900">{item.quality || '-'}</strong></div>
+                              <div className="col-span-2 flex items-center justify-between pt-1 border-t border-zinc-100">
+                                <span className="text-zinc-500 text-[10px] font-bold flex items-center gap-1">
+                                  <Truck size={12} className={item.dispatchStatus === 'Dispatched' ? 'text-emerald-600' : 'text-zinc-400'} />
+                                  Dispatch Status:
+                                </span>
+                                <select
+                                  value={item.dispatchStatus}
+                                  onChange={(e) => handleUpdateRollDispatchStatus(item, e.target.value as 'Dispatched' | 'Not Dispatched')}
+                                  disabled={viewOnly}
+                                  className={`text-[11px] font-black px-2 py-0.5 rounded-lg border cursor-pointer ${
+                                    item.dispatchStatus === 'Dispatched'
+                                      ? 'bg-emerald-100 text-emerald-950 border-emerald-300'
+                                      : 'bg-zinc-100 text-zinc-700 border-zinc-250'
+                                  }`}
+                                >
+                                  <option value="Not Dispatched">Not Dispatched</option>
+                                  <option value="Dispatched">Dispatched</option>
+                                </select>
+                              </div>
                               <div className="col-span-2"><span className="text-zinc-400 text-[10px]">Remarks:</span> <span className="text-zinc-700 italic">{item.remarks || 'None'}</span></div>
                             </div>
 
