@@ -49,6 +49,7 @@ import {
 } from 'lucide-react';
 import { LoomOrder, LoomOrderRow } from '../types';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 interface LoomOrdersProps {
   triggerAlert: (type: 'info' | 'success' | 'warn', msg: string) => void;
@@ -371,20 +372,124 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   };
 
   // Export current modal order data to Excel
-  const handleExportOrderToExcel = (selectedOption: 'dispatched' | 'not_dispatched' | 'both' = exportOption) => {
+  const handleExportOrderToExcel = async (selectedOption: 'dispatched' | 'not_dispatched' | 'both' = exportOption) => {
     if (!modalOrder) return;
 
     try {
-      if (selectedOption === 'both') {
-        // FULL REPORT (INCLUDES ALL COLUMNS: TARGET/COMPLETED TONNAGE, FABRIC WEIGHT, ROLLS)
-        const headerRows = [
-          ["PP FABRIC MANUFACTURING SPECIFICATIONS SHEET - FULL REPORT"],
-          ["Order Reference:", modalOrder.orderNo, "", "Report Mode:", "BOTH (ALL ROLLS)", "", "Logged Date:", modalOrder.date, "", "Overall Status:", modalOrder.status],
-          [], // empty spacer row
-          ["#", "Weave Quality", "Lamination Type", "Size / Width", "GSM", "Denier", "Fabric Weight (g)", "No. of Rolls", "Roll Numbers List", "Target (KG)", "Completed (KG)", "Status", "Remarks"]
-        ];
+      const workbook = new ExcelJS.Workbook();
+      const sheetName = modalOrder.orderNo.substring(0, 30).replace(/[\\/*?:[\]]/g, '') || 'Order';
+      const worksheet = workbook.addWorksheet(sheetName);
 
-        const itemRows = sortedModalRows.map(({ row }, idx) => [
+      // 1. TOP BANNER ROW (Row 1): Order Name (e.g. "JAIPUR")
+      worksheet.mergeCells('A1:K1');
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = modalOrder.orderNo;
+      titleCell.font = { name: 'Aptos Display', size: 36, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF79646' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(1).height = 48;
+
+      for (let col = 1; col <= 11; col++) {
+        worksheet.getRow(1).getCell(col).fill = titleCell.fill;
+      }
+
+      // 2. METRICS CARDS (Rows 2 & 3)
+      const greenFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFC6EFCE' } };
+      const greenFont = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF006100' } };
+
+      const yellowFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFFEB9C' } };
+      const yellowFont = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF9C5700' } };
+
+      const lightFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFFFFCC' } };
+      const lightFont = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF1F497D' } };
+
+      // Merge ranges for Labels (Row 2) and Values (Row 3)
+      worksheet.mergeCells('A2:C2');
+      worksheet.mergeCells('D2:F2');
+      worksheet.mergeCells('G2:K2');
+
+      worksheet.mergeCells('A3:C3');
+      worksheet.mergeCells('D3:F3');
+      worksheet.mergeCells('G3:K3');
+
+      // Set Labels
+      worksheet.getCell('A2').value = 'Turnaround Target:';
+      worksheet.getCell('D2').value = 'Completed Fabric:';
+      worksheet.getCell('G2').value = 'Total Rolls Ready:';
+
+      // Set Values
+      worksheet.getCell('A3').value = `${modalStats.totalTarget.toFixed(2)} KG`;
+      worksheet.getCell('D3').value = `${modalStats.totalCompleted.toFixed(2)} KG`;
+      worksheet.getCell('G3').value = `${modalStats.totalRolls} Rolls`;
+
+      // Apply styles across merged cells in Rows 2 & 3
+      for (let col = 1; col <= 3; col++) {
+        worksheet.getRow(2).getCell(col).fill = greenFill;
+        worksheet.getRow(2).getCell(col).font = greenFont;
+        worksheet.getRow(2).getCell(col).alignment = { horizontal: 'left', vertical: 'middle' };
+
+        worksheet.getRow(3).getCell(col).fill = greenFill;
+        worksheet.getRow(3).getCell(col).font = greenFont;
+        worksheet.getRow(3).getCell(col).alignment = { horizontal: 'left', vertical: 'middle' };
+      }
+
+      for (let col = 4; col <= 6; col++) {
+        worksheet.getRow(2).getCell(col).fill = yellowFill;
+        worksheet.getRow(2).getCell(col).font = yellowFont;
+        worksheet.getRow(2).getCell(col).alignment = { horizontal: 'left', vertical: 'middle' };
+
+        worksheet.getRow(3).getCell(col).fill = yellowFill;
+        worksheet.getRow(3).getCell(col).font = yellowFont;
+        worksheet.getRow(3).getCell(col).alignment = { horizontal: 'left', vertical: 'middle' };
+      }
+
+      for (let col = 7; col <= 11; col++) {
+        worksheet.getRow(2).getCell(col).fill = lightFill;
+        worksheet.getRow(2).getCell(col).font = lightFont;
+        worksheet.getRow(2).getCell(col).alignment = { horizontal: 'left', vertical: 'middle' };
+
+        worksheet.getRow(3).getCell(col).fill = lightFill;
+        worksheet.getRow(3).getCell(col).font = lightFont;
+        worksheet.getRow(3).getCell(col).alignment = { horizontal: 'left', vertical: 'middle' };
+      }
+
+      // 3. TABLE DATA GENERATION
+      let col8Header = 'No. of Rolls';
+      let col9Header = 'Roll Numbers List';
+
+      if (selectedOption === 'dispatched') {
+        col8Header = 'No. of Dispatched Rolls';
+        col9Header = 'Dispatched Roll Numbers List';
+      } else if (selectedOption === 'not_dispatched') {
+        col8Header = 'No. of Non-Dispatched Rolls';
+        col9Header = 'Non-Dispatched Roll Numbers List';
+      }
+
+      const tableRows = sortedModalRows.map(({ row }, idx) => {
+        const rolls = row.rollNumbers || [];
+        const dispList = row.dispatchedRolls || [];
+        const dispMap = row.rollDispatchStatus || {};
+
+        let rollCount = row.noOfRolls || 0;
+        let rollListStr = rolls.join(', ');
+
+        if (selectedOption === 'dispatched') {
+          const dispatchedRolls = rolls.filter(r => {
+            const trimmed = (r || '').trim();
+            return dispMap[trimmed] === 'Dispatched' || dispList.includes(trimmed);
+          });
+          rollCount = dispatchedRolls.length;
+          rollListStr = dispatchedRolls.length > 0 ? dispatchedRolls.join(', ') : '0 dispatched rolls';
+        } else if (selectedOption === 'not_dispatched') {
+          const notDispatchedRolls = rolls.filter(r => {
+            const trimmed = (r || '').trim();
+            return dispMap[trimmed] !== 'Dispatched' && !dispList.includes(trimmed);
+          });
+          rollCount = notDispatchedRolls.length;
+          rollListStr = notDispatchedRolls.length > 0 ? notDispatchedRolls.join(', ') : '0 non-dispatched rolls';
+        }
+
+        return [
           idx + 1,
           row.quality || '',
           (row.laminationType || 'NON-LAMINATION').toUpperCase(),
@@ -392,145 +497,81 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           row.gsm || 0,
           row.denier || 0,
           row.fabricWeight || 0,
-          row.noOfRolls || 0,
-          (row.rollNumbers || []).join(', '),
+          rollCount,
+          rollListStr,
           row.totalQuantity || 0,
-          row.productionCompleted || 0,
-          row.status || 'Pending',
-          row.remarks || ''
-        ]);
-
-        const allRows = [...headerRows, ...itemRows];
-        const worksheet = XLSX.utils.aoa_to_sheet(allRows);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, `Order_${modalOrder.orderNo}`);
-
-        worksheet['!cols'] = [
-          { wch: 6 },  // #
-          { wch: 25 }, // Quality
-          { wch: 18 }, // Lamination Type
-          { wch: 15 }, // Size
-          { wch: 10 }, // GSM
-          { wch: 10 }, // Denier
-          { wch: 15 }, // Fabric weight
-          { wch: 12 }, // No of rolls
-          { wch: 30 }, // Roll numbers
-          { wch: 15 }, // Target Quantity
-          { wch: 18 }, // Production Completed
-          { wch: 12 }, // Status
-          { wch: 30 }  // Remarks
+          row.productionCompleted || 0
         ];
+      });
 
-        XLSX.writeFile(workbook, `PP_Fabric_Order_${modalOrder.orderNo}_Full_Report.xlsx`);
-        triggerAlert('success', `Exported full report for Order "${modalOrder.orderNo}" successfully.`);
-      } else if (selectedOption === 'dispatched') {
-        // DISPATCHED ROLLS ONLY REPORT (OMITS TONNAGE AND FABRIC WEIGHT COLUMNS)
-        const headerRows = [
-          ["PP FABRIC MANUFACTURING SPECIFICATIONS SHEET - DISPATCHED ROLLS REPORT"],
-          ["Order Reference:", modalOrder.orderNo, "", "Report Mode:", "DISPATCHED ROLLS ONLY", "", "Logged Date:", modalOrder.date, "", "Overall Status:", modalOrder.status],
-          [], // empty spacer row
-          ["#", "Weave Quality", "Lamination Type", "Size / Width", "GSM", "Denier", "No. of Dispatched Rolls", "Dispatched Roll Numbers List", "Status", "Remarks"]
-        ];
+      worksheet.addTable({
+        name: 'OrderTable',
+        ref: 'A4',
+        headerRow: true,
+        totalsRow: false,
+        style: {
+          theme: 'TableStyleMedium9',
+          showRowStripes: true,
+        },
+        columns: [
+          { name: '#', filterButton: true },
+          { name: 'Weave Quality', filterButton: true },
+          { name: 'Lamination Type', filterButton: true },
+          { name: 'Size / Width', filterButton: true },
+          { name: 'GSM', filterButton: true },
+          { name: 'Denier', filterButton: true },
+          { name: 'Fabric Weight (g)', filterButton: true },
+          { name: col8Header, filterButton: true },
+          { name: col9Header, filterButton: true },
+          { name: 'Target (KG)', filterButton: true },
+          { name: 'Completed (KG)', filterButton: true },
+        ],
+        rows: tableRows,
+      });
 
-        const itemRows = sortedModalRows.map(({ row }, idx) => {
-          const rolls = row.rollNumbers || [];
-          const dispList = row.dispatchedRolls || [];
-          const dispMap = row.rollDispatchStatus || {};
+      // 4. COLUMN WIDTHS
+      worksheet.columns = [
+        { width: 8 },  // #
+        { width: 26 }, // Weave Quality
+        { width: 19 }, // Lamination Type
+        { width: 16 }, // Size / Width
+        { width: 11 }, // GSM
+        { width: 11 }, // Denier
+        { width: 17 }, // Fabric Weight (g)
+        { width: 18 }, // No. of Rolls
+        { width: 35 }, // Roll Numbers List
+        { width: 16 }, // Target (KG)
+        { width: 19 }  // Completed (KG)
+      ];
 
-          const dispatchedRolls = rolls.filter(r => {
-            const trimmed = (r || '').trim();
-            return dispMap[trimmed] === 'Dispatched' || dispList.includes(trimmed);
-          });
-
-          return [
-            idx + 1,
-            row.quality || '',
-            (row.laminationType || 'NON-LAMINATION').toUpperCase(),
-            row.size || '',
-            row.gsm || 0,
-            row.denier || 0,
-            dispatchedRolls.length,
-            dispatchedRolls.length > 0 ? dispatchedRolls.join(', ') : '0 dispatched rolls',
-            row.status || 'Pending',
-            row.remarks || ''
-          ];
+      // Data Row Alignments & Vertical Centering
+      const startDataRow = 5;
+      const endDataRow = startDataRow + tableRows.length - 1;
+      for (let r = startDataRow; r <= endDataRow; r++) {
+        const row = worksheet.getRow(r);
+        row.eachCell({ includeEmpty: true }, (cell, c) => {
+          cell.alignment = {
+            vertical: 'middle',
+            horizontal: 'left',
+            wrapText: c === 9
+          };
         });
-
-        const allRows = [...headerRows, ...itemRows];
-        const worksheet = XLSX.utils.aoa_to_sheet(allRows);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, `Dispatched_${modalOrder.orderNo}`);
-
-        worksheet['!cols'] = [
-          { wch: 6 },  // #
-          { wch: 25 }, // Quality
-          { wch: 18 }, // Lamination Type
-          { wch: 15 }, // Size
-          { wch: 10 }, // GSM
-          { wch: 10 }, // Denier
-          { wch: 22 }, // Dispatched rolls count
-          { wch: 35 }, // Dispatched Roll numbers
-          { wch: 12 }, // Status
-          { wch: 30 }  // Remarks
-        ];
-
-        XLSX.writeFile(workbook, `PP_Fabric_Order_${modalOrder.orderNo}_Dispatched_Rolls.xlsx`);
-        triggerAlert('success', `Exported Dispatched Rolls report for Order "${modalOrder.orderNo}" successfully.`);
-      } else if (selectedOption === 'not_dispatched') {
-        // NON-DISPATCHED ROLLS ONLY REPORT (OMITS TONNAGE AND FABRIC WEIGHT COLUMNS)
-        const headerRows = [
-          ["PP FABRIC MANUFACTURING SPECIFICATIONS SHEET - NOT DISPATCHED ROLLS REPORT"],
-          ["Order Reference:", modalOrder.orderNo, "", "Report Mode:", "NON-DISPATCHED ROLLS ONLY", "", "Logged Date:", modalOrder.date, "", "Overall Status:", modalOrder.status],
-          [], // empty spacer row
-          ["#", "Weave Quality", "Lamination Type", "Size / Width", "GSM", "Denier", "No. of Non-Dispatched Rolls", "Non-Dispatched Roll Numbers List", "Status", "Remarks"]
-        ];
-
-        const itemRows = sortedModalRows.map(({ row }, idx) => {
-          const rolls = row.rollNumbers || [];
-          const dispList = row.dispatchedRolls || [];
-          const dispMap = row.rollDispatchStatus || {};
-
-          const notDispatchedRolls = rolls.filter(r => {
-            const trimmed = (r || '').trim();
-            return dispMap[trimmed] !== 'Dispatched' && !dispList.includes(trimmed);
-          });
-
-          return [
-            idx + 1,
-            row.quality || '',
-            (row.laminationType || 'NON-LAMINATION').toUpperCase(),
-            row.size || '',
-            row.gsm || 0,
-            row.denier || 0,
-            notDispatchedRolls.length,
-            notDispatchedRolls.length > 0 ? notDispatchedRolls.join(', ') : '0 non-dispatched rolls',
-            row.status || 'Pending',
-            row.remarks || ''
-          ];
-        });
-
-        const allRows = [...headerRows, ...itemRows];
-        const worksheet = XLSX.utils.aoa_to_sheet(allRows);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, `NotDispatched_${modalOrder.orderNo}`);
-
-        worksheet['!cols'] = [
-          { wch: 6 },  // #
-          { wch: 25 }, // Quality
-          { wch: 18 }, // Lamination Type
-          { wch: 15 }, // Size
-          { wch: 10 }, // GSM
-          { wch: 10 }, // Denier
-          { wch: 24 }, // Non-Dispatched rolls count
-          { wch: 35 }, // Non-Dispatched Roll numbers
-          { wch: 12 }, // Status
-          { wch: 30 }  // Remarks
-        ];
-
-        XLSX.writeFile(workbook, `PP_Fabric_Order_${modalOrder.orderNo}_Not_Dispatched_Rolls.xlsx`);
-        triggerAlert('success', `Exported Non-Dispatched Rolls report for Order "${modalOrder.orderNo}" successfully.`);
       }
 
+      // 5. WRITE FILE & DOWNLOAD
+      const fileNameSuffix = selectedOption === 'both' ? 'Full_Report' : selectedOption === 'dispatched' ? 'Dispatched_Rolls' : 'Not_Dispatched_Rolls';
+      const fileName = `PP_Fabric_Order_${modalOrder.orderNo}_${fileNameSuffix}.xlsx`;
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+      triggerAlert('success', `Exported ${selectedOption === 'both' ? 'full report' : selectedOption} for Order "${modalOrder.orderNo}" successfully.`);
       setIsExportModalOpen(false);
     } catch (err) {
       console.error("Failed to export order to Excel", err);
