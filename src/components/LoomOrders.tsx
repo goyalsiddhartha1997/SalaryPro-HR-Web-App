@@ -21,6 +21,9 @@ import {
   FileSpreadsheet,
   Save,
   ArrowRight,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
   TrendingUp,
   SlidersHorizontal,
   ChevronRight,
@@ -140,10 +143,40 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [duplicateSearchQuery, setDuplicateSearchQuery] = useState<string>('');
 
   // --- MASTER ROLL LEDGER MODAL STATES ---
+  type MasterLedgerSortKey = 'rollNo' | 'size' | 'gsm' | 'denier' | 'fabricWeight' | 'quality' | 'dispatchStatus' | 'remarks' | 'orderNo';
+
   const [isMasterLedgerOpen, setIsMasterLedgerOpen] = useState<boolean>(false);
   const [masterLedgerSearchQuery, setMasterLedgerSearchQuery] = useState<string>('');
   const [masterLedgerDispatchFilter, setMasterLedgerDispatchFilter] = useState<'all' | 'not_dispatched' | 'dispatched'>('all');
   const [editingMasterRollId, setEditingMasterRollId] = useState<string | null>(null);
+
+  // Master Ledger Sorting States (Default ascending by Roll Number)
+  const [masterLedgerSortKey, setMasterLedgerSortKey] = useState<MasterLedgerSortKey>('rollNo');
+  const [masterLedgerSortOrder, setMasterLedgerSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  const handleMasterLedgerSort = (key: MasterLedgerSortKey) => {
+    if (masterLedgerSortKey === key) {
+      setMasterLedgerSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setMasterLedgerSortKey(key);
+      setMasterLedgerSortOrder('asc');
+    }
+  };
+
+  const getSortColumnLabel = (key: MasterLedgerSortKey) => {
+    switch (key) {
+      case 'rollNo': return 'Roll Number';
+      case 'size': return 'Size';
+      case 'gsm': return 'GSM';
+      case 'denier': return 'Denier';
+      case 'fabricWeight': return 'Fabric Weight';
+      case 'quality': return 'Weave Quality';
+      case 'dispatchStatus': return 'Dispatch Status';
+      case 'remarks': return 'Remarks';
+      case 'orderNo': return 'Order Ref';
+      default: return 'Roll Number';
+    }
+  };
 
   // Master Ledger Inline Edit draft fields
   const [masterEditRollNo, setMasterEditRollNo] = useState<string>('');
@@ -348,7 +381,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           ["PP FABRIC MANUFACTURING SPECIFICATIONS SHEET - FULL REPORT"],
           ["Order Reference:", modalOrder.orderNo, "", "Report Mode:", "BOTH (ALL ROLLS)", "", "Logged Date:", modalOrder.date, "", "Overall Status:", modalOrder.status],
           [], // empty spacer row
-          ["#", "Weave Quality", "Lamination Type", "Size / Width", "GSM", "Denier", "Fabric Weight (g)", "No. of Rolls", "Roll Numbers List", "Target (Tons)", "Completed (Tons)", "Status", "Remarks"]
+          ["#", "Weave Quality", "Lamination Type", "Size / Width", "GSM", "Denier", "Fabric Weight (g)", "No. of Rolls", "Roll Numbers List", "Target (KG)", "Completed (KG)", "Status", "Remarks"]
         ];
 
         const itemRows = sortedModalRows.map(({ row }, idx) => [
@@ -793,7 +826,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
     const totalQtyVal = parseFloat(subTotalQuantity);
     if (isNaN(totalQtyVal) || totalQtyVal <= 0) {
-      triggerAlert('warn', 'Target (Tons) must be a valid positive number.');
+      triggerAlert('warn', 'Target (KG) must be a valid positive number.');
       return;
     }
 
@@ -1198,13 +1231,51 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       });
     });
 
-    // Always sorted ascending by Roll Number (using natural alphanumeric sort)
-    list.sort((a, b) =>
-      a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' })
-    );
+    // Dynamic sorting based on masterLedgerSortKey & masterLedgerSortOrder
+    list.sort((a, b) => {
+      let cmp = 0;
+      switch (masterLedgerSortKey) {
+        case 'rollNo':
+          cmp = a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' });
+          break;
+        case 'size':
+          cmp = a.size.localeCompare(b.size, undefined, { numeric: true, sensitivity: 'base' });
+          break;
+        case 'gsm':
+          cmp = a.gsm - b.gsm;
+          break;
+        case 'denier':
+          cmp = a.denier - b.denier;
+          break;
+        case 'fabricWeight':
+          cmp = a.fabricWeight - b.fabricWeight;
+          break;
+        case 'quality':
+          cmp = a.quality.localeCompare(b.quality, undefined, { numeric: true, sensitivity: 'base' });
+          break;
+        case 'dispatchStatus':
+          cmp = a.dispatchStatus.localeCompare(b.dispatchStatus);
+          break;
+        case 'remarks':
+          cmp = a.remarks.localeCompare(b.remarks);
+          break;
+        case 'orderNo':
+          cmp = a.orderNo.localeCompare(b.orderNo, undefined, { numeric: true, sensitivity: 'base' });
+          break;
+        default:
+          cmp = a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' });
+      }
+
+      // Tie-breaker: sort by rollNo ascending
+      if (cmp === 0) {
+        cmp = a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' });
+      }
+
+      return masterLedgerSortOrder === 'asc' ? cmp : -cmp;
+    });
 
     return list;
-  }, [orders]);
+  }, [orders, masterLedgerSortKey, masterLedgerSortOrder]);
 
   // Master Ledger Inline Edit Handlers
   const handleStartEditMasterRoll = (item: typeof masterRollLedgerData[0]) => {
@@ -1580,7 +1651,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
             PP Fabric Orders
           </h2>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Heavy-duty registry to organize factory weaving grids, allocate tonnage metrics, and manage custom fabric specifications.
+            Heavy-duty registry to organize factory weaving grids, allocate weight metrics, and manage custom fabric specifications.
           </p>
         </div>
         
@@ -1598,9 +1669,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-3.5 py-2 flex items-center gap-3 shadow-sm">
             <span className="w-2 h-2 rounded-full bg-orange-500"></span>
             <div>
-              <p className="text-[8px] font-black uppercase text-zinc-400 leading-none tracking-wider">Ledger Tonnage</p>
+              <p className="text-[8px] font-black uppercase text-zinc-400 leading-none tracking-wider">Ledger Weight</p>
               <p className="text-xs font-black text-orange-400 mt-0.5 leading-none font-mono">
-                {ledgerStats.totalCompleted.toFixed(2)} / {ledgerStats.totalTarget.toFixed(2)} Tons
+                {ledgerStats.totalCompleted.toFixed(2)} / {ledgerStats.totalTarget.toFixed(2)} KG
               </p>
             </div>
           </div>
@@ -1815,7 +1886,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   <tr className="bg-zinc-950 text-zinc-200 border-b border-zinc-800">
                     <th className="py-3.5 px-4 text-[10.5px] font-black uppercase tracking-wider">Order No / ID</th>
                     <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-center w-[95px]">Total Specs</th>
-                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-right whitespace-nowrap w-[125px]">Tonnage Target</th>
+                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-right whitespace-nowrap w-[125px]">Target Weight (KG)</th>
                     <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider w-[125px]">Completion Progress</th>
                     <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-center w-[85px]">Status</th>
                     <th className="py-3.5 px-4 text-[10.5px] font-black uppercase tracking-wider text-right w-[125px]">Actions</th>
@@ -1898,7 +1969,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               {totalCompleted.toFixed(2)} / {totalTarget.toFixed(2)}
                             </span>
                             <span className="text-[9.5px] text-zinc-400 block font-sans font-black uppercase tracking-wider whitespace-nowrap mt-0.5">
-                              Tons Logged
+                              KG Logged
                             </span>
                           </td>
 
@@ -2035,8 +2106,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           <p className="font-bold text-zinc-800 font-mono mt-0.5">{order.rows.length} items</p>
                         </div>
                         <div>
-                          <p className="text-[9px] text-zinc-400 font-black uppercase tracking-wider">Tonnage Target</p>
-                          <p className="font-bold text-zinc-800 font-mono mt-0.5">{totalCompleted.toFixed(2)} / {totalTarget.toFixed(2)} Tons</p>
+                          <p className="text-[9px] text-zinc-400 font-black uppercase tracking-wider">Target Weight (KG)</p>
+                          <p className="font-bold text-zinc-800 font-mono mt-0.5">{totalCompleted.toFixed(2)} / {totalTarget.toFixed(2)} KG</p>
                         </div>
                       </div>
 
@@ -2238,7 +2309,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                       Turnaround Target
                     </span>
                     <span className="text-lg font-black text-zinc-900 font-mono block mt-1.5">
-                      {modalStats.totalTarget.toFixed(2)} Tons
+                      {modalStats.totalTarget.toFixed(2)} KG
                     </span>
                     <span className="text-[10px] text-zinc-500 font-bold mt-0.5 block">
                       Target manufacturing volume
@@ -2256,7 +2327,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                       Completed Fabric
                     </span>
                     <span className="text-lg font-black text-emerald-600 font-mono block mt-1.5">
-                      {modalStats.totalCompleted.toFixed(2)} Tons
+                      {modalStats.totalCompleted.toFixed(2)} KG
                     </span>
                     <span className="text-[10px] text-zinc-500 font-semibold block mt-0.5">
                       {modalStats.completionRate.toFixed(1)}% completed
@@ -2343,8 +2414,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[75px]">Denier</th>
                             <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[85px]">Fabric Wt (g)</th>
                             <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[125px]">No. of Rolls</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[95px]">Target (Tons)</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[110px]">Completed (Tons)</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[95px]">Target (KG)</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[110px]">Completed (KG)</th>
                             <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[100px]">Status</th>
                             <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[150px]">Remarks</th>
                             <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right min-w-[110px]">Actions</th>
@@ -2613,11 +2684,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 </td>
 
                                 <td className="py-3 px-3 text-right font-mono text-xs font-black text-zinc-900">
-                                  {row.totalQuantity.toFixed(2)}T
+                                  {row.totalQuantity.toFixed(2)} KG
                                 </td>
 
                                 <td className="py-3 px-3 text-right font-mono text-xs font-black text-emerald-600 bg-emerald-50/20">
-                                  {(row.productionCompleted || 0).toFixed(2)}T
+                                  {(row.productionCompleted || 0).toFixed(2)} KG
                                 </td>
 
                                 <td className="py-3 px-3 text-center">
@@ -2832,7 +2903,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                   </button>
                                 </div>
                                 <div>
-                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Target (Tons)</label>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Target (KG)</label>
                                   <input
                                     type="number"
                                     step="any"
@@ -2842,7 +2913,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                   />
                                 </div>
                                 <div>
-                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Completed (Tons)</label>
+                                  <label className="text-[8px] font-black text-zinc-500 uppercase">Completed (KG)</label>
                                   <input
                                     type="number"
                                     step="any"
@@ -2952,11 +3023,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             <div className="flex justify-between items-center gap-2 bg-emerald-50/20 border border-emerald-500/10 rounded-xl p-2 text-xs font-mono">
                               <div>
                                 <span className="text-[8px] text-zinc-400 font-black uppercase tracking-wider block">Target</span>
-                                <span className="font-black text-zinc-900">{row.totalQuantity.toFixed(2)}T</span>
+                                <span className="font-black text-zinc-900">{row.totalQuantity.toFixed(2)} KG</span>
                               </div>
                               <div className="text-right">
                                 <span className="text-[8px] text-zinc-400 font-black uppercase tracking-wider block">Completed</span>
-                                <span className="font-black text-emerald-600">{(row.productionCompleted || 0).toFixed(2)}T</span>
+                                <span className="font-black text-emerald-600">{(row.productionCompleted || 0).toFixed(2)} KG</span>
                               </div>
                             </div>
 
@@ -3121,7 +3192,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                       />
                     </div>
                     <div>
-                      <label className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">Target (Tons) <span className="text-amber-600">*</span></label>
+                      <label className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">Target (KG) <span className="text-amber-600">*</span></label>
                       <input
                         type="number"
                         step="any"
@@ -4093,7 +4164,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl px-3.5 py-2 flex items-center justify-between text-[11px] text-amber-900 font-semibold">
                     <div className="flex items-center gap-1.5">
                       <Table size={14} className="text-amber-700 shrink-0" />
-                      <span>Roll Numbers are automatically kept sorted in <strong>ascending alphanumeric order</strong>.</span>
+                      <span>
+                        Sorted by <strong className="text-amber-950 font-bold">{getSortColumnLabel(masterLedgerSortKey)}</strong> ({masterLedgerSortOrder === 'asc' ? 'Ascending ⬆' : 'Descending ⬇'}). Click any column header to sort.
+                      </span>
                     </div>
                     <span className="font-mono text-[10.5px] font-bold text-amber-800 hidden sm:inline">
                       Showing {masterRollLedgerData.filter(i => {
@@ -4117,15 +4190,167 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                     <table className="w-full text-left border-collapse min-w-[1050px]">
                       <thead>
                         <tr className="bg-zinc-900 text-zinc-300 text-[10px] font-black uppercase tracking-wider border-b border-zinc-800">
-                          <th className="py-3 px-3.5 text-amber-400 font-mono">Roll Number ⬆</th>
-                          <th className="py-3 px-3">Size</th>
-                          <th className="py-3 px-3">GSM</th>
-                          <th className="py-3 px-3">Denier</th>
-                          <th className="py-3 px-3">Fabric Weight</th>
-                          <th className="py-3 px-3">Weave Quality</th>
-                          <th className="py-3 px-3 text-amber-300">Dispatch Status</th>
-                          <th className="py-3 px-3">Remarks</th>
-                          <th className="py-3 px-3.5 text-right">Order Ref & Actions</th>
+                          {/* 1. Roll Number */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('rollNo')}
+                            className={`py-3 px-3.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 font-mono ${
+                              masterLedgerSortKey === 'rollNo' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            }`}
+                            title="Click to sort by Roll Number"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Roll Number</span>
+                              {masterLedgerSortKey === 'rollNo' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* 2. Size */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('size')}
+                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'size' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            }`}
+                            title="Click to sort by Size"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Size</span>
+                              {masterLedgerSortKey === 'size' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* 3. GSM */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('gsm')}
+                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'gsm' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            }`}
+                            title="Click to sort by GSM"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>GSM</span>
+                              {masterLedgerSortKey === 'gsm' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* 4. Denier */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('denier')}
+                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'denier' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            }`}
+                            title="Click to sort by Denier"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Denier</span>
+                              {masterLedgerSortKey === 'denier' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* 5. Fabric Weight */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('fabricWeight')}
+                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'fabricWeight' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            }`}
+                            title="Click to sort by Fabric Weight"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Fabric Weight</span>
+                              {masterLedgerSortKey === 'fabricWeight' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* 6. Weave Quality */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('quality')}
+                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'quality' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            }`}
+                            title="Click to sort by Weave Quality"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Weave Quality</span>
+                              {masterLedgerSortKey === 'quality' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* 7. Dispatch Status */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('dispatchStatus')}
+                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'dispatchStatus' ? 'text-amber-400 bg-zinc-850' : 'text-amber-300'
+                            }`}
+                            title="Click to sort by Dispatch Status"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Dispatch Status</span>
+                              {masterLedgerSortKey === 'dispatchStatus' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* 8. Remarks */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('remarks')}
+                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'remarks' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            }`}
+                            title="Click to sort by Remarks"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Remarks</span>
+                              {masterLedgerSortKey === 'remarks' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* 9. Order Ref & Actions */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('orderNo')}
+                            className={`py-3 px-3.5 text-right cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'orderNo' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            }`}
+                            title="Click to sort by Order Ref"
+                          >
+                            <div className="flex items-center justify-end gap-1.5">
+                              <span>Order Ref & Actions</span>
+                              {masterLedgerSortKey === 'orderNo' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-100 text-xs">
@@ -4355,6 +4580,39 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
                   {/* MOBILE OPTIMIZED CARD VIEW (For Small Screens) */}
                   <div className="sm:hidden space-y-3">
+                    {/* Mobile Sorting Controls */}
+                    <div className="flex items-center justify-between gap-2 bg-zinc-100 p-2 rounded-xl text-xs">
+                      <div className="flex items-center gap-1.5 text-zinc-700 font-bold">
+                        <SlidersHorizontal size={13} className="text-amber-600" />
+                        <span>Sort:</span>
+                        <select
+                          value={masterLedgerSortKey}
+                          onChange={(e) => {
+                            setMasterLedgerSortKey(e.target.value as MasterLedgerSortKey);
+                            setMasterLedgerSortOrder('asc');
+                          }}
+                          className="bg-white border border-zinc-300 rounded-lg px-2 py-1 font-bold text-zinc-800 text-[11px]"
+                        >
+                          <option value="rollNo">Roll Number</option>
+                          <option value="size">Size</option>
+                          <option value="gsm">GSM</option>
+                          <option value="denier">Denier</option>
+                          <option value="fabricWeight">Fabric Weight</option>
+                          <option value="quality">Weave Quality</option>
+                          <option value="dispatchStatus">Dispatch Status</option>
+                          <option value="remarks">Remarks</option>
+                          <option value="orderNo">Order Ref</option>
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setMasterLedgerSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'))}
+                        className="bg-white border border-zinc-300 rounded-lg px-2.5 py-1 font-bold text-amber-700 flex items-center gap-1 text-[11px] shadow-3xs cursor-pointer"
+                      >
+                        {masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+                        <span>{masterLedgerSortOrder === 'asc' ? 'Asc' : 'Desc'}</span>
+                      </button>
+                    </div>
                     {masterRollLedgerData
                       .filter(item => {
                         if (masterLedgerDispatchFilter === 'not_dispatched' && item.dispatchStatus !== 'Not Dispatched') {
@@ -4698,7 +4956,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                       </span>
                     </div>
                     <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
-                      Exports full specification details including Target/Completed Tonnage, Fabric Weight, and all roll numbers (standard complete layout).
+                      Exports full specification details including Target/Completed Weight (KG), Fabric Weight, and all roll numbers (standard complete layout).
                     </p>
                   </div>
                 </label>
