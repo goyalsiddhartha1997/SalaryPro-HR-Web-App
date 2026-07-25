@@ -399,6 +399,105 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
     };
   }, [filteredReports]);
 
+  // --- RAW MATERIALS CONSUMPTION BREAKDOWN FOR SELECTED DATE RANGE ---
+  const materialSummary = useMemo(() => {
+    let ppTotal = 0;
+    let ccTotal = 0;
+    let ldTotal = 0;
+    let tptTotal = 0;
+    const othersMap: Record<string, number> = {};
+
+    filteredReports.forEach(r => {
+      if (r.isStopped || !r.usage) return;
+      const usageStr = r.usage.trim();
+      if (
+        usageStr.toLowerCase().includes('plant stopped') || 
+        usageStr.toLowerCase().includes('no usage logged')
+      ) return;
+
+      // Split chunks by comma, semicolon or newline
+      const items = usageStr.split(/[,;\n]+/);
+
+      items.forEach(item => {
+        const trimmed = item.trim();
+        if (!trimmed) return;
+
+        let name = '';
+        let qtyNum = 0;
+
+        if (trimmed.includes(':')) {
+          const parts = trimmed.split(':');
+          name = parts[0].trim();
+          const qtyMatch = parts[1].match(/([\d\.]+)/);
+          if (qtyMatch) {
+            qtyNum = parseFloat(qtyMatch[1]);
+          }
+        } else if (trimmed.includes('-')) {
+          const parts = trimmed.split('-');
+          name = parts[0].trim();
+          const qtyMatch = parts[1].match(/([\d\.]+)/);
+          if (qtyMatch) {
+            qtyNum = parseFloat(qtyMatch[1]);
+          }
+        } else {
+          const numMatch = trimmed.match(/([\d\.]+)/);
+          if (numMatch) {
+            qtyNum = parseFloat(numMatch[1]);
+            name = trimmed.replace(/[\d\.]+/g, '').replace(/kg|kgs|ton|tons|g/gi, '').trim();
+          }
+        }
+
+        if (isNaN(qtyNum) || qtyNum <= 0) return;
+
+        const normName = name.toUpperCase();
+
+        if (normName === 'PP' || normName.includes('POLYPROPYLENE') || normName.startsWith('PP ')) {
+          ppTotal += qtyNum;
+        } else if (normName === 'CC' || normName.includes('FILLER') || normName.includes('CALCIUM') || normName.startsWith('CC ')) {
+          ccTotal += qtyNum;
+        } else if (normName === 'LD' || normName.includes('LDPE') || normName.startsWith('LD ')) {
+          ldTotal += qtyNum;
+        } else if (normName === 'TPT' || normName.startsWith('TPT ')) {
+          tptTotal += qtyNum;
+        } else {
+          const cleanKey = name || 'Other Material';
+          othersMap[cleanKey] = (othersMap[cleanKey] || 0) + qtyNum;
+        }
+      });
+    });
+
+    const sumOthers = Object.values(othersMap).reduce((a, b) => a + b, 0);
+    const totalAll = ppTotal + ccTotal + ldTotal + tptTotal + sumOthers;
+
+    return {
+      pp: parseFloat(ppTotal.toFixed(2)),
+      cc: parseFloat(ccTotal.toFixed(2)),
+      ld: parseFloat(ldTotal.toFixed(2)),
+      tpt: parseFloat(tptTotal.toFixed(2)),
+      others: othersMap,
+      totalAll: parseFloat(totalAll.toFixed(2))
+    };
+  }, [filteredReports]);
+
+  // Dynamic label for the currently active date filter
+  const selectedDateRangeLabel = useMemo(() => {
+    let dateText = '';
+    if (filterMode === 'month') {
+      const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      dateText = `${months[selectedMonth - 1] || ''} ${selectedYear}`;
+    } else if (filterMode === 'range') {
+      dateText = `${formatDateLabel(rangeStartDate)} to ${formatDateLabel(rangeEndDate)}`;
+    } else {
+      dateText = 'All Dates';
+    }
+
+    let shiftText = '';
+    if (filterShift === 'day') shiftText = ' (Day Shift)';
+    if (filterShift === 'night') shiftText = ' (Night Shift)';
+
+    return `${dateText}${shiftText}`;
+  }, [filterMode, selectedMonth, selectedYear, rangeStartDate, rangeEndDate, filterShift]);
+
   // --- SUBMIT ENTRY TO FIRESTORE ---
   const handleAddEntry = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -500,6 +599,79 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
         return;
       }
 
+      // Calculate material consumption for export range
+      let ppTotal = 0;
+      let ccTotal = 0;
+      let ldTotal = 0;
+      let tptTotal = 0;
+      const othersMap: Record<string, number> = {};
+      let sumWastage = 0;
+      let activeShifts = 0;
+      let stoppedShifts = 0;
+
+      exportData.forEach(r => {
+        if (r.isStopped) {
+          stoppedShifts++;
+          return;
+        }
+        activeShifts++;
+        sumWastage += r.wastage || 0;
+
+        if (r.usage) {
+          const usageStr = r.usage.trim();
+          if (
+            !usageStr.toLowerCase().includes('plant stopped') &&
+            !usageStr.toLowerCase().includes('no usage logged')
+          ) {
+            const items = usageStr.split(/[,;\n]+/);
+            items.forEach(item => {
+              const trimmed = item.trim();
+              if (!trimmed) return;
+
+              let name = '';
+              let qtyNum = 0;
+
+              if (trimmed.includes(':')) {
+                const parts = trimmed.split(':');
+                name = parts[0].trim();
+                const qtyMatch = parts[1].match(/([\d\.]+)/);
+                if (qtyMatch) qtyNum = parseFloat(qtyMatch[1]);
+              } else if (trimmed.includes('-')) {
+                const parts = trimmed.split('-');
+                name = parts[0].trim();
+                const qtyMatch = parts[1].match(/([\d\.]+)/);
+                if (qtyMatch) qtyNum = parseFloat(qtyMatch[1]);
+              } else {
+                const numMatch = trimmed.match(/([\d\.]+)/);
+                if (numMatch) {
+                  qtyNum = parseFloat(numMatch[1]);
+                  name = trimmed.replace(/[\d\.]+/g, '').replace(/kg|kgs|ton|tons|g/gi, '').trim();
+                }
+              }
+
+              if (isNaN(qtyNum) || qtyNum <= 0) return;
+
+              const normName = name.toUpperCase();
+              if (normName === 'PP' || normName.includes('POLYPROPYLENE') || normName.startsWith('PP ')) {
+                ppTotal += qtyNum;
+              } else if (normName === 'CC' || normName.includes('FILLER') || normName.includes('CALCIUM') || normName.startsWith('CC ')) {
+                ccTotal += qtyNum;
+              } else if (normName === 'LD' || normName.includes('LDPE') || normName.startsWith('LD ')) {
+                ldTotal += qtyNum;
+              } else if (normName === 'TPT' || normName.startsWith('TPT ')) {
+                tptTotal += qtyNum;
+              } else {
+                const cleanKey = name || 'Other Material';
+                othersMap[cleanKey] = (othersMap[cleanKey] || 0) + qtyNum;
+              }
+            });
+          }
+        }
+      });
+
+      const sumOthers = Object.values(othersMap).reduce((a, b) => a + b, 0);
+      const totalAllMaterials = ppTotal + ccTotal + ldTotal + tptTotal + sumOthers;
+
       // Format rows for XLSX
       const rows = exportData.map(r => {
         const parts = r.date.split('-');
@@ -507,27 +679,16 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
         const shiftLabel = r.shift ? r.shift.toUpperCase() : 'DAY';
 
         if (r.isStopped) {
-          return [displayDate, shiftLabel, 'Plant Stopped / Not Running', '0 kg', r.remarks || ''];
+          return [displayDate, shiftLabel, 'Plant Stopped / Not Running', '0 KG', r.remarks || ''];
         }
 
         return [
           displayDate,
           shiftLabel,
           r.usage || '',
-          `${r.wastage || 0} kg`,
+          `${r.wastage || 0} KG`,
           r.remarks || ''
         ];
-      });
-
-      // Calculate totals
-      let sumWastage = 0;
-      let activeShifts = 0;
-
-      exportData.forEach(r => {
-        if (!r.isStopped) {
-          sumWastage += r.wastage || 0;
-          activeShifts++;
-        }
       });
 
       // Assemble spreadsheet contents
@@ -535,13 +696,28 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
         ['FORTUNE FLEXIPACK PVT LIMITED'],
         ['TAPE PLANT PRODUCTION REPORT SUMMARY'],
         [`Date Range: ${formatDateLabel(exportStartDate)} to ${formatDateLabel(exportEndDate)}`],
-        [], // empty row
+        [],
+        ['--- REPORT SUMMARY METRICS ---', ''],
+        ['Total Active Shifts', `${activeShifts} shifts`],
+        ['Total Stopped Shifts', `${stoppedShifts} shifts`],
+        ['Total Shifts Recorded', `${exportData.length} shifts`],
+        ['Total Wastage Recorded', `${sumWastage.toFixed(1)} KG`],
+        [],
+        ['--- RAW MATERIALS CONSUMPTION SUMMARY ---', ''],
+        ['Total Used PP (Polypropylene)', `${ppTotal.toFixed(2)} KG`],
+        ['Total Used CC (Calcium / Filler)', `${ccTotal.toFixed(2)} KG`],
+        ['Total Used LD (LDPE Granules)', `${ldTotal.toFixed(2)} KG`],
+        ['Total Used TPT (Tape Line Additive)', `${tptTotal.toFixed(2)} KG`],
+        ...Object.entries(othersMap).map(([mName, mQty]) => [`Total Used ${mName}`, `${mQty.toFixed(2)} KG`]),
+        ['Sum of All Materials Combined', `${totalAllMaterials.toFixed(2)} KG`],
+        [],
+        ['--- DETAILED TAPE PLANT SHIFT LEDGER ---', ''],
         ['Date', 'Shift', 'Raw Material Usage', 'Wastage', 'Remarks']
       ];
 
       const sheetTotals = [
-        [], // empty spacer
-        ['Total active shifts', `${activeShifts} shifts`, '————', `${sumWastage.toFixed(1)} KG`, '']
+        [],
+        ['TOTALS', `${exportData.length} shifts`, `Raw Materials Sum: ${totalAllMaterials.toFixed(2)} KG`, `${sumWastage.toFixed(1)} KG`, '']
       ];
 
       const finalRows = [
@@ -551,14 +727,25 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       ];
 
       const worksheet = XLSX.utils.aoa_to_sheet(finalRows);
-      
+
+      // Force left alignment on all cells
+      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+      for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const cell_address = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!worksheet[cell_address]) continue;
+          if (!worksheet[cell_address].s) worksheet[cell_address].s = {};
+          worksheet[cell_address].s.alignment = { horizontal: 'left', vertical: 'center' };
+        }
+      }
+
       // Styling column widths
       worksheet['!cols'] = [
-        { wch: 15 }, // Date
-        { wch: 10 }, // Shift
-        { wch: 50 }, // Raw Material Usage
-        { wch: 15 }, // Wastage
-        { wch: 30 }  // Remarks
+        { wch: 35 }, // Date / Metric Name
+        { wch: 22 }, // Shift / Metric Value
+        { wch: 55 }, // Raw Material Usage
+        { wch: 20 }, // Wastage
+        { wch: 35 }  // Remarks
       ];
 
       const workbook = XLSX.utils.book_new();
@@ -718,7 +905,122 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
 
       </div>
 
-      {/* 🎛️ 2. FILTER & ACTION DASHBOARD TOOLBAR */}
+      {/* 📦 RAW MATERIALS CONSUMPTION SUMMARY FOR SELECTED DATE RANGE */}
+      <div className="bg-white border border-slate-150 rounded-3xl p-5 md:p-6 mb-8 shadow-xs relative overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-600 flex items-center justify-center shrink-0 font-bold">
+              <Package size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">
+                Raw Materials Consumption Summary
+              </h3>
+              <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                Total materials used in selected date range (<span className="text-slate-700 font-bold">{selectedDateRangeLabel}</span>)
+              </p>
+            </div>
+          </div>
+          
+          <div className="self-start sm:self-auto px-3.5 py-1.5 bg-amber-500 text-slate-950 border border-amber-400 rounded-2xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-xs">
+            <Sparkles size={13} className="text-slate-950" />
+            <span>Sum of All Materials: <strong className="font-mono text-xs font-black">{materialSummary.totalAll.toLocaleString()} KG</strong></span>
+          </div>
+        </div>
+
+        {/* Material Cards Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-3">
+          
+          {/* PP Card */}
+          <div className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-3.5 flex flex-col justify-between hover:shadow-xs transition-all">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-extrabold text-amber-900 uppercase tracking-wider">Total Used PP</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-2xs"></span>
+            </div>
+            <div>
+              <div className="text-base sm:text-xl font-black text-slate-900 font-mono tracking-tight">
+                {materialSummary.pp.toLocaleString()} <span className="text-xs font-bold text-slate-500 font-sans">KG</span>
+              </div>
+              <p className="text-[9px] text-amber-700 font-bold mt-0.5 uppercase tracking-wide">Polypropylene</p>
+            </div>
+          </div>
+
+          {/* CC Card */}
+          <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-3.5 flex flex-col justify-between hover:shadow-xs transition-all">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-extrabold text-emerald-900 uppercase tracking-wider">Total Used CC</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-2xs"></span>
+            </div>
+            <div>
+              <div className="text-base sm:text-xl font-black text-slate-900 font-mono tracking-tight">
+                {materialSummary.cc.toLocaleString()} <span className="text-xs font-bold text-slate-500 font-sans">KG</span>
+              </div>
+              <p className="text-[9px] text-emerald-700 font-bold mt-0.5 uppercase tracking-wide">Calcium / Filler</p>
+            </div>
+          </div>
+
+          {/* LD Card */}
+          <div className="bg-sky-50/60 border border-sky-200/80 rounded-2xl p-3.5 flex flex-col justify-between hover:shadow-xs transition-all">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-extrabold text-sky-900 uppercase tracking-wider">Total Used LD</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shadow-2xs"></span>
+            </div>
+            <div>
+              <div className="text-base sm:text-xl font-black text-slate-900 font-mono tracking-tight">
+                {materialSummary.ld.toLocaleString()} <span className="text-xs font-bold text-slate-500 font-sans">KG</span>
+              </div>
+              <p className="text-[9px] text-sky-700 font-bold mt-0.5 uppercase tracking-wide">LDPE Granules</p>
+            </div>
+          </div>
+
+          {/* TPT Card */}
+          <div className="bg-indigo-50/60 border border-indigo-200/80 rounded-2xl p-3.5 flex flex-col justify-between hover:shadow-xs transition-all">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-extrabold text-indigo-900 uppercase tracking-wider">Total Used TPT</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-2xs"></span>
+            </div>
+            <div>
+              <div className="text-base sm:text-xl font-black text-slate-900 font-mono tracking-tight">
+                {materialSummary.tpt.toLocaleString()} <span className="text-xs font-bold text-slate-500 font-sans">KG</span>
+              </div>
+              <p className="text-[9px] text-indigo-700 font-bold mt-0.5 uppercase tracking-wide">Tape Line Additive</p>
+            </div>
+          </div>
+
+          {/* Other Materials Cards (Dynamic) */}
+          {Object.entries(materialSummary.others).map(([matName, matQty]) => (
+            <div key={matName} className="bg-purple-50/60 border border-purple-200/80 rounded-2xl p-3.5 flex flex-col justify-between hover:shadow-xs transition-all">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-extrabold text-purple-900 uppercase tracking-wider truncate" title={`Total Used ${matName}`}>
+                  Total Used {matName}
+                </span>
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-500 shadow-2xs"></span>
+              </div>
+              <div>
+                <div className="text-base sm:text-xl font-black text-slate-900 font-mono tracking-tight">
+                  {matQty.toLocaleString()} <span className="text-xs font-bold text-slate-500 font-sans">KG</span>
+                </div>
+                <p className="text-[9px] text-purple-700 font-bold mt-0.5 uppercase tracking-wide truncate">{matName}</p>
+              </div>
+            </div>
+          ))}
+
+          {/* GRAND TOTAL CARD (Sum of All Materials) */}
+          <div className="bg-slate-900 text-white border border-slate-800 rounded-2xl p-3.5 flex flex-col justify-between shadow-md col-span-2 sm:col-span-1 md:col-span-1">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-extrabold text-amber-400 uppercase tracking-wider">Sum of All</span>
+              <Sparkles size={13} className="text-amber-400" />
+            </div>
+            <div>
+              <div className="text-base sm:text-xl font-black text-white font-mono tracking-tight">
+                {materialSummary.totalAll.toLocaleString()} <span className="text-xs font-bold text-slate-300 font-sans">KG</span>
+              </div>
+              <p className="text-[9px] text-slate-300 font-medium mt-0.5 uppercase tracking-wide">All Materials Combined</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
       <div className="bg-white border border-slate-150 rounded-3xl p-4 md:p-6 mb-8 shadow-xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           

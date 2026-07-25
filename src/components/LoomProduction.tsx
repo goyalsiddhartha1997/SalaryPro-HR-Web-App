@@ -328,6 +328,26 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
         return;
       }
 
+      // Calculate totals and metrics for export range
+      let sumLooms = 0;
+      let sumProduction = 0;
+      let sumWastage = 0;
+      let activeShifts = 0;
+      let stoppedShifts = 0;
+
+      exportData.forEach(r => {
+        if (!r.isStopped) {
+          activeShifts++;
+          sumLooms += r.looms || 0;
+          sumProduction += r.production || 0;
+          sumWastage += r.wastage || 0;
+        } else {
+          stoppedShifts++;
+        }
+      });
+
+      const avgPerLoom = sumLooms > 0 ? Math.round(sumProduction / sumLooms) : 0;
+
       // Format rows for XLSX
       const rows = exportData.map(r => {
         const parts = r.date.split('-');
@@ -349,31 +369,28 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
         ];
       });
 
-      // Calculate totals
-      let sumLooms = 0;
-      let sumProduction = 0;
-      let sumWastage = 0;
-
-      exportData.forEach(r => {
-        if (!r.isStopped) {
-          sumLooms += r.looms || 0;
-          sumProduction += r.production || 0;
-          sumWastage += r.wastage || 0;
-        }
-      });
-
       // Assemble spreadsheet contents
       const sheetHeader = [
         ['FORTUNE FLEXIPACK PVT LIMITED'],
         ['LOOM PRODUCTION REPORT SUMMARY'],
         [`Date Range: ${formatDateLabel(exportStartDate)} to ${formatDateLabel(exportEndDate)}`],
-        [], // empty row
-        ['Date', 'Shift', 'Looms', 'Production', 'Average', 'Wastage', 'Remarks']
+        [],
+        ['--- REPORT SUMMARY METRICS ---', ''],
+        ['Total Active Shifts', `${activeShifts} Shifts`],
+        ['Total Stopped Shifts', `${stoppedShifts} Shifts`],
+        ['Total Shifts Recorded', `${exportData.length} Shifts`],
+        ['Total Active Looms Operational', `${sumLooms.toLocaleString()} Looms`],
+        ['Total Fabric Production', `${sumProduction.toLocaleString()} Meters`],
+        ['Overall Average per Loom', `${avgPerLoom.toLocaleString()} Meters / Loom`],
+        ['Total Material Wastage', `${sumWastage.toFixed(1)} KG`],
+        [],
+        ['--- DETAILED LOOM PRODUCTION LEDGER ---', ''],
+        ['Date', 'Shift', 'Active Looms', 'Production', 'Average per Loom', 'Wastage', 'Remarks']
       ];
 
       const sheetTotals = [
-        [], // empty spacer
-        ['Total', '', `${sumLooms} looms`, `${sumProduction.toLocaleString()} M`, '————', `${sumWastage.toFixed(1)} KG`, '']
+        [],
+        ['TOTALS', `${exportData.length} Shifts`, `${sumLooms.toLocaleString()} Looms`, `${sumProduction.toLocaleString()} M`, `${avgPerLoom.toLocaleString()} M`, `${sumWastage.toFixed(1)} KG`, '']
       ];
 
       const finalRows = [
@@ -383,16 +400,27 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
       ];
 
       const worksheet = XLSX.utils.aoa_to_sheet(finalRows);
-      
+
+      // Force left alignment on all cells
+      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+      for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const cell_address = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!worksheet[cell_address]) continue;
+          if (!worksheet[cell_address].s) worksheet[cell_address].s = {};
+          worksheet[cell_address].s.alignment = { horizontal: 'left', vertical: 'center' };
+        }
+      }
+
       // Styling column widths
       worksheet['!cols'] = [
-        { wch: 15 }, // Date
-        { wch: 10 }, // Shift
-        { wch: 15 }, // Looms
-        { wch: 18 }, // Production
-        { wch: 15 }, // Average
-        { wch: 15 }, // Wastage
-        { wch: 30 }  // Remarks
+        { wch: 32 }, // Date / Metric Name
+        { wch: 20 }, // Shift / Metric Value
+        { wch: 20 }, // Active Looms
+        { wch: 22 }, // Production
+        { wch: 22 }, // Average per Loom
+        { wch: 20 }, // Wastage
+        { wch: 35 }  // Remarks
       ];
 
       const workbook = XLSX.utils.book_new();
