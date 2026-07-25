@@ -76,6 +76,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [editedOrderDate, setEditedOrderDate] = useState<string>('');
   const [editedOrderStatus, setEditedOrderStatus] = useState<'Pending' | 'Production' | 'Completed'>('Pending');
 
+  // --- ORDER EXPORT SELECTION MODAL STATES ---
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [exportOption, setExportOption] = useState<'dispatched' | 'not_dispatched' | 'both'>('dispatched');
+
+  // --- MASTER ROLL LEDGER EXPORT MODAL STATES ---
+  const [isMasterLedgerExportModalOpen, setIsMasterLedgerExportModalOpen] = useState<boolean>(false);
+  const [masterLedgerExportOption, setMasterLedgerExportOption] = useState<'dispatched' | 'not_dispatched' | 'both'>('dispatched');
+
   // --- NEW SUB-ORDER FORM STATES (USED IN BOTH SIDEBAR & MODAL) ---
   const [subSize, setSubSize] = useState<string>('');
   const [subQuality, setSubQuality] = useState<string>('');
@@ -330,62 +338,167 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   };
 
   // Export current modal order data to Excel
-  const handleExportOrderToExcel = () => {
+  const handleExportOrderToExcel = (selectedOption: 'dispatched' | 'not_dispatched' | 'both' = exportOption) => {
     if (!modalOrder) return;
 
     try {
-      // 1. Prepare Header info rows
-      const headerRows = [
-        ["PP FABRIC MANUFACTURING SPECIFICATIONS SHEET"],
-        ["Order Reference:", modalOrder.orderNo, "", "Logged Date:", modalOrder.date, "", "Overall Status:", modalOrder.status],
-        [], // empty spacer row
-        ["#", "Weave Quality", "Lamination Type", "Size / Width", "GSM", "Denier", "Fabric Weight (g)", "No. of Rolls", "Roll Numbers List", "Target (Tons)", "Completed (Tons)", "Status", "Remarks"]
-      ];
+      if (selectedOption === 'both') {
+        // FULL REPORT (INCLUDES ALL COLUMNS: TARGET/COMPLETED TONNAGE, FABRIC WEIGHT, ROLLS)
+        const headerRows = [
+          ["PP FABRIC MANUFACTURING SPECIFICATIONS SHEET - FULL REPORT"],
+          ["Order Reference:", modalOrder.orderNo, "", "Report Mode:", "BOTH (ALL ROLLS)", "", "Logged Date:", modalOrder.date, "", "Overall Status:", modalOrder.status],
+          [], // empty spacer row
+          ["#", "Weave Quality", "Lamination Type", "Size / Width", "GSM", "Denier", "Fabric Weight (g)", "No. of Rolls", "Roll Numbers List", "Target (Tons)", "Completed (Tons)", "Status", "Remarks"]
+        ];
 
-      // 2. Prepare items rows
-      const itemRows = sortedModalRows.map(({ row }, idx) => [
-        idx + 1,
-        row.quality || '',
-        (row.laminationType || 'NON-LAMINATION').toUpperCase(),
-        row.size || '',
-        row.gsm || 0,
-        row.denier || 0,
-        row.fabricWeight || 0,
-        row.noOfRolls || 0,
-        (row.rollNumbers || []).join(', '),
-        row.totalQuantity || 0,
-        row.productionCompleted || 0,
-        row.status || 'Pending',
-        row.remarks || ''
-      ]);
+        const itemRows = sortedModalRows.map(({ row }, idx) => [
+          idx + 1,
+          row.quality || '',
+          (row.laminationType || 'NON-LAMINATION').toUpperCase(),
+          row.size || '',
+          row.gsm || 0,
+          row.denier || 0,
+          row.fabricWeight || 0,
+          row.noOfRolls || 0,
+          (row.rollNumbers || []).join(', '),
+          row.totalQuantity || 0,
+          row.productionCompleted || 0,
+          row.status || 'Pending',
+          row.remarks || ''
+        ]);
 
-      // Combine them
-      const allRows = [...headerRows, ...itemRows];
+        const allRows = [...headerRows, ...itemRows];
+        const worksheet = XLSX.utils.aoa_to_sheet(allRows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, `Order_${modalOrder.orderNo}`);
 
-      // Create sheet
-      const worksheet = XLSX.utils.aoa_to_sheet(allRows);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, `Order_${modalOrder.orderNo}`);
+        worksheet['!cols'] = [
+          { wch: 6 },  // #
+          { wch: 25 }, // Quality
+          { wch: 18 }, // Lamination Type
+          { wch: 15 }, // Size
+          { wch: 10 }, // GSM
+          { wch: 10 }, // Denier
+          { wch: 15 }, // Fabric weight
+          { wch: 12 }, // No of rolls
+          { wch: 30 }, // Roll numbers
+          { wch: 15 }, // Target Quantity
+          { wch: 18 }, // Production Completed
+          { wch: 12 }, // Status
+          { wch: 30 }  // Remarks
+        ];
 
-      // Auto columns sizing
-      worksheet['!cols'] = [
-        { wch: 6 },  // #
-        { wch: 25 }, // Quality
-        { wch: 18 }, // Lamination Type
-        { wch: 15 }, // Size
-        { wch: 10 }, // GSM
-        { wch: 10 }, // Denier
-        { wch: 15 }, // Fabric weight
-        { wch: 12 }, // No of rolls
-        { wch: 30 }, // Roll numbers
-        { wch: 15 }, // Target Quantity
-        { wch: 18 }, // Production Completed
-        { wch: 12 }, // Status
-        { wch: 30 }  // Remarks
-      ];
+        XLSX.writeFile(workbook, `PP_Fabric_Order_${modalOrder.orderNo}_Full_Report.xlsx`);
+        triggerAlert('success', `Exported full report for Order "${modalOrder.orderNo}" successfully.`);
+      } else if (selectedOption === 'dispatched') {
+        // DISPATCHED ROLLS ONLY REPORT (OMITS TONNAGE AND FABRIC WEIGHT COLUMNS)
+        const headerRows = [
+          ["PP FABRIC MANUFACTURING SPECIFICATIONS SHEET - DISPATCHED ROLLS REPORT"],
+          ["Order Reference:", modalOrder.orderNo, "", "Report Mode:", "DISPATCHED ROLLS ONLY", "", "Logged Date:", modalOrder.date, "", "Overall Status:", modalOrder.status],
+          [], // empty spacer row
+          ["#", "Weave Quality", "Lamination Type", "Size / Width", "GSM", "Denier", "No. of Dispatched Rolls", "Dispatched Roll Numbers List", "Status", "Remarks"]
+        ];
 
-      XLSX.writeFile(workbook, `PP_Fabric_Order_${modalOrder.orderNo}_Details.xlsx`);
-      triggerAlert('success', `Exported Order "${modalOrder.orderNo}" details to Excel successfully.`);
+        const itemRows = sortedModalRows.map(({ row }, idx) => {
+          const rolls = row.rollNumbers || [];
+          const dispList = row.dispatchedRolls || [];
+          const dispMap = row.rollDispatchStatus || {};
+
+          const dispatchedRolls = rolls.filter(r => {
+            const trimmed = (r || '').trim();
+            return dispMap[trimmed] === 'Dispatched' || dispList.includes(trimmed);
+          });
+
+          return [
+            idx + 1,
+            row.quality || '',
+            (row.laminationType || 'NON-LAMINATION').toUpperCase(),
+            row.size || '',
+            row.gsm || 0,
+            row.denier || 0,
+            dispatchedRolls.length,
+            dispatchedRolls.length > 0 ? dispatchedRolls.join(', ') : '0 dispatched rolls',
+            row.status || 'Pending',
+            row.remarks || ''
+          ];
+        });
+
+        const allRows = [...headerRows, ...itemRows];
+        const worksheet = XLSX.utils.aoa_to_sheet(allRows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, `Dispatched_${modalOrder.orderNo}`);
+
+        worksheet['!cols'] = [
+          { wch: 6 },  // #
+          { wch: 25 }, // Quality
+          { wch: 18 }, // Lamination Type
+          { wch: 15 }, // Size
+          { wch: 10 }, // GSM
+          { wch: 10 }, // Denier
+          { wch: 22 }, // Dispatched rolls count
+          { wch: 35 }, // Dispatched Roll numbers
+          { wch: 12 }, // Status
+          { wch: 30 }  // Remarks
+        ];
+
+        XLSX.writeFile(workbook, `PP_Fabric_Order_${modalOrder.orderNo}_Dispatched_Rolls.xlsx`);
+        triggerAlert('success', `Exported Dispatched Rolls report for Order "${modalOrder.orderNo}" successfully.`);
+      } else if (selectedOption === 'not_dispatched') {
+        // NON-DISPATCHED ROLLS ONLY REPORT (OMITS TONNAGE AND FABRIC WEIGHT COLUMNS)
+        const headerRows = [
+          ["PP FABRIC MANUFACTURING SPECIFICATIONS SHEET - NOT DISPATCHED ROLLS REPORT"],
+          ["Order Reference:", modalOrder.orderNo, "", "Report Mode:", "NON-DISPATCHED ROLLS ONLY", "", "Logged Date:", modalOrder.date, "", "Overall Status:", modalOrder.status],
+          [], // empty spacer row
+          ["#", "Weave Quality", "Lamination Type", "Size / Width", "GSM", "Denier", "No. of Non-Dispatched Rolls", "Non-Dispatched Roll Numbers List", "Status", "Remarks"]
+        ];
+
+        const itemRows = sortedModalRows.map(({ row }, idx) => {
+          const rolls = row.rollNumbers || [];
+          const dispList = row.dispatchedRolls || [];
+          const dispMap = row.rollDispatchStatus || {};
+
+          const notDispatchedRolls = rolls.filter(r => {
+            const trimmed = (r || '').trim();
+            return dispMap[trimmed] !== 'Dispatched' && !dispList.includes(trimmed);
+          });
+
+          return [
+            idx + 1,
+            row.quality || '',
+            (row.laminationType || 'NON-LAMINATION').toUpperCase(),
+            row.size || '',
+            row.gsm || 0,
+            row.denier || 0,
+            notDispatchedRolls.length,
+            notDispatchedRolls.length > 0 ? notDispatchedRolls.join(', ') : '0 non-dispatched rolls',
+            row.status || 'Pending',
+            row.remarks || ''
+          ];
+        });
+
+        const allRows = [...headerRows, ...itemRows];
+        const worksheet = XLSX.utils.aoa_to_sheet(allRows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, `NotDispatched_${modalOrder.orderNo}`);
+
+        worksheet['!cols'] = [
+          { wch: 6 },  // #
+          { wch: 25 }, // Quality
+          { wch: 18 }, // Lamination Type
+          { wch: 15 }, // Size
+          { wch: 10 }, // GSM
+          { wch: 10 }, // Denier
+          { wch: 24 }, // Non-Dispatched rolls count
+          { wch: 35 }, // Non-Dispatched Roll numbers
+          { wch: 12 }, // Status
+          { wch: 30 }  // Remarks
+        ];
+
+        XLSX.writeFile(workbook, `PP_Fabric_Order_${modalOrder.orderNo}_Not_Dispatched_Rolls.xlsx`);
+        triggerAlert('success', `Exported Non-Dispatched Rolls report for Order "${modalOrder.orderNo}" successfully.`);
+      }
+
+      setIsExportModalOpen(false);
     } catch (err) {
       console.error("Failed to export order to Excel", err);
       triggerAlert('warn', 'Failed to generate Excel export.');
@@ -1354,15 +1467,29 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     }
   };
 
-  const handleExportMasterRollLedgerToExcel = () => {
+  const handleExportMasterRollLedgerToExcel = (selectedOption: 'dispatched' | 'not_dispatched' | 'both' = masterLedgerExportOption) => {
     try {
-      const exportRows = masterRollLedgerData.map((item, index) => ({
+      let filteredData = masterRollLedgerData;
+      let modeTitle = 'FULL REPORT';
+      let fileNameSuffix = 'Full_Report';
+
+      if (selectedOption === 'dispatched') {
+        filteredData = masterRollLedgerData.filter(item => item.dispatchStatus === 'Dispatched');
+        modeTitle = 'DISPATCHED ROLLS ONLY';
+        fileNameSuffix = 'Dispatched_Rolls';
+      } else if (selectedOption === 'not_dispatched') {
+        filteredData = masterRollLedgerData.filter(item => item.dispatchStatus === 'Not Dispatched');
+        modeTitle = 'NON-DISPATCHED ROLLS ONLY';
+        fileNameSuffix = 'Not_Dispatched_Rolls';
+      }
+
+      const exportRows = filteredData.map((item, index) => ({
         'S.No': index + 1,
         'Roll Number': item.rollNo,
         'Size': item.size,
         'GSM': item.gsm,
         'Denier': item.denier,
-        'Fabric Weight': item.fabricWeight,
+        'Fabric Weight (g)': item.fabricWeight,
         'Weave Quality': item.quality,
         'Dispatch Status': item.dispatchStatus,
         'Remarks': item.remarks || '-',
@@ -1381,16 +1508,19 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         { wch: 15 },
         { wch: 10 },
         { wch: 10 },
-        { wch: 15 },
+        { wch: 18 },
         { wch: 25 },
+        { wch: 18 },
         { wch: 25 },
-        { wch: 15 },
+        { wch: 12 },
         { wch: 12 },
         { wch: 12 },
       ];
 
-      XLSX.writeFile(workbook, `PP_Fabric_Master_Roll_Ledger_${new Date().toISOString().split('T')[0]}.xlsx`);
-      triggerAlert('success', 'Master Roll Ledger exported to Excel successfully.');
+      const dateStr = new Date().toISOString().split('T')[0];
+      XLSX.writeFile(workbook, `PP_Fabric_Master_Roll_Ledger_${fileNameSuffix}_${dateStr}.xlsx`);
+      triggerAlert('success', `Master Roll Ledger (${modeTitle}) exported to Excel successfully.`);
+      setIsMasterLedgerExportModalOpen(false);
     } catch (err) {
       console.error("Failed to export Master Roll Ledger", err);
       triggerAlert('warn', 'Failed to export ledger to Excel.');
@@ -2070,7 +2200,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 </div>
 
                 <button
-                  onClick={handleExportOrderToExcel}
+                  onClick={() => {
+                    setExportOption('dispatched');
+                    setIsExportModalOpen(true);
+                  }}
                   className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer active:scale-95"
                   title="Export Order to Excel Sheet"
                 >
@@ -3861,7 +3994,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
                 <button
                   type="button"
-                  onClick={handleExportMasterRollLedgerToExcel}
+                  onClick={() => {
+                    setMasterLedgerExportOption('dispatched');
+                    setIsMasterLedgerExportModalOpen(true);
+                  }}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider px-3 py-2 rounded-xl border border-emerald-700 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
                   title="Export Master Ledger to Excel"
                 >
@@ -4433,6 +4569,319 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 className="bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-amber-400 font-black text-xs uppercase tracking-wider py-2.5 px-5 sm:px-6 rounded-xl border border-zinc-800 transition-all shadow-3xs cursor-pointer"
               >
                 Close Ledger Window
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* EXPORT OPTIONS SELECTION MODAL DIALOG */}
+      {isExportModalOpen && modalOrder && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
+            
+            {/* Modal Header */}
+            <div className="bg-zinc-900 text-white px-4 py-3.5 sm:px-6 sm:py-4 flex justify-between items-center border-b border-zinc-800 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
+                  <FileSpreadsheet size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-amber-400 leading-tight">
+                    Export Order to Excel
+                  </h3>
+                  <p className="text-xs text-zinc-400 font-semibold">
+                    Order Ref: <span className="text-amber-300 font-mono font-bold">{modalOrder.orderNo}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsExportModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                title="Cancel"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 sm:p-6 space-y-4">
+              <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">
+                Choose data report option to download:
+              </p>
+
+              <div className="space-y-3">
+                {/* Option 1: Dispatched Rolls Only */}
+                <label
+                  onClick={() => setExportOption('dispatched')}
+                  className={`p-4 rounded-2xl border-2 flex items-start gap-3.5 cursor-pointer transition-all ${
+                    exportOption === 'dispatched'
+                      ? 'bg-emerald-50/70 border-emerald-500 shadow-sm'
+                      : 'bg-white border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="exportOption"
+                    value="dispatched"
+                    checked={exportOption === 'dispatched'}
+                    onChange={() => setExportOption('dispatched')}
+                    className="mt-1 text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer"
+                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Truck size={16} className="text-emerald-600" />
+                      <span className="text-xs font-black text-zinc-900 uppercase">
+                        Dispatched Rolls Only
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
+                      Exports all sub-order varieties/rows showing only roll numbers marked as <strong>Dispatched</strong>. Tonnage & weight columns are omitted.
+                    </p>
+                  </div>
+                </label>
+
+                {/* Option 2: Not Dispatched Rolls Only */}
+                <label
+                  onClick={() => setExportOption('not_dispatched')}
+                  className={`p-4 rounded-2xl border-2 flex items-start gap-3.5 cursor-pointer transition-all ${
+                    exportOption === 'not_dispatched'
+                      ? 'bg-amber-50/70 border-amber-500 shadow-sm'
+                      : 'bg-white border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="exportOption"
+                    value="not_dispatched"
+                    checked={exportOption === 'not_dispatched'}
+                    onChange={() => setExportOption('not_dispatched')}
+                    className="mt-1 text-amber-600 focus:ring-amber-500 h-4 w-4 cursor-pointer"
+                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <PackageX size={16} className="text-amber-600" />
+                      <span className="text-xs font-black text-zinc-900 uppercase">
+                        Non-Dispatched Rolls Only
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
+                      Exports all sub-order varieties/rows showing only roll numbers marked as <strong>Not Dispatched</strong>. Tonnage & weight columns are omitted.
+                    </p>
+                  </div>
+                </label>
+
+                {/* Option 3: Both (Complete Order Report) */}
+                <label
+                  onClick={() => setExportOption('both')}
+                  className={`p-4 rounded-2xl border-2 flex items-start gap-3.5 cursor-pointer transition-all ${
+                    exportOption === 'both'
+                      ? 'bg-sky-50/70 border-sky-500 shadow-sm'
+                      : 'bg-white border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="exportOption"
+                    value="both"
+                    checked={exportOption === 'both'}
+                    onChange={() => setExportOption('both')}
+                    className="mt-1 text-sky-600 focus:ring-sky-500 h-4 w-4 cursor-pointer"
+                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Layers size={16} className="text-sky-600" />
+                      <span className="text-xs font-black text-zinc-900 uppercase">
+                        Both (Complete Order Report)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
+                      Exports full specification details including Target/Completed Tonnage, Fabric Weight, and all roll numbers (standard complete layout).
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-zinc-50 px-5 py-3.5 border-t border-zinc-200 flex justify-end gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsExportModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-200 hover:bg-zinc-300 text-zinc-700 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExportOrderToExcel(exportOption)}
+                className="px-5 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
+              >
+                <Download size={14} className="stroke-[2.5]" />
+                <span>Download Excel</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* EXPORT OPTIONS SELECTION MODAL DIALOG FOR MASTER ROLL LEDGER */}
+      {isMasterLedgerExportModalOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
+            
+            {/* Modal Header */}
+            <div className="bg-zinc-900 text-white px-4 py-3.5 sm:px-6 sm:py-4 flex justify-between items-center border-b border-zinc-800 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
+                  <FileSpreadsheet size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-amber-400 leading-tight">
+                    Export Master Roll Ledger
+                  </h3>
+                  <p className="text-xs text-zinc-400 font-semibold">
+                    Directory Registry • Total: <span className="text-amber-300 font-mono font-bold">{masterRollLedgerData.length} Rolls</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMasterLedgerExportModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                title="Cancel"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 sm:p-6 space-y-4">
+              <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">
+                Choose data report option to download:
+              </p>
+
+              <div className="space-y-3">
+                {/* Option 1: Dispatched Rolls Only */}
+                <label
+                  onClick={() => setMasterLedgerExportOption('dispatched')}
+                  className={`p-4 rounded-2xl border-2 flex items-start gap-3.5 cursor-pointer transition-all ${
+                    masterLedgerExportOption === 'dispatched'
+                      ? 'bg-emerald-50/70 border-emerald-500 shadow-sm'
+                      : 'bg-white border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="masterLedgerExportOption"
+                    value="dispatched"
+                    checked={masterLedgerExportOption === 'dispatched'}
+                    onChange={() => setMasterLedgerExportOption('dispatched')}
+                    className="mt-1 text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer"
+                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Truck size={16} className="text-emerald-600" />
+                      <span className="text-xs font-black text-zinc-900 uppercase">
+                        For Dispatched Rolls Only
+                      </span>
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ml-auto">
+                        {masterRollLedgerData.filter(i => i.dispatchStatus === 'Dispatched').length} rolls
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
+                      Exports only roll numbers marked as <strong>Dispatched</strong> across all orders with specs, order reference numbers & dates.
+                    </p>
+                  </div>
+                </label>
+
+                {/* Option 2: Not Dispatched Rolls Only */}
+                <label
+                  onClick={() => setMasterLedgerExportOption('not_dispatched')}
+                  className={`p-4 rounded-2xl border-2 flex items-start gap-3.5 cursor-pointer transition-all ${
+                    masterLedgerExportOption === 'not_dispatched'
+                      ? 'bg-amber-50/70 border-amber-500 shadow-sm'
+                      : 'bg-white border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="masterLedgerExportOption"
+                    value="not_dispatched"
+                    checked={masterLedgerExportOption === 'not_dispatched'}
+                    onChange={() => setMasterLedgerExportOption('not_dispatched')}
+                    className="mt-1 text-amber-600 focus:ring-amber-500 h-4 w-4 cursor-pointer"
+                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <PackageX size={16} className="text-amber-600" />
+                      <span className="text-xs font-black text-zinc-900 uppercase">
+                        Not Dispatched Rolls Only
+                      </span>
+                      <span className="bg-amber-100 text-amber-800 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ml-auto">
+                        {masterRollLedgerData.filter(i => i.dispatchStatus === 'Not Dispatched').length} rolls
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
+                      Exports only roll numbers marked as <strong>Not Dispatched</strong> across all orders with specs, order reference numbers & dates.
+                    </p>
+                  </div>
+                </label>
+
+                {/* Option 3: Both (Complete Order Report) */}
+                <label
+                  onClick={() => setMasterLedgerExportOption('both')}
+                  className={`p-4 rounded-2xl border-2 flex items-start gap-3.5 cursor-pointer transition-all ${
+                    masterLedgerExportOption === 'both'
+                      ? 'bg-sky-50/70 border-sky-500 shadow-sm'
+                      : 'bg-white border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="masterLedgerExportOption"
+                    value="both"
+                    checked={masterLedgerExportOption === 'both'}
+                    onChange={() => setMasterLedgerExportOption('both')}
+                    className="mt-1 text-sky-600 focus:ring-sky-500 h-4 w-4 cursor-pointer"
+                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Layers size={16} className="text-sky-600" />
+                      <span className="text-xs font-black text-zinc-900 uppercase">
+                        Both (Complete Roll Ledger Report)
+                      </span>
+                      <span className="bg-sky-100 text-sky-800 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ml-auto">
+                        {masterRollLedgerData.length} rolls
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
+                      Exports complete master ledger containing both Dispatched and Not Dispatched rolls across all orders.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-zinc-50 px-5 py-3.5 border-t border-zinc-200 flex justify-end gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsMasterLedgerExportModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-200 hover:bg-zinc-300 text-zinc-700 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExportMasterRollLedgerToExcel(masterLedgerExportOption)}
+                className="px-5 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
+              >
+                <Download size={14} className="stroke-[2.5]" />
+                <span>Download Excel</span>
               </button>
             </div>
 
