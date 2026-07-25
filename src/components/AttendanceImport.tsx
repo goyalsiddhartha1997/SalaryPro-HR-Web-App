@@ -1730,7 +1730,23 @@ export default function AttendanceImport({
 
     if (importMode === 'roster') {
       const matched = parsedRows.map(row => {
-        const rawId = row[mappings.id] || '';
+        let rawId = row[mappings.id] || '';
+        let shiftOffset = 0;
+
+        if (!rawId && mappings.id) {
+          const mappedIdx = parseInt(mappings.id, 10);
+          if (!isNaN(mappedIdx)) {
+            const nextVal = (row[String(mappedIdx + 1)] || '').trim();
+            if (nextVal) {
+              const existingMatch = employees.find(e => isIdMatch(e.id, nextVal));
+              if (existingMatch || /^\d+$/.test(nextVal)) {
+                rawId = nextVal;
+                shiftOffset = 1;
+              }
+            }
+          }
+        }
+
         let cleanedId = rawId.trim();
         const existing = employees.find(e => isIdMatch(e.id, cleanedId));
         if (existing) {
@@ -1739,7 +1755,8 @@ export default function AttendanceImport({
           cleanedId = String(parseInt(cleanedId, 10));
         }
 
-        const nameVal = mappings.name ? (row[mappings.name] || '') : '';
+        const nameColIdx = mappings.name ? (parseInt(mappings.name, 10) + shiftOffset) : -1;
+        const nameVal = (nameColIdx >= 0 && row[String(nameColIdx)]) ? row[String(nameColIdx)].trim() : (mappings.name ? (row[mappings.name] || '') : '');
         let salaryVal = 20000;
         if (mappings.monthlySalary && row[mappings.monthlySalary]) {
           const parsedSalary = Number(row[mappings.monthlySalary]);
@@ -1783,7 +1800,24 @@ export default function AttendanceImport({
     > = {};
 
     parsedRows.forEach(row => {
-      const rawId = row[mappings.id] || '';
+      let rawId = row[mappings.id] || '';
+      let shiftOffset = 0;
+
+      if (!rawId && mappings.id) {
+        // Fallback for shifted CSV rows (e.g. leading extra comma like `,115,Dharmender...`)
+        const mappedIdx = parseInt(mappings.id, 10);
+        if (!isNaN(mappedIdx)) {
+          const nextVal = (row[String(mappedIdx + 1)] || '').trim();
+          if (nextVal) {
+            const existingMatch = employees.find(e => isIdMatch(e.id, nextVal));
+            if (existingMatch || /^\d+$/.test(nextVal)) {
+              rawId = nextVal;
+              shiftOffset = 1;
+            }
+          }
+        }
+      }
+
       if (!rawId) return;
 
       let cleanedId = rawId.trim();
@@ -1796,7 +1830,8 @@ export default function AttendanceImport({
 
       const standardizedDate = importDate;
       const groupKey = `${cleanedId}_${standardizedDate}`;
-      const nameVal = mappings.name ? (row[mappings.name] || '').trim() : '';
+      const nameColIdx = mappings.name ? (parseInt(mappings.name, 10) + shiftOffset) : -1;
+      const nameVal = (nameColIdx >= 0 && row[String(nameColIdx)]) ? row[String(nameColIdx)].trim() : (mappings.name ? (row[mappings.name] || '').trim() : '');
 
       if (!groups[groupKey]) {
         groups[groupKey] = {
@@ -1811,13 +1846,15 @@ export default function AttendanceImport({
       }
 
       if (rowLayout === 'single') {
-        const rawTime = row[mappings.punchTime] || '';
+        const pTimeColIdx = mappings.punchTime ? (parseInt(mappings.punchTime, 10) + shiftOffset) : -1;
+        const rawTime = (pTimeColIdx >= 0 && row[String(pTimeColIdx)]) ? row[String(pTimeColIdx)] : (row[mappings.punchTime] || '');
         const formattedTime = parseTimeToHM(rawTime);
         if (!formattedTime) return;
 
         let activeType: 'IN' | 'OUT' | '' = '';
         if (mappings.punchType) {
-          const val = (row[mappings.punchType] || '').toLowerCase();
+          const pTypeColIdx = parseInt(mappings.punchType, 10) + shiftOffset;
+          const val = (row[String(pTypeColIdx)] || row[mappings.punchType] || '').toLowerCase();
           if (val.includes('in') || val.includes('check_in') || val.includes('masuk') || val === '0' || val.includes('work')) {
             activeType = 'IN';
           } else if (val.includes('out') || val.includes('check_out') || val.includes('keluar') || val === '1' || val.includes('lunch') || val.includes('off')) {
@@ -1857,7 +1894,8 @@ export default function AttendanceImport({
         punchCols.forEach((col, sIdx) => {
           const colName = mappings[col.key];
           if (colName) {
-            const rawVal = row[colName];
+            const actualColIdx = parseInt(colName, 10) + shiftOffset;
+            const rawVal = row[String(actualColIdx)] || row[colName];
             if (rawVal) {
               const formattedTime = parseTimeToHM(rawVal);
               if (formattedTime) {
