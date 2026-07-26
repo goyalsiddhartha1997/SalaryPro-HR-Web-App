@@ -38,6 +38,7 @@ import {
   Flame,
   Activity
 } from 'lucide-react';
+import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
 import { type LoomRunningReport, LoomRunningRow } from '../types';
 
@@ -458,58 +459,264 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
   };
 
   // --- EXPORT METRICS TO EXCEL ---
-  const handleExportToExcel = () => {
+  const handleExportToExcel = async () => {
     if (filteredReports.length === 0) {
       triggerAlert('info', 'No reports available to export.');
       return;
     }
 
     try {
-      const finalAoAData: any[][] = [
-        ['FORTUNE FLEXIPACK PVT LIMITED'],
-        ['LOOM RUNNING REPORT LEDGER SUMMARY'],
-        [`Export Period: ${filterMode === 'single' ? formatDateLabel(singleDate) : `${formatDateLabel(rangeStartDate)} to ${formatDateLabel(rangeEndDate)}`}`],
-        [],
-        ['Report Date', 'Loom Number', 'Quality', 'Size', 'GSM', 'Denier', 'Average (grams)', 'Running Status', 'Remarks']
-      ];
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Loom Running Report');
+      worksheet.views = [{ showGridLines: true }];
 
+      // 1. EXECUTIVE HEADER BANNER (Row 1)
+      worksheet.mergeCells('A1:I1');
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • LOOM RUNNING REPORT LEDGER SUMMARY';
+      titleCell.font = { name: 'Calibri', size: 15, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; // Dark Slate Navy
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(1).height = 42;
+
+      for (let col = 1; col <= 9; col++) {
+        worksheet.getRow(1).getCell(col).fill = titleCell.fill;
+      }
+
+      // 2. SUB-BANNER DATE RANGE (Row 2)
+      worksheet.mergeCells('A2:I2');
+      const dateCell = worksheet.getCell('A2');
+      const periodLabel = filterMode === 'single' ? formatDateLabel(singleDate) : `${formatDateLabel(rangeStartDate)} TO ${formatDateLabel(rangeEndDate)}`;
+      dateCell.value = `EXPORT PERIOD: ${periodLabel}`;
+      dateCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFF59E0B' } }; // Gold accent
+      dateCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
+      dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(2).height = 22;
+
+      // 3. METRICS CARDS (Rows 4 & 5)
+      let totalRowsCount = 0;
+      let runningCount = 0;
+      let stoppedCount = 0;
+      let sumAvgGrams = 0;
+
+      filteredReports.forEach((report) => {
+        report.rows.forEach((row) => {
+          totalRowsCount++;
+          if (row.runningStatus === 'Running') {
+            runningCount++;
+          } else {
+            stoppedCount++;
+          }
+          sumAvgGrams += row.average || 0;
+        });
+      });
+
+      const overallAvg = totalRowsCount > 0 ? (sumAvgGrams / totalRowsCount).toFixed(2) : '0';
+
+      worksheet.getRow(3).height = 10; // Spacer
+
+      worksheet.mergeCells('A4:B4');
+      worksheet.mergeCells('C4:D4');
+      worksheet.mergeCells('E4:G4');
+      worksheet.mergeCells('H4:I4');
+
+      worksheet.mergeCells('A5:B5');
+      worksheet.mergeCells('C5:D5');
+      worksheet.mergeCells('E5:G5');
+      worksheet.mergeCells('H5:I5');
+
+      worksheet.getRow(4).height = 18;
+      worksheet.getRow(5).height = 22;
+
+      worksheet.getCell('A4').value = 'Total Looms Tracked:';
+      worksheet.getCell('C4').value = 'Running Looms:';
+      worksheet.getCell('E4').value = 'Stopped / Maintenance:';
+      worksheet.getCell('H4').value = 'Avg Fabric Weight:';
+
+      worksheet.getCell('A5').value = `${totalRowsCount} Looms`;
+      worksheet.getCell('C5').value = `${runningCount} Running (${totalRowsCount > 0 ? Math.round((runningCount / totalRowsCount) * 100) : 0}%)`;
+      worksheet.getCell('E5').value = `${stoppedCount} Stopped`;
+      worksheet.getCell('H5').value = `${overallAvg} grams`;
+
+      const thinCardBorder = {
+        top: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+        left: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+        bottom: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+        right: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+      };
+
+      for (let col = 1; col <= 2; col++) {
+        [4, 5].forEach(r => {
+          const c = worksheet.getRow(r).getCell(col);
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF1E40AF' } };
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+          c.border = thinCardBorder;
+        });
+      }
+
+      for (let col = 3; col <= 4; col++) {
+        [4, 5].forEach(r => {
+          const c = worksheet.getRow(r).getCell(col);
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF15803D' } };
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+          c.border = thinCardBorder;
+        });
+      }
+
+      for (let col = 5; col <= 7; col++) {
+        [4, 5].forEach(r => {
+          const c = worksheet.getRow(r).getCell(col);
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEDD5' } };
+          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFC2410C' } };
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+          c.border = thinCardBorder;
+        });
+      }
+
+      for (let col = 8; col <= 9; col++) {
+        [4, 5].forEach(r => {
+          const c = worksheet.getRow(r).getCell(col);
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFB45309' } };
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+          c.border = thinCardBorder;
+        });
+      }
+
+      // 4. DATA TABLE HEADER (Row 7)
+      worksheet.getRow(6).height = 12; // Spacer
+      const headers = ['Report Date', 'Loom Number', 'Weave Quality', 'Size', 'GSM', 'Denier', 'Average Weight (g)', 'Running Status', 'Remarks'];
+      const headerRow = worksheet.getRow(7);
+      headerRow.height = 28;
+      headers.forEach((h, idx) => {
+        const cell = headerRow.getCell(idx + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FF334155' } },
+          bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
+          right: { style: 'thin', color: { argb: 'FF334155' } }
+        };
+      });
+
+      // 5. DATA ROWS
+      let currentR = 8;
       filteredReports.forEach((report) => {
         const readableDate = formatDateLabel(report.date);
         report.rows.forEach((row) => {
-          finalAoAData.push([
+          const r = worksheet.getRow(currentR);
+          r.height = 22;
+          const isEven = currentR % 2 === 0;
+          const defaultBg = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
+
+          const rowValues = [
             readableDate,
             row.loomNo,
             row.quality,
             row.size,
             row.gsm,
             row.denier,
-            row.average,
-            row.runningStatus,
-            row.remarks || ''
-          ]);
+            row.average || 0,
+            row.runningStatus || 'Running',
+            row.remarks || '-'
+          ];
+
+          rowValues.forEach((val, colIdx) => {
+            const cell = r.getCell(colIdx + 1);
+            cell.value = val;
+            cell.font = { name: 'Calibri', size: 10.5, color: { argb: 'FF1E293B' } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultBg } };
+            cell.border = {
+              top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+              left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+              bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+              right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+            };
+
+            if (colIdx === 0) { // Date
+              cell.alignment = { horizontal: 'center', vertical: 'middle' };
+              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
+            } else if (colIdx === 1) { // Loom No
+              cell.alignment = { horizontal: 'center', vertical: 'middle' };
+              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF1E40AF' } };
+            } else if (colIdx === 2) { // Quality
+              cell.alignment = { horizontal: 'left', vertical: 'middle' };
+              cell.font = { name: 'Calibri', size: 10.5, bold: true };
+            } else if (colIdx === 3 || colIdx === 4 || colIdx === 5) { // Size, GSM, Denier
+              cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            } else if (colIdx === 6) { // Average Weight
+              cell.alignment = { horizontal: 'right', vertical: 'middle' };
+              cell.numFmt = '#,##0.00';
+            } else if (colIdx === 7) { // Running Status
+              cell.alignment = { horizontal: 'center', vertical: 'middle' };
+              if (val === 'Running') {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+                cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF15803D' } };
+              } else {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF2F2' } };
+                cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFB91C1C' } };
+              }
+            } else { // Remarks
+              cell.alignment = { horizontal: 'left', vertical: 'middle' };
+            }
+          });
+
+          currentR++;
         });
       });
 
-      const worksheet = XLSX.utils.aoa_to_sheet(finalAoAData);
-      
-      // Auto-set column widths for pristine printing
-      worksheet['!cols'] = [
-        { wch: 15 }, // Report Date
-        { wch: 15 }, // Loom Number
-        { wch: 22 }, // Quality
-        { wch: 12 }, // Size
-        { wch: 10 }, // GSM
-        { wch: 10 }, // Denier
-        { wch: 15 }, // Average Speed
-        { wch: 15 }, // Status
-        { wch: 25 }  // Remarks
+      // 6. TOTALS ROW
+      const totalsRow = worksheet.getRow(currentR);
+      totalsRow.height = 26;
+      for (let c = 1; c <= 9; c++) {
+        const cell = totalsRow.getCell(c);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F172A' } };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF334155' } },
+          bottom: { style: 'double', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        };
+      }
+
+      totalsRow.getCell(1).value = 'TOTALS';
+      totalsRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+      totalsRow.getCell(2).value = `${totalRowsCount} Looms`;
+      totalsRow.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+      totalsRow.getCell(7).value = Number(overallAvg);
+      totalsRow.getCell(7).alignment = { horizontal: 'right', vertical: 'middle' };
+      totalsRow.getCell(7).numFmt = '#,##0.00';
+      totalsRow.getCell(8).value = `${runningCount} Running / ${stoppedCount} Stopped`;
+      totalsRow.getCell(8).alignment = { horizontal: 'center', vertical: 'middle' };
+
+      // 7. COLUMN WIDTHS
+      worksheet.columns = [
+        { width: 15 }, // Report Date
+        { width: 16 }, // Loom Number
+        { width: 24 }, // Weave Quality
+        { width: 14 }, // Size
+        { width: 10 }, // GSM
+        { width: 10 }, // Denier
+        { width: 20 }, // Average Weight (g)
+        { width: 22 }, // Running Status
+        { width: 30 }  // Remarks
       ];
 
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Loom Running Report');
-
       const fileName = `Loom_Running_Report_${filterMode === 'single' ? singleDate : `${rangeStartDate}_to_${rangeEndDate}`}.xlsx`;
-      XLSX.writeFile(workbook, fileName);
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      window.URL.revokeObjectURL(url);
 
       triggerAlert('success', `Spreadsheet downloaded as ${fileName}`);
     } catch (err) {

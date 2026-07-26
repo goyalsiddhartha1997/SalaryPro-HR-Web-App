@@ -382,80 +382,116 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       const sheetName = modalOrder.orderNo.substring(0, 30).replace(/[\\/*?:[\]]/g, '') || 'Order';
       const worksheet = workbook.addWorksheet(sheetName);
 
-      // 1. TOP BANNER ROW (Row 1): Order Name (e.g. "JAIPUR")
+      // Gridlines visible
+      worksheet.views = [{ showGridLines: true }];
+
+      // 1. TOP EXECUTIVE BANNER ROW (Row 1): Company Header & Order Name
       worksheet.mergeCells('A1:K1');
       const titleCell = worksheet.getCell('A1');
-      titleCell.value = modalOrder.orderNo;
-      titleCell.font = { name: 'Aptos Display', size: 36, bold: true, color: { argb: 'FFFFFFFF' } };
-      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF79646' } };
+      titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • PP FABRIC ORDER DETAILS - ${modalOrder.orderNo.toUpperCase()}`;
+      titleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; // Dark Navy
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      worksheet.getRow(1).height = 48;
+      worksheet.getRow(1).height = 42;
 
       for (let col = 1; col <= 11; col++) {
-        worksheet.getRow(1).getCell(col).fill = titleCell.fill;
+        const c = worksheet.getRow(1).getCell(col);
+        c.fill = titleCell.fill;
+        c.border = {
+          bottom: { style: 'medium', color: { argb: 'FF0F172A' } }
+        };
       }
 
       // 2. METRICS CARDS (Rows 2 & 3)
-      const greenFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFC6EFCE' } };
-      const greenFont = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF006100' } };
+      const greenFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFDCFCE7' } };
+      const greenFont = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF15803D' } };
 
-      const yellowFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFFEB9C' } };
-      const yellowFont = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF9C5700' } };
+      const blueFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFDBEAFE' } };
+      const blueFont = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF1E40AF' } };
 
-      const lightFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFFFFCC' } };
-      const lightFont = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF1F497D' } };
+      const yellowFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFEF3C7' } };
+      const yellowFont = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFB45309' } };
+
+      const mintFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFD1FAE5' } };
+      const mintFont = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF047857' } };
 
       // Merge ranges for Labels (Row 2) and Values (Row 3)
       worksheet.mergeCells('A2:C2');
       worksheet.mergeCells('D2:F2');
-      worksheet.mergeCells('G2:K2');
+      worksheet.mergeCells('G2:I2');
+      worksheet.mergeCells('J2:K2');
 
       worksheet.mergeCells('A3:C3');
       worksheet.mergeCells('D3:F3');
-      worksheet.mergeCells('G3:K3');
+      worksheet.mergeCells('G3:I3');
+      worksheet.mergeCells('J3:K3');
+
+      worksheet.getRow(2).height = 18;
+      worksheet.getRow(3).height = 22;
 
       // Set Labels
-      worksheet.getCell('A2').value = 'Turnaround Target:';
-      worksheet.getCell('D2').value = 'Completed Fabric:';
-      worksheet.getCell('G2').value = 'Total Rolls Ready:';
+      worksheet.getCell('A2').value = 'Target Turnaround Quantity:';
+      worksheet.getCell('D2').value = 'Completed Fabric Weight:';
+      worksheet.getCell('G2').value = 'Total Recorded Rolls:';
+      worksheet.getCell('J2').value = 'Dispatched Rolls:';
 
       // Set Values
       worksheet.getCell('A3').value = `${modalStats.totalTarget.toFixed(2)} KG`;
       worksheet.getCell('D3').value = `${modalStats.totalCompleted.toFixed(2)} KG`;
-      worksheet.getCell('G3').value = `${modalStats.totalRolls} Rolls`;
+      worksheet.getCell('G3').value = `${modalStats.totalRecordedRolls} / ${modalStats.totalRolls} Rolls`;
+      worksheet.getCell('J3').value = `${modalStats.totalDispatchedRolls} Dispatched`;
 
-      // Apply styles across merged cells in Rows 2 & 3
+      // Thin border style for metrics cards
+      const thinCardBorder = {
+        top: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+        left: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+        bottom: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+        right: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+      };
+
       for (let col = 1; col <= 3; col++) {
-        worksheet.getRow(2).getCell(col).fill = greenFill;
-        worksheet.getRow(2).getCell(col).font = greenFont;
-        worksheet.getRow(2).getCell(col).alignment = { horizontal: 'left', vertical: 'middle' };
-
-        worksheet.getRow(3).getCell(col).fill = greenFill;
-        worksheet.getRow(3).getCell(col).font = greenFont;
-        worksheet.getRow(3).getCell(col).alignment = { horizontal: 'left', vertical: 'middle' };
+        [2, 3].forEach(r => {
+          const c = worksheet.getRow(r).getCell(col);
+          c.fill = greenFill;
+          c.font = greenFont;
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+          c.border = thinCardBorder;
+        });
       }
 
       for (let col = 4; col <= 6; col++) {
-        worksheet.getRow(2).getCell(col).fill = yellowFill;
-        worksheet.getRow(2).getCell(col).font = yellowFont;
-        worksheet.getRow(2).getCell(col).alignment = { horizontal: 'left', vertical: 'middle' };
-
-        worksheet.getRow(3).getCell(col).fill = yellowFill;
-        worksheet.getRow(3).getCell(col).font = yellowFont;
-        worksheet.getRow(3).getCell(col).alignment = { horizontal: 'left', vertical: 'middle' };
+        [2, 3].forEach(r => {
+          const c = worksheet.getRow(r).getCell(col);
+          c.fill = blueFill;
+          c.font = blueFont;
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+          c.border = thinCardBorder;
+        });
       }
 
-      for (let col = 7; col <= 11; col++) {
-        worksheet.getRow(2).getCell(col).fill = lightFill;
-        worksheet.getRow(2).getCell(col).font = lightFont;
-        worksheet.getRow(2).getCell(col).alignment = { horizontal: 'left', vertical: 'middle' };
-
-        worksheet.getRow(3).getCell(col).fill = lightFill;
-        worksheet.getRow(3).getCell(col).font = lightFont;
-        worksheet.getRow(3).getCell(col).alignment = { horizontal: 'left', vertical: 'middle' };
+      for (let col = 7; col <= 9; col++) {
+        [2, 3].forEach(r => {
+          const c = worksheet.getRow(r).getCell(col);
+          c.fill = yellowFill;
+          c.font = yellowFont;
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+          c.border = thinCardBorder;
+        });
       }
 
-      // 3. TABLE DATA GENERATION
+      for (let col = 10; col <= 11; col++) {
+        [2, 3].forEach(r => {
+          const c = worksheet.getRow(r).getCell(col);
+          c.fill = mintFill;
+          c.font = mintFont;
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+          c.border = thinCardBorder;
+        });
+      }
+
+      // 3. TABLE HEADER ROW (Row 5)
+      worksheet.getRow(4).height = 10; // spacer row
+
       let col8Header = 'No. of Rolls';
       let col9Header = 'Roll Numbers List';
 
@@ -467,7 +503,38 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         col9Header = 'Non-Dispatched Roll Numbers List';
       }
 
-      const tableRows = sortedModalRows.map(({ row }, idx) => {
+      const headers = [
+        '#',
+        'Weave Quality',
+        'Lamination Type',
+        'Size / Width',
+        'GSM',
+        'Denier',
+        'Fabric Weight (g)',
+        col8Header,
+        col9Header,
+        'Target (KG)',
+        'Completed (KG)'
+      ];
+
+      const headerRow = worksheet.getRow(5);
+      headerRow.height = 28;
+      headers.forEach((h, idx) => {
+        const cell = headerRow.getCell(idx + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FF334155' } },
+          bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
+          right: { style: 'thin', color: { argb: 'FF334155' } }
+        };
+      });
+
+      // 4. DATA ROWS
+      const tableData = sortedModalRows.map(({ row }, idx) => {
         const rolls = row.rollNumbers || [];
         const dispList = row.dispatchedRolls || [];
         const dispMap = row.rollDispatchStatus || {};
@@ -506,61 +573,102 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         ];
       });
 
-      worksheet.addTable({
-        name: 'OrderTable',
-        ref: 'A4',
-        headerRow: true,
-        totalsRow: false,
-        style: {
-          theme: 'TableStyleMedium9',
-          showRowStripes: true,
-        },
-        columns: [
-          { name: '#', filterButton: true },
-          { name: 'Weave Quality', filterButton: true },
-          { name: 'Lamination Type', filterButton: true },
-          { name: 'Size / Width', filterButton: true },
-          { name: 'GSM', filterButton: true },
-          { name: 'Denier', filterButton: true },
-          { name: 'Fabric Weight (g)', filterButton: true },
-          { name: col8Header, filterButton: true },
-          { name: col9Header, filterButton: true },
-          { name: 'Target (KG)', filterButton: true },
-          { name: 'Completed (KG)', filterButton: true },
-        ],
-        rows: tableRows,
+      let currentR = 6;
+      let totalRollsSum = 0;
+      let totalTargetSum = 0;
+      let totalCompSum = 0;
+
+      tableData.forEach((rowValues) => {
+        const r = worksheet.getRow(currentR);
+        r.height = 24;
+        const isEven = currentR % 2 === 0;
+        const rowBg = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
+
+        totalRollsSum += Number(rowValues[7]) || 0;
+        totalTargetSum += Number(rowValues[9]) || 0;
+        totalCompSum += Number(rowValues[10]) || 0;
+
+        rowValues.forEach((val, colIdx) => {
+          const cell = r.getCell(colIdx + 1);
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 10.5, color: { argb: 'FF1E293B' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+          };
+
+          // Alignments & Number Formatting
+          if (colIdx === 0) { // #
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF475569' } };
+          } else if (colIdx === 1) { // Weave Quality
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
+          } else if (colIdx === 2 || colIdx === 3 || colIdx === 4 || colIdx === 5) { // Lamination, Size, GSM, Denier
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else if (colIdx === 6) { // Fabric Weight
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.numFmt = '#,##0.00';
+          } else if (colIdx === 7) { // Roll Count
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFB45309' } };
+          } else if (colIdx === 8) { // Roll Numbers List
+            cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+          } else if (colIdx === 9 || colIdx === 10) { // Target (KG), Completed (KG)
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.font = { name: 'Calibri', size: 10.5, bold: true };
+            cell.numFmt = '#,##0.00';
+          }
+        });
+
+        currentR++;
       });
 
-      // 4. COLUMN WIDTHS
-      worksheet.columns = [
-        { width: 8 },  // #
-        { width: 26 }, // Weave Quality
-        { width: 19 }, // Lamination Type
-        { width: 16 }, // Size / Width
-        { width: 11 }, // GSM
-        { width: 11 }, // Denier
-        { width: 17 }, // Fabric Weight (g)
-        { width: 18 }, // No. of Rolls
-        { width: 35 }, // Roll Numbers List
-        { width: 16 }, // Target (KG)
-        { width: 19 }  // Completed (KG)
-      ];
-
-      // Data Row Alignments & Vertical Centering
-      const startDataRow = 5;
-      const endDataRow = startDataRow + tableRows.length - 1;
-      for (let r = startDataRow; r <= endDataRow; r++) {
-        const row = worksheet.getRow(r);
-        row.eachCell({ includeEmpty: true }, (cell, c) => {
-          cell.alignment = {
-            vertical: 'middle',
-            horizontal: 'left',
-            wrapText: c === 9
-          };
-        });
+      // 5. TOTALS ROW
+      const totalsRow = worksheet.getRow(currentR);
+      totalsRow.height = 26;
+      for (let c = 1; c <= 11; c++) {
+        const cell = totalsRow.getCell(c);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F172A' } };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF334155' } },
+          bottom: { style: 'double', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        };
       }
 
-      // 5. WRITE FILE & DOWNLOAD
+      totalsRow.getCell(1).value = 'TOTALS';
+      totalsRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+      totalsRow.getCell(8).value = totalRollsSum;
+      totalsRow.getCell(8).alignment = { horizontal: 'center', vertical: 'middle' };
+      totalsRow.getCell(10).value = totalTargetSum;
+      totalsRow.getCell(10).alignment = { horizontal: 'right', vertical: 'middle' };
+      totalsRow.getCell(10).numFmt = '#,##0.00';
+      totalsRow.getCell(11).value = totalCompSum;
+      totalsRow.getCell(11).alignment = { horizontal: 'right', vertical: 'middle' };
+      totalsRow.getCell(11).numFmt = '#,##0.00';
+
+      // 6. COLUMN WIDTHS
+      worksheet.columns = [
+        { width: 7 },   // #
+        { width: 26 },  // Weave Quality
+        { width: 18 },  // Lamination Type
+        { width: 15 },  // Size / Width
+        { width: 10 },  // GSM
+        { width: 10 },  // Denier
+        { width: 18 },  // Fabric Weight (g)
+        { width: 22 },  // Roll Count
+        { width: 42 },  // Roll Numbers List
+        { width: 18 },  // Target (KG)
+        { width: 18 }   // Completed (KG)
+      ];
+
+      // 7. WRITE FILE & DOWNLOAD
       const fileNameSuffix = selectedOption === 'both' ? 'Full_Report' : selectedOption === 'dispatched' ? 'Dispatched_Rolls' : 'Not_Dispatched_Rolls';
       const fileName = `PP_Fabric_Order_${modalOrder.orderNo}_${fileNameSuffix}.xlsx`;
 
@@ -1647,7 +1755,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     }
   };
 
-  const handleExportMasterRollLedgerToExcel = (selectedOption: 'dispatched' | 'not_dispatched' | 'both' = masterLedgerExportOption) => {
+  const handleExportMasterRollLedgerToExcel = async (selectedOption: 'dispatched' | 'not_dispatched' | 'both' = masterLedgerExportOption) => {
     try {
       let filteredData = masterRollLedgerData;
       let modeTitle = 'FULL REPORT';
@@ -1663,42 +1771,213 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         fileNameSuffix = 'Not_Dispatched_Rolls';
       }
 
-      const exportRows = filteredData.map((item, index) => ({
-        'S.No': index + 1,
-        'Roll Number': item.rollNo,
-        'Size': item.size,
-        'GSM': item.gsm,
-        'Denier': item.denier,
-        'Fabric Weight (g)': item.fabricWeight,
-        'Weave Quality': item.quality,
-        'Dispatch Status': item.dispatchStatus,
-        'Remarks': item.remarks || '-',
-        'Order No': item.orderNo,
-        'Order Date': item.orderDate,
-        'Sub-Order #': item.subOrderIdx + 1
-      }));
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Master Roll Ledger');
+      worksheet.views = [{ showGridLines: true }];
 
-      const worksheet = XLSX.utils.json_to_sheet(exportRows);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Master Roll Ledger');
+      // 1. TOP BANNER ROW (Row 1)
+      worksheet.mergeCells('A1:L1');
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • MASTER ROLL DIRECTORY LEDGER - ${modeTitle}`;
+      titleCell.font = { name: 'Calibri', size: 15, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(1).height = 40;
 
-      worksheet['!cols'] = [
-        { wch: 6 },
-        { wch: 18 },
-        { wch: 15 },
-        { wch: 10 },
-        { wch: 10 },
-        { wch: 18 },
-        { wch: 25 },
-        { wch: 18 },
-        { wch: 25 },
-        { wch: 12 },
-        { wch: 12 },
-        { wch: 12 },
+      for (let col = 1; col <= 12; col++) {
+        worksheet.getRow(1).getCell(col).fill = titleCell.fill;
+      }
+
+      // 2. METRICS CARDS (Rows 2 & 3)
+      const totalCount = masterRollLedgerData.length;
+      const dispCount = masterRollLedgerData.filter(i => i.dispatchStatus === 'Dispatched').length;
+      const notDispCount = totalCount - dispCount;
+
+      worksheet.mergeCells('A2:D2');
+      worksheet.mergeCells('E2:H2');
+      worksheet.mergeCells('I2:L2');
+
+      worksheet.mergeCells('A3:D3');
+      worksheet.mergeCells('E3:H3');
+      worksheet.mergeCells('I3:L3');
+
+      worksheet.getRow(2).height = 18;
+      worksheet.getRow(3).height = 22;
+
+      worksheet.getCell('A2').value = 'Total Registered Rolls:';
+      worksheet.getCell('E2').value = 'Dispatched Rolls:';
+      worksheet.getCell('I2').value = 'Non-Dispatched Rolls:';
+
+      worksheet.getCell('A3').value = `${totalCount} Rolls`;
+      worksheet.getCell('E3').value = `${dispCount} Rolls (${totalCount > 0 ? Math.round((dispCount / totalCount) * 100) : 0}%)`;
+      worksheet.getCell('I3').value = `${notDispCount} Rolls (${totalCount > 0 ? Math.round((notDispCount / totalCount) * 100) : 0}%)`;
+
+      const thinCardBorder = {
+        top: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+        left: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+        bottom: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+        right: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+      };
+
+      for (let col = 1; col <= 4; col++) {
+        [2, 3].forEach(r => {
+          const c = worksheet.getRow(r).getCell(col);
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF1E40AF' } };
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+          c.border = thinCardBorder;
+        });
+      }
+
+      for (let col = 5; col <= 8; col++) {
+        [2, 3].forEach(r => {
+          const c = worksheet.getRow(r).getCell(col);
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF15803D' } };
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+          c.border = thinCardBorder;
+        });
+      }
+
+      for (let col = 9; col <= 12; col++) {
+        [2, 3].forEach(r => {
+          const c = worksheet.getRow(r).getCell(col);
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEDD5' } };
+          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFC2410C' } };
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+          c.border = thinCardBorder;
+        });
+      }
+
+      // 3. TABLE HEADER ROW (Row 5)
+      worksheet.getRow(4).height = 10;
+      const headers = [
+        'S.No',
+        'Roll Number',
+        'Size',
+        'GSM',
+        'Denier',
+        'Fabric Weight (g)',
+        'Weave Quality',
+        'Dispatch Status',
+        'Remarks',
+        'Order No',
+        'Order Date',
+        'Sub-Order #'
+      ];
+
+      const headerRow = worksheet.getRow(5);
+      headerRow.height = 28;
+      headers.forEach((h, idx) => {
+        const cell = headerRow.getCell(idx + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FF334155' } },
+          bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
+          right: { style: 'thin', color: { argb: 'FF334155' } }
+        };
+      });
+
+      // 4. DATA ROWS
+      let currentR = 6;
+      filteredData.forEach((item, index) => {
+        const r = worksheet.getRow(currentR);
+        r.height = 22;
+        const isEven = currentR % 2 === 0;
+        const rowBg = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
+
+        const rowValues = [
+          index + 1,
+          item.rollNo,
+          item.size,
+          item.gsm,
+          item.denier,
+          item.fabricWeight,
+          item.quality,
+          item.dispatchStatus,
+          item.remarks || '-',
+          item.orderNo,
+          item.orderDate,
+          item.subOrderIdx + 1
+        ];
+
+        rowValues.forEach((val, colIdx) => {
+          const cell = r.getCell(colIdx + 1);
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 10.5, color: { argb: 'FF1E293B' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+          };
+
+          if (colIdx === 0) { // S.No
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF475569' } };
+          } else if (colIdx === 1) { // Roll Number
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFB45309' } };
+          } else if (colIdx === 2 || colIdx === 3 || colIdx === 4) { // Size, GSM, Denier
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else if (colIdx === 5) { // Fabric Weight
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.numFmt = '#,##0.00';
+          } else if (colIdx === 6) { // Quality
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+            cell.font = { name: 'Calibri', size: 10.5, bold: true };
+          } else if (colIdx === 7) { // Dispatch Status
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            if (val === 'Dispatched') {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF15803D' } };
+            } else {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEDD5' } };
+              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFC2410C' } };
+            }
+          } else if (colIdx === 8) { // Remarks
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          } else if (colIdx === 9 || colIdx === 10 || colIdx === 11) { // Order No, Date, Sub-order #
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          }
+        });
+
+        currentR++;
+      });
+
+      // 5. COLUMN WIDTHS
+      worksheet.columns = [
+        { width: 7 },   // S.No
+        { width: 16 },  // Roll Number
+        { width: 14 },  // Size
+        { width: 10 },  // GSM
+        { width: 10 },  // Denier
+        { width: 18 },  // Fabric Weight
+        { width: 24 },  // Weave Quality
+        { width: 18 },  // Dispatch Status
+        { width: 24 },  // Remarks
+        { width: 16 },  // Order No
+        { width: 14 },  // Order Date
+        { width: 14 }   // Sub-Order #
       ];
 
       const dateStr = new Date().toISOString().split('T')[0];
-      XLSX.writeFile(workbook, `PP_Fabric_Master_Roll_Ledger_${fileNameSuffix}_${dateStr}.xlsx`);
+      const fileName = `PP_Fabric_Master_Roll_Ledger_${fileNameSuffix}_${dateStr}.xlsx`;
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      window.URL.revokeObjectURL(url);
+
       triggerAlert('success', `Master Roll Ledger (${modeTitle}) exported to Excel successfully.`);
       setIsMasterLedgerExportModalOpen(false);
     } catch (err) {
