@@ -32,6 +32,7 @@ import {
   Package
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { TapePlantProductionReport, RawMaterialItem, InventoryLog } from '../types';
 
 interface TapePlantProductionProps {
@@ -572,7 +573,7 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
   };
 
   // --- EXPORT METRICS TO EXCEL ---
-  const handleExportToExcel = () => {
+  const handleExportToExcel = async () => {
     if (!exportStartDate || !exportEndDate) {
       triggerAlert('warn', 'Please specify both From and To dates for Excel export.');
       return;
@@ -672,87 +673,222 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       const sumOthers = Object.values(othersMap).reduce((a, b) => a + b, 0);
       const totalAllMaterials = ppTotal + ccTotal + ldTotal + tptTotal + sumOthers;
 
-      // Format rows for XLSX
-      const rows = exportData.map(r => {
+      const hasRemarks = exportData.some(r => !!r.remarks && r.remarks.trim().length > 0);
+      const numCols = hasRemarks ? 5 : 4;
+      const endColLetter = hasRemarks ? 'E' : 'D';
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Tape Plant Summary');
+
+      // 1. TOP BANNER (Rows 1 & 2 merged)
+      const startDateFormatted = formatDateLabel(exportStartDate);
+      const endDateFormatted = formatDateLabel(exportEndDate);
+      const bannerText = `FFPL [TAPE PLANT PRODUCTION REPORT SUMMARY] - Date Range: ${startDateFormatted} to ${endDateFormatted}`;
+
+      worksheet.mergeCells(`A1:${endColLetter}2`);
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = bannerText;
+      titleCell.font = { name: 'Aptos Display', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF79646' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+
+      worksheet.getRow(1).height = 24;
+      worksheet.getRow(2).height = 24;
+
+      for (let r = 1; r <= 2; r++) {
+        for (let c = 1; c <= numCols; c++) {
+          worksheet.getRow(r).getCell(c).fill = titleCell.fill;
+        }
+      }
+
+      // 2. SECTION HEADERS (Row 3)
+      worksheet.mergeCells('A3:B3');
+      worksheet.mergeCells(`C3:${endColLetter}3`);
+
+      const leftHeaderCell = worksheet.getCell('A3');
+      leftHeaderCell.value = '--- REPORT SUMMARY METRICS ---';
+      leftHeaderCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+      leftHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB8CCE4' } };
+      leftHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getCell('B3').fill = leftHeaderCell.fill;
+
+      const rightHeaderCell = worksheet.getCell('C3');
+      rightHeaderCell.value = '--- RAW MATERIALS CONSUMPTION SUMMARY ---';
+      rightHeaderCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+      rightHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+      rightHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      for (let c = 3; c <= numCols; c++) {
+        worksheet.getRow(3).getCell(c).fill = rightHeaderCell.fill;
+      }
+
+      worksheet.getRow(3).height = 20;
+
+      // 3. METRICS CARDS (Rows 4 - 8+)
+      const leftFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFD9E1F2' } };
+      const rightFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFE2EFDA' } };
+
+      const leftMetrics: [string, string][] = [
+        ['Total Active Shifts', `${activeShifts} shifts`],
+        ['Total Stopped Shifts', `${stoppedShifts} shifts`],
+        ['Total Shifts Recorded', `${exportData.length} shifts`],
+        ['Total Wastage Recorded', `${sumWastage.toFixed(1)} KG`]
+      ];
+
+      const rightMetrics: [string, string][] = [
+        ['Total Used PP (Polypropylene)', `${ppTotal.toFixed(2)} KG`],
+        ['Total Used CC (Calcium / Filler)', `${ccTotal.toFixed(2)} KG`],
+        ['Total Used LD (LDPE Granules)', `${ldTotal.toFixed(2)} KG`],
+        ['Total Used TPT (Tape Line Additive)', `${tptTotal.toFixed(2)} KG`],
+        ...Object.entries(othersMap).map(([mName, mQty]): [string, string] => [`Total Used ${mName}`, `${mQty.toFixed(2)} KG`]),
+        ['Sum of All Materials Combined', `${totalAllMaterials.toFixed(2)} KG`]
+      ];
+
+      const maxMetricRows = Math.max(leftMetrics.length, rightMetrics.length);
+
+      for (let i = 0; i < maxMetricRows; i++) {
+        const rowIdx = 4 + i;
+        const row = worksheet.getRow(rowIdx);
+        row.height = 18;
+
+        // Left side (A & B)
+        if (i < leftMetrics.length) {
+          const [lbl, val] = leftMetrics[i];
+          const cellA = row.getCell(1);
+          const cellB = row.getCell(2);
+          cellA.value = lbl;
+          cellA.fill = leftFill;
+          cellA.font = { name: 'Calibri', size: 12, bold: false };
+          cellA.alignment = { vertical: 'middle', horizontal: 'left' };
+
+          cellB.value = val;
+          cellB.fill = leftFill;
+          cellB.font = { name: 'Calibri', size: 12, bold: true };
+          cellB.alignment = { vertical: 'middle', horizontal: 'left' };
+        } else {
+          row.getCell(1).fill = leftFill;
+          row.getCell(2).fill = leftFill;
+        }
+
+        // Right side (C & D / E)
+        if (i < rightMetrics.length) {
+          const [lbl, val] = rightMetrics[i];
+          const cellC = row.getCell(3);
+          const cellD = row.getCell(4);
+          cellC.value = lbl;
+          cellC.fill = rightFill;
+          cellC.font = { name: 'Calibri', size: 12, bold: false };
+          cellC.alignment = { vertical: 'middle', horizontal: 'left' };
+
+          cellD.value = val;
+          cellD.fill = rightFill;
+          cellD.font = { name: 'Calibri', size: 12, bold: true };
+          cellD.alignment = { vertical: 'middle', horizontal: 'left' };
+
+          if (hasRemarks) {
+            row.getCell(5).fill = rightFill;
+          }
+        } else {
+          row.getCell(3).fill = rightFill;
+          row.getCell(4).fill = rightFill;
+          if (hasRemarks) row.getCell(5).fill = rightFill;
+        }
+      }
+
+      const tableHeaderRowIdx = 4 + maxMetricRows + 1; // row 10
+      worksheet.getRow(tableHeaderRowIdx - 1).height = 12; // spacer row height
+
+      // 4. DATA TABLE (Row 10+)
+      const tableRows = exportData.map(r => {
         const parts = r.date.split('-');
         const displayDate = `${parts[2]}/${parts[1]}/${parts[0]}`; // DD/MM/YYYY
         const shiftLabel = r.shift ? r.shift.toUpperCase() : 'DAY';
 
         if (r.isStopped) {
-          return [displayDate, shiftLabel, 'Plant Stopped / Not Running', '0 KG', r.remarks || ''];
+          const rowVals = [displayDate, shiftLabel, 'Plant Stopped / Not Running', '0 KG'];
+          if (hasRemarks) rowVals.push(r.remarks || '');
+          return rowVals;
         }
 
-        return [
+        const rowVals = [
           displayDate,
           shiftLabel,
           r.usage || '',
-          `${r.wastage || 0} KG`,
-          r.remarks || ''
+          `${r.wastage || 0} KG`
         ];
+        if (hasRemarks) rowVals.push(r.remarks || '');
+        return rowVals;
       });
 
-      // Assemble spreadsheet contents
-      const sheetHeader = [
-        ['FORTUNE FLEXIPACK PVT LIMITED'],
-        ['TAPE PLANT PRODUCTION REPORT SUMMARY'],
-        [`Date Range: ${formatDateLabel(exportStartDate)} to ${formatDateLabel(exportEndDate)}`],
-        [],
-        ['--- REPORT SUMMARY METRICS ---', ''],
-        ['Total Active Shifts', `${activeShifts} shifts`],
-        ['Total Stopped Shifts', `${stoppedShifts} shifts`],
-        ['Total Shifts Recorded', `${exportData.length} shifts`],
-        ['Total Wastage Recorded', `${sumWastage.toFixed(1)} KG`],
-        [],
-        ['--- RAW MATERIALS CONSUMPTION SUMMARY ---', ''],
-        ['Total Used PP (Polypropylene)', `${ppTotal.toFixed(2)} KG`],
-        ['Total Used CC (Calcium / Filler)', `${ccTotal.toFixed(2)} KG`],
-        ['Total Used LD (LDPE Granules)', `${ldTotal.toFixed(2)} KG`],
-        ['Total Used TPT (Tape Line Additive)', `${tptTotal.toFixed(2)} KG`],
-        ...Object.entries(othersMap).map(([mName, mQty]) => [`Total Used ${mName}`, `${mQty.toFixed(2)} KG`]),
-        ['Sum of All Materials Combined', `${totalAllMaterials.toFixed(2)} KG`],
-        [],
-        ['--- DETAILED TAPE PLANT SHIFT LEDGER ---', ''],
-        ['Date', 'Shift', 'Raw Material Usage', 'Wastage', 'Remarks']
+      const tableColumns = [
+        { name: 'Date', filterButton: true },
+        { name: 'Shift', filterButton: true },
+        { name: 'Raw Material Usage', filterButton: true },
+        { name: 'Wastage', filterButton: true }
       ];
-
-      const sheetTotals = [
-        [],
-        ['TOTALS', `${exportData.length} shifts`, `Raw Materials Sum: ${totalAllMaterials.toFixed(2)} KG`, `${sumWastage.toFixed(1)} KG`, '']
-      ];
-
-      const finalRows = [
-        ...sheetHeader,
-        ...rows,
-        ...sheetTotals
-      ];
-
-      const worksheet = XLSX.utils.aoa_to_sheet(finalRows);
-
-      // Force left alignment on all cells
-      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-      for (let R = range.s.r; R <= range.e.r; ++R) {
-        for (let C = range.s.c; C <= range.e.c; ++C) {
-          const cell_address = XLSX.utils.encode_cell({ r: R, c: C });
-          if (!worksheet[cell_address]) continue;
-          if (!worksheet[cell_address].s) worksheet[cell_address].s = {};
-          worksheet[cell_address].s.alignment = { horizontal: 'left', vertical: 'center' };
-        }
+      if (hasRemarks) {
+        tableColumns.push({ name: 'Remarks', filterButton: true });
       }
 
-      // Styling column widths
-      worksheet['!cols'] = [
-        { wch: 35 }, // Date / Metric Name
-        { wch: 22 }, // Shift / Metric Value
-        { wch: 55 }, // Raw Material Usage
-        { wch: 20 }, // Wastage
-        { wch: 35 }  // Remarks
-      ];
+      worksheet.addTable({
+        name: 'Table2',
+        ref: `A${tableHeaderRowIdx}`,
+        headerRow: true,
+        totalsRow: false,
+        style: {
+          theme: 'TableStyleMedium9',
+          showRowStripes: true,
+        },
+        columns: tableColumns,
+        rows: tableRows
+      });
 
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Tape Plant Summary');
+      const cols = [
+        { width: 38 },
+        { width: 22 },
+        { width: 55 },
+        { width: 20 }
+      ];
+      if (hasRemarks) cols.push({ width: 35 });
+      worksheet.columns = cols;
+
+      // Align table rows
+      const tableDataStartRow = tableHeaderRowIdx + 1;
+      const tableDataEndRow = tableDataStartRow + tableRows.length - 1;
+      for (let r = tableDataStartRow; r <= tableDataEndRow; r++) {
+        const row = worksheet.getRow(r);
+        row.height = 18;
+        row.eachCell({ includeEmpty: true }, (cell) => {
+          cell.alignment = { vertical: 'middle', horizontal: 'left' };
+          cell.font = { name: 'Calibri', size: 12 };
+        });
+      }
+
+      // 5. TOTALS ROW AT BOTTOM
+      const totalsRowIdx = tableDataEndRow + 1;
+      const totRow = worksheet.getRow(totalsRowIdx);
+      totRow.height = 20;
+      totRow.getCell(1).value = 'TOTALS';
+      totRow.getCell(2).value = `${exportData.length} shifts`;
+      totRow.getCell(3).value = `Raw Materials Sum: ${totalAllMaterials.toFixed(2)} KG`;
+      totRow.getCell(4).value = `${sumWastage.toFixed(1)} KG`;
+      if (hasRemarks) totRow.getCell(5).value = '';
+
+      for (let c = 1; c <= numCols; c++) {
+        const cell = totRow.getCell(c);
+        cell.font = { name: 'Calibri', size: 12, bold: true };
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+      }
 
       const fileName = `Tape_Plant_Production_Report_${exportStartDate}_to_${exportEndDate}.xlsx`;
-      XLSX.writeFile(workbook, fileName);
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      window.URL.revokeObjectURL(url);
 
       triggerAlert('success', `Spreadsheet downloaded as ${fileName}`);
       setShowExportModal(false);

@@ -132,6 +132,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [isBulkRollMode, setIsBulkRollMode] = useState<boolean>(false);
   const [rollSearchQuery, setRollSearchQuery] = useState<string>('');
   const [rollModalDispatchFilter, setRollModalDispatchFilter] = useState<'all' | 'not_dispatched' | 'dispatched'>('all');
+  const [selectedRollsForBatch, setSelectedRollsForBatch] = useState<string[]>([]);
+  const [selectedLedgerRollIds, setSelectedLedgerRollIds] = useState<string[]>([]);
 
   // Suborder draft roll numbers (for new sub-order being created)
   const [subRollNumbers, setSubRollNumbers] = useState<string[]>([]);
@@ -715,6 +717,62 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     }
   };
 
+  const handleBulkToggleRollDispatchStatusInModal = async (
+    targetRolls: string[],
+    newStatus: 'Dispatched' | 'Not Dispatched'
+  ) => {
+    if (!rollModalContext || targetRolls.length === 0) return;
+    if (viewOnly) {
+      triggerAlert('warn', 'Session is read-only.');
+      return;
+    }
+
+    const targetOrder = orders.find(o => o.id === rollModalContext.orderId);
+    if (!targetOrder || !targetOrder.rows) {
+      triggerAlert('warn', 'Order or rows not found.');
+      return;
+    }
+
+    const updatedRows = [...(targetOrder.rows || [])];
+    if (!updatedRows[rollModalContext.subOrderIdx]) {
+      triggerAlert('warn', 'Sub-order row not found.');
+      return;
+    }
+
+    const targetRow = { ...updatedRows[rollModalContext.subOrderIdx] };
+    const currentDispatchedSet = new Set(targetRow.dispatchedRolls || []);
+    const currentDispatchStatusMap = { ...(targetRow.rollDispatchStatus || {}) };
+
+    targetRolls.forEach(rollNo => {
+      const trimmed = rollNo.trim();
+      if (!trimmed) return;
+      if (newStatus === 'Dispatched') {
+        currentDispatchedSet.add(trimmed);
+        currentDispatchStatusMap[trimmed] = 'Dispatched';
+      } else {
+        currentDispatchedSet.delete(trimmed);
+        currentDispatchStatusMap[trimmed] = 'Not Dispatched';
+      }
+    });
+
+    targetRow.dispatchedRolls = Array.from(currentDispatchedSet);
+    targetRow.rollDispatchStatus = currentDispatchStatusMap;
+    updatedRows[rollModalContext.subOrderIdx] = targetRow;
+
+    try {
+      const orderRef = doc(db, 'loomOrders', targetOrder.id);
+      await setDoc(orderRef, {
+        ...targetOrder,
+        rows: updatedRows
+      });
+      triggerAlert('success', `Successfully set ${targetRolls.length} roll(s) to ${newStatus}.`);
+      setSelectedRollsForBatch([]);
+    } catch (err) {
+      console.error("Failed to bulk update roll dispatch status", err);
+      triggerAlert('warn', 'Failed to update roll dispatch statuses.');
+    }
+  };
+
   const syncRollNumbersStateAndFirestore = async (updatedRolls: string[]) => {
     if (!rollModalContext) return;
 
@@ -1027,7 +1085,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     }
 
     const updatedRows = [...targetOrder.rows];
+    const existingRow = targetOrder.rows[index] || {};
     const editedRow: LoomOrderRow = {
+      ...existingRow,
       size: inlineSize.trim(),
       quality: inlineQuality.trim(),
       gsm: gsmVal,
@@ -1503,6 +1563,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     }
 
     targetRow.rollNumbers = sortRollNumbersAscending(rollsArray);
+    if (targetRow.dispatchedRolls) {
+      targetRow.dispatchedRolls = targetRow.dispatchedRolls.filter(r => r !== item.rollNo);
+    }
+    if (targetRow.rollDispatchStatus) {
+      const updatedMap = { ...targetRow.rollDispatchStatus };
+      delete updatedMap[item.rollNo];
+      targetRow.rollDispatchStatus = updatedMap;
+    }
     updatedRows[item.subOrderIdx] = targetRow;
 
     try {
@@ -1641,7 +1709,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
   // Aggregate stats for the currently opened Modal Order
   const modalStats = useMemo(() => {
-    if (!modalOrder) return { totalTarget: 0, totalCompleted: 0, completionRate: 0, pendingCount: 0, prodCount: 0, compCount: 0, totalRollsReady: 0, totalRolls: 0 };
+    if (!modalOrder) return { totalTarget: 0, totalCompleted: 0, completionRate: 0, pendingCount: 0, prodCount: 0, compCount: 0, totalRollsReady: 0, totalRolls: 0, totalDispatchedRolls: 0, totalRecordedRolls: 0 };
     
     let totalTarget = 0;
     let totalCompleted = 0;
@@ -1650,6 +1718,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     let compCount = 0;
     let totalRollsReady = 0;
     let totalRolls = 0;
+    let totalDispatchedRolls = 0;
+    let totalRecordedRolls = 0;
 
     modalOrder.rows.forEach(r => {
       totalTarget += r.totalQuantity;
@@ -1657,6 +1727,18 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       
       const rolls = r.noOfRolls || 0;
       totalRolls += rolls;
+
+      const rollList = r.rollNumbers || [];
+      totalRecordedRolls += rollList.length;
+      const dispSet = new Set(r.dispatchedRolls || []);
+      const dispMap = r.rollDispatchStatus || {};
+
+      rollList.forEach(rollNo => {
+        const trimmed = rollNo.trim();
+        if (dispMap[trimmed] === 'Dispatched' || dispSet.has(trimmed)) {
+          totalDispatchedRolls++;
+        }
+      });
 
       const itemStatus = r.status || 'Pending';
       if (itemStatus === 'Pending') pendingCount++;
@@ -1677,7 +1759,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       prodCount,
       compCount,
       totalRollsReady,
-      totalRolls
+      totalRolls,
+      totalDispatchedRolls,
+      totalRecordedRolls
     };
   }, [modalOrder]);
 
@@ -2397,7 +2481,25 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   </div>
                 </div>
 
-                {/* Metric 4: Item Status Breakdown */}
+                {/* Metric 4: Dispatched Rolls */}
+                <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl flex items-start justify-between shadow-3xs col-span-1">
+                  <div>
+                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none">
+                      Dispatched Rolls
+                    </span>
+                    <span className="text-lg font-black text-emerald-700 font-mono block mt-1.5">
+                      {modalStats.totalDispatchedRolls} Dispatched
+                    </span>
+                    <span className="text-[10px] text-zinc-500 font-semibold block mt-0.5">
+                      {modalStats.totalRecordedRolls > 0 ? `${modalStats.totalDispatchedRolls}/${modalStats.totalRecordedRolls} rolls dispatched` : 'No rolls recorded'}
+                    </span>
+                  </div>
+                  <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center text-white border border-emerald-700 shadow-3xs">
+                    <Truck size={16} />
+                  </div>
+                </div>
+
+                {/* Metric 5: Item Status Breakdown */}
                 <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl col-span-1 sm:col-span-2 shadow-3xs">
                   <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none mb-2.5">
                     Sub-order Status Breakdown
@@ -2701,27 +2803,43 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 </td>
 
                                 <td className="py-3 px-3 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      handleOpenRollModal(
-                                        { orderId: modalOrder.id, subOrderIdx: originalIndex },
-                                        `${row.quality} - ${row.size} (${row.gsm} GSM)`,
-                                        row.noOfRolls || 0,
-                                        row.rollNumbers || []
-                                      );
-                                    }}
-                                    className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-250 font-mono text-xs font-black transition-all shadow-3xs cursor-pointer group hover:scale-[1.02]"
-                                    title="Click to View & Record Roll Numbers"
-                                  >
-                                    <Layers size={13} className="text-amber-600 group-hover:scale-110 transition-transform" />
-                                    <span>{row.noOfRolls !== undefined ? `${row.noOfRolls} rolls` : '0 rolls'}</span>
-                                    {(row.rollNumbers?.length || 0) > 0 && (
-                                      <span className="bg-amber-600 text-white text-[9px] px-1.5 py-0.2 rounded-full font-sans font-black">
-                                        {row.rollNumbers?.length}
-                                      </span>
-                                    )}
-                                  </button>
+                                  {(() => {
+                                    const rowDispatchedCount = (row.rollNumbers || []).filter(r => {
+                                      const trimmed = r.trim();
+                                      const dispMap = row.rollDispatchStatus || {};
+                                      const dispList = row.dispatchedRolls || [];
+                                      return dispMap[trimmed] === 'Dispatched' || dispList.includes(trimmed);
+                                    }).length;
+
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleOpenRollModal(
+                                            { orderId: modalOrder.id, subOrderIdx: originalIndex },
+                                            `${row.quality} - ${row.size} (${row.gsm} GSM)`,
+                                            row.noOfRolls || 0,
+                                            row.rollNumbers || []
+                                          );
+                                        }}
+                                        className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-250 font-mono text-xs font-black transition-all shadow-3xs cursor-pointer group hover:scale-[1.02]"
+                                        title="Click to View & Record Roll Numbers"
+                                      >
+                                        <Layers size={13} className="text-amber-600 group-hover:scale-110 transition-transform" />
+                                        <span>{row.noOfRolls !== undefined ? `${row.noOfRolls} rolls` : '0 rolls'}</span>
+                                        {(row.rollNumbers?.length || 0) > 0 && (
+                                          <span className="bg-amber-600 text-white text-[9px] px-1.5 py-0.2 rounded-full font-sans font-black">
+                                            {row.rollNumbers?.length} rec
+                                          </span>
+                                        )}
+                                        {rowDispatchedCount > 0 && (
+                                          <span className="bg-emerald-600 text-white text-[9px] px-1.5 py-0.2 rounded-full font-sans font-black flex items-center gap-0.5">
+                                            <Truck size={9} /> {rowDispatchedCount} disp
+                                          </span>
+                                        )}
+                                      </button>
+                                    );
+                                  })()}
                                 </td>
 
                                 <td className="py-3 px-3 text-right font-mono text-xs font-black text-zinc-900">
@@ -3552,6 +3670,30 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               <span>Dispatched ({dispatchedList.length})</span>
                             </button>
                           </div>
+
+                          {/* Quick Batch Dispatch Buttons */}
+                          {notDispatchedList.length > 0 && !viewOnly && (
+                            <button
+                              type="button"
+                              onClick={() => handleBulkToggleRollDispatchStatusInModal(rollNumbersList, 'Dispatched')}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-3xs cursor-pointer transition-all active:scale-95"
+                              title="Mark all rolls in this sub-order as Dispatched"
+                            >
+                              <Truck size={12} />
+                              <span>Mark All Dispatched ({notDispatchedList.length})</span>
+                            </button>
+                          )}
+                          {dispatchedList.length > 0 && notDispatchedList.length === 0 && !viewOnly && (
+                            <button
+                              type="button"
+                              onClick={() => handleBulkToggleRollDispatchStatusInModal(rollNumbersList, 'Not Dispatched')}
+                              className="px-2.5 py-1 rounded-lg bg-zinc-200 hover:bg-zinc-300 text-zinc-800 font-bold text-[10px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                              title="Reset all rolls to Not Dispatched"
+                            >
+                              <PackageX size={12} />
+                              <span>Reset All to Not Dispatched</span>
+                            </button>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-2">
