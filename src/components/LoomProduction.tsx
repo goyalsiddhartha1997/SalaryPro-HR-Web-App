@@ -356,7 +356,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
       // 1. EXECUTIVE HEADER BANNER (Row 1)
       worksheet.mergeCells('A1:G1');
       const titleCell = worksheet.getCell('A1');
-      titleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • LOOM PRODUCTION REPORT SUMMARY';
+      titleCell.value = 'FORTUNE FLEXIPACK PVT LTD • LOOM PROD REPORT DETAILS';
       titleCell.font = { name: 'Calibri', size: 15, bold: true, color: { argb: 'FFFFFFFF' } };
       titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; // Dark Slate Navy
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -446,7 +446,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
 
       // 4. DATA TABLE HEADER (Row 7)
       worksheet.getRow(6).height = 12; // Spacer
-      const headers = ['Date', 'Shift', 'Active Looms', 'Production (Meters)', 'Average per Loom', 'Wastage (KG)', 'Remarks / Reason'];
+      const headers = ['Date', 'Shift', 'Active Looms', 'Production (Meters)', 'Average per Loom', 'Pipe Cutting Waste (KG)', 'Remarks / Reason'];
       const headerRow = worksheet.getRow(7);
       headerRow.height = 28;
       headers.forEach((h, idx) => {
@@ -955,7 +955,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
                   <th className="py-4.5 px-6 border-r border-slate-800 text-center">Active Looms</th>
                   <th className="py-4.5 px-6 border-r border-slate-800 text-center">Total Production (M)</th>
                   <th className="py-4.5 px-6 border-r border-slate-800 text-center">Average Production (M)</th>
-                  <th className="py-4.5 px-6 border-r border-slate-800 text-center">Wastage (KG)</th>
+                  <th className="py-4.5 px-6 border-r border-slate-800 text-center">Pipe Cutting Waste (KG)</th>
                   <th className="py-4.5 px-6 border-r border-slate-800 text-center">Remarks</th>
                   {!viewOnly && <th className="py-4.5 px-6 text-center">Actions</th>}
                 </tr>

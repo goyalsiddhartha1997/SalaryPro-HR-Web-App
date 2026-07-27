@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import ExcelJS from 'exceljs';
 import { db } from '../firebase';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, getDocs, writeBatch } from 'firebase/firestore';
 import { 
@@ -1216,6 +1217,852 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
     }
   };
 
+  // --- EXPORT COMPREHENSIVE RAW MATERIAL REPORT TO EXCEL ---
+  const handleExportToExcel = async () => {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      
+      const periodLabel = metricsFilterMode === 'single'
+        ? formatDateToDMY(metricsSingleDate)
+        : `${formatDateToDMY(metricsRangeStart)} TO ${formatDateToDMY(metricsRangeEnd)}`;
+      const shiftLabel = metricsAuditShift;
+
+      // Common styling constants
+      const headerFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FF1E293B' } }; // Dark slate navy
+      const subHeaderFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FF334155' } };
+      const tableHeaderFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FF0F172A' } };
+      
+      const thinBorder = {
+        top: { style: 'thin' as const, color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin' as const, color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin' as const, color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin' as const, color: { argb: 'FFE2E8F0' } }
+      };
+
+      const cardBorder = {
+        top: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+        left: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+        bottom: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
+        right: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } }
+      };
+
+      // -------------------------------------------------------------
+      // SHEET 1: EXECUTIVE OVERVIEW & METRICS
+      // -------------------------------------------------------------
+      const sheetOverview = workbook.addWorksheet('Executive Overview');
+      sheetOverview.views = [{ showGridLines: true }];
+
+      // Title Banner
+      sheetOverview.mergeCells('A1:F1');
+      const titleCell = sheetOverview.getCell('A1');
+      titleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • RAW MATERIAL INVENTORY & AUDIT REPORT';
+      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = headerFill;
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      sheetOverview.getRow(1).height = 40;
+
+      // Sub-banner
+      sheetOverview.mergeCells('A2:F2');
+      const dateCell = sheetOverview.getCell('A2');
+      dateCell.value = `REPORT PERIOD: ${periodLabel}  |  SHIFT: ${shiftLabel}  |  GENERATED: ${new Date().toLocaleString()}`;
+      dateCell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFF59E0B' } }; // Amber
+      dateCell.fill = subHeaderFill;
+      dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      sheetOverview.getRow(2).height = 22;
+
+      sheetOverview.getRow(3).height = 10; // Spacer
+
+      // KPI CARDS GRID (Rows 4 & 5)
+      sheetOverview.getCell('A4').value = 'Registered Materials';
+      sheetOverview.getCell('A5').value = `${metrics.totalVarieties} Varieties`;
+
+      sheetOverview.getCell('B4').value = 'Total Bulk Stock In-Store';
+      sheetOverview.getCell('B5').value = `${(metrics.totalStockKgs / 1000).toFixed(2)} Tons (${metrics.totalStockKgs.toLocaleString()} kg)`;
+
+      sheetOverview.getCell('C4').value = 'Received in Period';
+      sheetOverview.getCell('C5').value = `+${metrics.todayReceivedKgs.toLocaleString()} kg`;
+
+      sheetOverview.getCell('D4').value = 'Usage in Period';
+      sheetOverview.getCell('D5').value = `-${metrics.todayUsageKgs.toLocaleString()} kg`;
+
+      sheetOverview.getCell('E4').value = 'Low Stock Warnings (<2t)';
+      sheetOverview.getCell('E5').value = `${metrics.lowStockCount} Items`;
+
+      const netChange = metrics.todayReceivedKgs - metrics.todayUsageKgs;
+      sheetOverview.getCell('F4').value = 'Net Stock Change';
+      sheetOverview.getCell('F5').value = `${netChange >= 0 ? '+' : ''}${netChange.toLocaleString()} kg`;
+
+      sheetOverview.getRow(4).height = 18;
+      sheetOverview.getRow(5).height = 24;
+
+      const cardCols = ['A', 'B', 'C', 'D', 'E', 'F'];
+      const cardFills = ['FFDBEAFE', 'FFEEF2FF', 'FFDCFCE7', 'FFFFE4E6', 'FFFEF3C7', 'FFE0F2FE'];
+      const cardTextColors = ['FF1E40AF', 'FF3730A3', 'FF15803D', 'FFBE123C', 'FFB45309', 'FF0369A1'];
+
+      cardCols.forEach((col, idx) => {
+        const cellLbl = sheetOverview.getCell(`${col}4`);
+        const cellVal = sheetOverview.getCell(`${col}5`);
+        const bg = cardFills[idx];
+        const fg = cardTextColors[idx];
+
+        cellLbl.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+        cellLbl.font = { name: 'Calibri', size: 9.5, bold: true, color: { argb: 'FF64748B' } };
+        cellLbl.alignment = { horizontal: 'center', vertical: 'middle' };
+        cellLbl.border = cardBorder;
+
+        cellVal.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+        cellVal.font = { name: 'Calibri', size: 12, bold: true, color: { argb: fg } };
+        cellVal.alignment = { horizontal: 'center', vertical: 'middle' };
+        cellVal.border = cardBorder;
+      });
+
+      sheetOverview.getRow(6).height = 14; // Spacer
+
+      // CATEGORY BREAKDOWN TABLE (Row 7+)
+      sheetOverview.mergeCells('A7:F7');
+      const catHeader = sheetOverview.getCell('A7');
+      catHeader.value = 'CATEGORY-WISE RAW MATERIAL STOCK BREAKDOWN';
+      catHeader.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+      catHeader.fill = headerFill;
+      catHeader.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+      sheetOverview.getRow(7).height = 24;
+
+      const catTableHeaders = ['Category', 'Varieties Count', 'Total Stock (kg)', 'Total Stock (Tons)', 'Low Stock Items', 'Share of Total Stock (%)'];
+      const catHeaderRow = sheetOverview.getRow(8);
+      catHeaderRow.height = 24;
+      catTableHeaders.forEach((h, i) => {
+        const c = catHeaderRow.getCell(i + 1);
+        c.value = h;
+        c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+        c.fill = subHeaderFill;
+        c.alignment = { horizontal: 'left', vertical: 'middle' };
+        c.border = cardBorder;
+      });
+
+      let rIdx = 9;
+      categories.forEach(cat => {
+        const catItems = items.filter(i => i.category === cat && i.id !== 'seed_marker');
+        const catStock = catItems.reduce((sum, i) => sum + i.currentStock, 0);
+        const catLow = catItems.filter(i => i.currentStock < 2000).length;
+        const share = metrics.totalStockKgs > 0 ? (catStock / metrics.totalStockKgs) * 100 : 0;
+
+        const row = sheetOverview.getRow(rIdx);
+        row.height = 20;
+
+        row.getCell(1).value = cat;
+        row.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+        row.getCell(1).font = { name: 'Calibri', size: 10, bold: true };
+
+        row.getCell(2).value = catItems.length;
+        row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+
+        row.getCell(3).value = catStock;
+        row.getCell(3).numFmt = '#,##0.00';
+        row.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+
+        row.getCell(4).value = Number((catStock / 1000).toFixed(2));
+        row.getCell(4).numFmt = '#,##0.00';
+        row.getCell(4).alignment = { horizontal: 'left', vertical: 'middle' };
+
+        row.getCell(5).value = catLow;
+        row.getCell(5).alignment = { horizontal: 'left', vertical: 'middle' };
+        if (catLow > 0) {
+          row.getCell(5).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFC2410C' } };
+        }
+
+        row.getCell(6).value = Number(share.toFixed(2));
+        row.getCell(6).numFmt = '0.00"%";';
+        row.getCell(6).alignment = { horizontal: 'left', vertical: 'middle' };
+
+        for (let c = 1; c <= 6; c++) {
+          row.getCell(c).border = thinBorder;
+          row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rIdx % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' } };
+        }
+        rIdx++;
+      });
+
+      // Category Totals Row
+      const catTotalsRow = sheetOverview.getRow(rIdx);
+      catTotalsRow.height = 24;
+      catTotalsRow.getCell(1).value = 'TOTALS';
+      catTotalsRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+      catTotalsRow.getCell(2).value = items.filter(i => i.id !== 'seed_marker').length;
+      catTotalsRow.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+      catTotalsRow.getCell(3).value = metrics.totalStockKgs;
+      catTotalsRow.getCell(3).numFmt = '#,##0.00';
+      catTotalsRow.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+      catTotalsRow.getCell(4).value = Number((metrics.totalStockKgs / 1000).toFixed(2));
+      catTotalsRow.getCell(4).numFmt = '#,##0.00';
+      catTotalsRow.getCell(4).alignment = { horizontal: 'left', vertical: 'middle' };
+      catTotalsRow.getCell(5).value = metrics.lowStockCount;
+      catTotalsRow.getCell(5).alignment = { horizontal: 'left', vertical: 'middle' };
+      catTotalsRow.getCell(6).value = 100;
+      catTotalsRow.getCell(6).numFmt = '0.00"%";';
+      catTotalsRow.getCell(6).alignment = { horizontal: 'left', vertical: 'middle' };
+
+      for (let c = 1; c <= 6; c++) {
+        const cell = catTotalsRow.getCell(c);
+        cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF334155' } },
+          bottom: { style: 'double', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        };
+      }
+
+      sheetOverview.columns = [
+        { width: 32 }, // Category
+        { width: 18 }, // Varieties Count
+        { width: 22 }, // Total Stock (kg)
+        { width: 22 }, // Total Stock (Tons)
+        { width: 20 }, // Low Stock Items
+        { width: 24 }  // Share (%)
+      ];
+
+      // -------------------------------------------------------------
+      // SHEET 2: CURRENT RAW MATERIAL STOCK SHEET
+      // -------------------------------------------------------------
+      const sheetStock = workbook.addWorksheet('Current Stock Sheet');
+      sheetStock.views = [{ showGridLines: true }];
+
+      sheetStock.mergeCells('A1:J1');
+      const titleStock = sheetStock.getCell('A1');
+      titleStock.value = 'FORTUNE FLEXIPACK PVT LIMITED • RAW MATERIAL IN-STORE STOCK SHEET';
+      titleStock.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleStock.fill = headerFill;
+      titleStock.alignment = { horizontal: 'center', vertical: 'middle' };
+      sheetStock.getRow(1).height = 40;
+
+      sheetStock.mergeCells('A2:J2');
+      const subStock = sheetStock.getCell('A2');
+      subStock.value = `INVENTORY SNAPSHOT AS OF ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}  |  TOTAL ITEMS: ${items.filter(i => i.id !== 'seed_marker').length}`;
+      subStock.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFF59E0B' } };
+      subStock.fill = subHeaderFill;
+      subStock.alignment = { horizontal: 'center', vertical: 'middle' };
+      sheetStock.getRow(2).height = 22;
+
+      sheetStock.getRow(3).height = 10;
+
+      const stockHeaders = ['S.No.', 'Material ID', 'Material Name', 'Category', 'In-Store Stock (kg)', 'In-Store Stock (Tons)', 'No. of Bags', 'Kg per Bag', 'Stock Level Status', 'Remarks / Specifications'];
+      const stockHeaderRow = sheetStock.getRow(4);
+      stockHeaderRow.height = 26;
+      stockHeaders.forEach((h, i) => {
+        const cell = stockHeaderRow.getCell(i + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = tableHeaderFill;
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF0F172A' } },
+          bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FF334155' } },
+          right: { style: 'thin', color: { argb: 'FF334155' } }
+        };
+      });
+
+      let stockRowIdx = 5;
+      let sumStockKg = 0;
+      let sumBags = 0;
+
+      items
+        .filter(i => i.id !== 'seed_marker')
+        .forEach((item, index) => {
+          const row = sheetStock.getRow(stockRowIdx);
+          row.height = 22;
+          const isLow = item.currentStock < 2000;
+          sumStockKg += item.currentStock;
+          if (item.noOfBags) sumBags += item.noOfBags;
+
+          const isEven = stockRowIdx % 2 === 0;
+          const bg = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
+
+          row.getCell(1).value = index + 1;
+          row.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+
+          row.getCell(2).value = item.id;
+          row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+          row.getCell(2).font = { name: 'Calibri', size: 10, color: { argb: 'FF64748B' } };
+
+          row.getCell(3).value = item.name;
+          row.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+          row.getCell(3).font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
+
+          row.getCell(4).value = item.category;
+          row.getCell(4).alignment = { horizontal: 'left', vertical: 'middle' };
+
+          row.getCell(5).value = item.currentStock;
+          row.getCell(5).numFmt = '#,##0.00';
+          row.getCell(5).alignment = { horizontal: 'left', vertical: 'middle' };
+          row.getCell(5).font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: isLow ? 'FFC2410C' : 'FF0F172A' } };
+
+          row.getCell(6).value = Number((item.currentStock / 1000).toFixed(3));
+          row.getCell(6).numFmt = '#,##0.000';
+          row.getCell(6).alignment = { horizontal: 'left', vertical: 'middle' };
+
+          row.getCell(7).value = item.noOfBags || '—';
+          if (item.noOfBags) row.getCell(7).numFmt = '#,##0';
+          row.getCell(7).alignment = { horizontal: 'left', vertical: 'middle' };
+
+          row.getCell(8).value = item.kgPerBag || '—';
+          if (item.kgPerBag) row.getCell(8).numFmt = '#,##0.00';
+          row.getCell(8).alignment = { horizontal: 'left', vertical: 'middle' };
+
+          row.getCell(9).value = isLow ? 'LOW STOCK (<2t)' : 'NORMAL';
+          row.getCell(9).alignment = { horizontal: 'left', vertical: 'middle' };
+          if (isLow) {
+            row.getCell(9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF2F2' } };
+            row.getCell(9).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFB91C1C' } };
+          } else {
+            row.getCell(9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+            row.getCell(9).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF15803D' } };
+          }
+
+          row.getCell(10).value = item.remarks || '—';
+          row.getCell(10).alignment = { horizontal: 'left', vertical: 'middle' };
+
+          for (let c = 1; c <= 10; c++) {
+            if (c !== 9) {
+              row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+            }
+            row.getCell(c).border = thinBorder;
+          }
+
+          stockRowIdx++;
+        });
+
+      // Stock Totals Row
+      const stockTotalsRow = sheetStock.getRow(stockRowIdx);
+      stockTotalsRow.height = 26;
+      for (let c = 1; c <= 10; c++) {
+        const cell = stockTotalsRow.getCell(c);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F172A' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF334155' } },
+          bottom: { style: 'double', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        };
+      }
+      stockTotalsRow.getCell(1).value = 'TOTALS';
+      stockTotalsRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+      stockTotalsRow.getCell(3).value = `${items.filter(i => i.id !== 'seed_marker').length} Materials`;
+      stockTotalsRow.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+      stockTotalsRow.getCell(5).value = sumStockKg;
+      stockTotalsRow.getCell(5).numFmt = '#,##0.00';
+      stockTotalsRow.getCell(5).alignment = { horizontal: 'left', vertical: 'middle' };
+      stockTotalsRow.getCell(6).value = Number((sumStockKg / 1000).toFixed(3));
+      stockTotalsRow.getCell(6).numFmt = '#,##0.000';
+      stockTotalsRow.getCell(6).alignment = { horizontal: 'left', vertical: 'middle' };
+      stockTotalsRow.getCell(7).value = sumBags;
+      stockTotalsRow.getCell(7).numFmt = '#,##0';
+      stockTotalsRow.getCell(7).alignment = { horizontal: 'left', vertical: 'middle' };
+
+      sheetStock.columns = [
+        { width: 8 },  // S.No.
+        { width: 16 }, // Material ID
+        { width: 32 }, // Material Name
+        { width: 18 }, // Category
+        { width: 22 }, // In-Store Stock (kg)
+        { width: 22 }, // In-Store Stock (Tons)
+        { width: 15 }, // No. of Bags
+        { width: 14 }, // Kg per Bag
+        { width: 20 }, // Stock Level Status
+        { width: 35 }  // Remarks
+      ];
+
+      // -------------------------------------------------------------
+      // SHEET 3: ADD HISTORY LEDGER (INWARD REPLENISHMENTS)
+      // -------------------------------------------------------------
+      const sheetAdd = workbook.addWorksheet('Add History Ledger');
+      sheetAdd.views = [{ showGridLines: true }];
+
+      sheetAdd.mergeCells('A1:E1');
+      const titleAdd = sheetAdd.getCell('A1');
+      titleAdd.value = 'FORTUNE FLEXIPACK PVT LIMITED • RAW MATERIAL ADDITIONS & INWARD REPLENISHMENT LEDGER';
+      titleAdd.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleAdd.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF065F46' } }; // Dark Emerald
+      titleAdd.alignment = { horizontal: 'center', vertical: 'middle' };
+      sheetAdd.getRow(1).height = 40;
+
+      sheetAdd.mergeCells('A2:E2');
+      const subAdd = sheetAdd.getCell('A2');
+      subAdd.value = `FILTER PERIOD: ${periodLabel}  |  SHIFT: ${shiftLabel}`;
+      subAdd.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFD1FAE5' } };
+      subAdd.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF047857' } };
+      subAdd.alignment = { horizontal: 'center', vertical: 'middle' };
+      sheetAdd.getRow(2).height = 22;
+
+      sheetAdd.getRow(3).height = 10;
+
+      const addHeaders = ['Transaction Date', 'Material Name', 'Qty Added (+kg)', 'Shift', 'Remarks / Inward Details'];
+      const addHeaderRow = sheetAdd.getRow(4);
+      addHeaderRow.height = 26;
+      addHeaders.forEach((h, i) => {
+        const cell = addHeaderRow.getCell(i + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF064E3B' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF064E3B' } },
+          bottom: { style: 'medium', color: { argb: 'FF064E3B' } },
+          left: { style: 'thin', color: { argb: 'FF047857' } },
+          right: { style: 'thin', color: { argb: 'FF047857' } }
+        };
+      });
+
+      // Filter addition logs based on metrics date range and shift
+      const exportAddLogs = allLogs.filter(entry => {
+        if (entry.log.type !== 'add_stock') return false;
+        if (metricsAuditShift !== 'All' && entry.log.shift && entry.log.shift !== metricsAuditShift) return false;
+        if (metricsFilterMode === 'single') {
+          return entry.log.date === metricsSingleDate;
+        } else {
+          return entry.log.date >= metricsRangeStart && entry.log.date <= metricsRangeEnd;
+        }
+      });
+
+      const logsToDisplayInAdd = (exportAddLogs.length > 0 ? exportAddLogs : allLogs.filter(e => e.log.type === 'add_stock'))
+        .slice()
+        .sort((a, b) => b.log.date.localeCompare(a.log.date));
+
+      let addRowIdx = 5;
+      let totalAddQty = 0;
+      const addDateGroups: { dateLabel: string; startRow: number; endRow: number }[] = [];
+
+      logsToDisplayInAdd.forEach((entry) => {
+        const row = sheetAdd.getRow(addRowIdx);
+        row.height = 22;
+        totalAddQty += entry.log.quantity;
+        const formattedDate = formatDateToDMY(entry.log.date);
+
+        if (addDateGroups.length > 0 && addDateGroups[addDateGroups.length - 1].dateLabel === formattedDate) {
+          addDateGroups[addDateGroups.length - 1].endRow = addRowIdx;
+        } else {
+          addDateGroups.push({ dateLabel: formattedDate, startRow: addRowIdx, endRow: addRowIdx });
+        }
+
+        const groupIdx = addDateGroups.length - 1;
+        const isDark = groupIdx % 2 === 0;
+        // Alternating date-group colors: Dark emerald (white text) vs Light mint (dark text)
+        const bg = isDark ? 'FF064E3B' : 'FFF0FDF4';
+        const textClr = isDark ? 'FFFFFFFF' : 'FF0F172A';
+        const qtyClr = isDark ? 'FF86EFAC' : 'FF15803D';
+        const subClr = isDark ? 'FFECFDF5' : 'FF334155';
+
+        row.getCell(1).value = formattedDate;
+        row.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+        row.getCell(1).font = { name: 'Calibri', size: 10, bold: true, color: { argb: textClr } };
+
+        row.getCell(2).value = entry.materialName;
+        row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+        row.getCell(2).font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: textClr } };
+
+        row.getCell(3).value = entry.log.quantity;
+        row.getCell(3).numFmt = '#,##0.00';
+        row.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+        row.getCell(3).font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: qtyClr } };
+
+        row.getCell(4).value = entry.log.shift || 'Day Shift';
+        row.getCell(4).alignment = { horizontal: 'left', vertical: 'middle' };
+        row.getCell(4).font = { name: 'Calibri', size: 10, color: { argb: subClr } };
+
+        row.getCell(5).value = entry.log.remarks || '—';
+        row.getCell(5).alignment = { horizontal: 'left', vertical: 'middle' };
+        row.getCell(5).font = { name: 'Calibri', size: 10, color: { argb: subClr } };
+
+        for (let c = 1; c <= 5; c++) {
+          row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+          row.getCell(c).border = thinBorder;
+        }
+
+        addRowIdx++;
+      });
+
+      // Merge Date cells for identical dates
+      addDateGroups.forEach((group, groupIdx) => {
+        if (group.endRow > group.startRow) {
+          sheetAdd.mergeCells(`A${group.startRow}:A${group.endRow}`);
+        }
+        const isDark = groupIdx % 2 === 0;
+        const fontColor = isDark ? 'FFFFFFFF' : 'FF0F172A';
+        const cell = sheetAdd.getCell(`A${group.startRow}`);
+        cell.value = group.dateLabel;
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: fontColor } };
+      });
+
+      // Add Totals Row
+      const addTotalsRow = sheetAdd.getRow(addRowIdx);
+      addTotalsRow.height = 26;
+      for (let c = 1; c <= 5; c++) {
+        const cell = addTotalsRow.getCell(c);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF065F46' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF047857' } },
+          bottom: { style: 'double', color: { argb: 'FF065F46' } },
+          left: { style: 'thin', color: { argb: 'FFA7F3D0' } },
+          right: { style: 'thin', color: { argb: 'FFA7F3D0' } }
+        };
+      }
+      addTotalsRow.getCell(1).value = 'TOTALS';
+      addTotalsRow.getCell(2).value = `${logsToDisplayInAdd.length} Inward Records`;
+      addTotalsRow.getCell(3).value = totalAddQty;
+      addTotalsRow.getCell(3).numFmt = '#,##0.00';
+      addTotalsRow.getCell(4).value = '—';
+      addTotalsRow.getCell(5).value = '—';
+
+      sheetAdd.columns = [
+        { width: 18 }, // Date
+        { width: 32 }, // Material Name
+        { width: 20 }, // Qty Added
+        { width: 16 }, // Shift
+        { width: 35 }  // Remarks
+      ];
+
+      // -------------------------------------------------------------
+      // SHEET 4: USE HISTORY LEDGER (PLANT CONSUMPTION / DEDUCTIONS)
+      // -------------------------------------------------------------
+      const sheetUse = workbook.addWorksheet('Use History Ledger');
+      sheetUse.views = [{ showGridLines: true }];
+
+      sheetUse.mergeCells('A1:E1');
+      const titleUse = sheetUse.getCell('A1');
+      titleUse.value = 'FORTUNE FLEXIPACK PVT LIMITED • RAW MATERIAL PLANT CONSUMPTION & DISBURSEMENT LEDGER';
+      titleUse.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleUse.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF9F1239' } }; // Dark Rose
+      titleUse.alignment = { horizontal: 'center', vertical: 'middle' };
+      sheetUse.getRow(1).height = 40;
+
+      sheetUse.mergeCells('A2:E2');
+      const subUse = sheetUse.getCell('A2');
+      subUse.value = `FILTER PERIOD: ${periodLabel}  |  SHIFT: ${shiftLabel}`;
+      subUse.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFECDD3' } };
+      subUse.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFBE123C' } };
+      subUse.alignment = { horizontal: 'center', vertical: 'middle' };
+      sheetUse.getRow(2).height = 22;
+
+      sheetUse.getRow(3).height = 10;
+
+      const useHeaders = ['Transaction Date', 'Material Name', 'Qty Used (-kg)', 'Process Wastage (kg)', 'Shift'];
+      const useHeaderRow = sheetUse.getRow(4);
+      useHeaderRow.height = 26;
+      useHeaders.forEach((h, i) => {
+        const cell = useHeaderRow.getCell(i + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF881337' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF881337' } },
+          bottom: { style: 'medium', color: { argb: 'FF881337' } },
+          left: { style: 'thin', color: { argb: 'FFBE123C' } },
+          right: { style: 'thin', color: { argb: 'FFBE123C' } }
+        };
+      });
+
+      const exportUseLogs = allLogs.filter(entry => {
+        if (entry.log.type !== 'use_stock') return false;
+        if (metricsAuditShift !== 'All' && entry.log.shift && entry.log.shift !== metricsAuditShift) return false;
+        if (metricsFilterMode === 'single') {
+          return entry.log.date === metricsSingleDate;
+        } else {
+          return entry.log.date >= metricsRangeStart && entry.log.date <= metricsRangeEnd;
+        }
+      });
+
+      const logsToDisplayInUse = (exportUseLogs.length > 0 ? exportUseLogs : allLogs.filter(e => e.log.type === 'use_stock'))
+        .slice()
+        .sort((a, b) => b.log.date.localeCompare(a.log.date));
+
+      let useRowIdx = 5;
+      let totalUseQty = 0;
+      let totalWastageQty = 0;
+      const useDateGroups: { dateLabel: string; startRow: number; endRow: number }[] = [];
+
+      logsToDisplayInUse.forEach((entry) => {
+        const row = sheetUse.getRow(useRowIdx);
+        row.height = 22;
+        totalUseQty += entry.log.quantity;
+        if (entry.log.wastage) totalWastageQty += entry.log.wastage;
+
+        const formattedDate = formatDateToDMY(entry.log.date);
+
+        if (useDateGroups.length > 0 && useDateGroups[useDateGroups.length - 1].dateLabel === formattedDate) {
+          useDateGroups[useDateGroups.length - 1].endRow = useRowIdx;
+        } else {
+          useDateGroups.push({ dateLabel: formattedDate, startRow: useRowIdx, endRow: useRowIdx });
+        }
+
+        const groupIdx = useDateGroups.length - 1;
+        const isDark = groupIdx % 2 === 0;
+        // Alternating date-group colors: Dark burgundy (white text) vs Light rose (dark text)
+        const bg = isDark ? 'FF881337' : 'FFFFF1F2';
+        const textClr = isDark ? 'FFFFFFFF' : 'FF0F172A';
+        const qtyClr = isDark ? 'FFFECDD3' : 'FFE11D48';
+        const wastageClr = isDark ? 'FFFED7AA' : 'FFC2410C';
+        const subClr = isDark ? 'FFFEE2E2' : 'FF334155';
+
+        row.getCell(1).value = formattedDate;
+        row.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+        row.getCell(1).font = { name: 'Calibri', size: 10, bold: true, color: { argb: textClr } };
+
+        row.getCell(2).value = entry.materialName;
+        row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+        row.getCell(2).font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: textClr } };
+
+        row.getCell(3).value = entry.log.quantity;
+        row.getCell(3).numFmt = '#,##0.00';
+        row.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+        row.getCell(3).font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: qtyClr } };
+
+        row.getCell(4).value = entry.log.wastage || 0;
+        row.getCell(4).numFmt = '#,##0.00';
+        row.getCell(4).alignment = { horizontal: 'left', vertical: 'middle' };
+        row.getCell(4).font = { name: 'Calibri', size: 10, bold: true, color: { argb: wastageClr } };
+
+        row.getCell(5).value = entry.log.shift || 'Day Shift';
+        row.getCell(5).alignment = { horizontal: 'left', vertical: 'middle' };
+        row.getCell(5).font = { name: 'Calibri', size: 10, color: { argb: subClr } };
+
+        for (let c = 1; c <= 5; c++) {
+          row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+          row.getCell(c).border = thinBorder;
+        }
+
+        useRowIdx++;
+      });
+
+      // Merge Date cells for identical dates
+      useDateGroups.forEach((group, groupIdx) => {
+        if (group.endRow > group.startRow) {
+          sheetUse.mergeCells(`A${group.startRow}:A${group.endRow}`);
+        }
+        const isDark = groupIdx % 2 === 0;
+        const fontColor = isDark ? 'FFFFFFFF' : 'FF0F172A';
+        const cell = sheetUse.getCell(`A${group.startRow}`);
+        cell.value = group.dateLabel;
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: fontColor } };
+      });
+
+      // Use Totals Row
+      const useTotalsRow = sheetUse.getRow(useRowIdx);
+      useTotalsRow.height = 26;
+      for (let c = 1; c <= 5; c++) {
+        const cell = useTotalsRow.getCell(c);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFECDD3' } };
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF881337' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FFBE123C' } },
+          bottom: { style: 'double', color: { argb: 'FF881337' } },
+          left: { style: 'thin', color: { argb: 'FFFCA5A5' } },
+          right: { style: 'thin', color: { argb: 'FFFCA5A5' } }
+        };
+      }
+      useTotalsRow.getCell(1).value = 'TOTALS';
+      useTotalsRow.getCell(2).value = `${logsToDisplayInUse.length} Usage Records`;
+      useTotalsRow.getCell(3).value = totalUseQty;
+      useTotalsRow.getCell(3).numFmt = '#,##0.00';
+      useTotalsRow.getCell(4).value = totalWastageQty;
+      useTotalsRow.getCell(4).numFmt = '#,##0.00';
+      useTotalsRow.getCell(5).value = '—';
+
+      sheetUse.columns = [
+        { width: 18 }, // Date
+        { width: 32 }, // Material Name
+        { width: 22 }, // Qty Used
+        { width: 22 }, // Process Wastage
+        { width: 16 }  // Shift
+      ];
+
+      // -------------------------------------------------------------
+      // SHEET 5: DAILY MATERIAL SHIFT AUDIT LEDGER
+      // -------------------------------------------------------------
+      const sheetAudit = workbook.addWorksheet('Daily Shift Audit Ledger');
+      sheetAudit.views = [{ showGridLines: true }];
+
+      sheetAudit.mergeCells('A1:J1');
+      const titleAudit = sheetAudit.getCell('A1');
+      titleAudit.value = 'FORTUNE FLEXIPACK PVT LIMITED • DAILY SHIFT-WISE MATERIAL AUDIT LEDGER';
+      titleAudit.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleAudit.fill = headerFill;
+      titleAudit.alignment = { horizontal: 'center', vertical: 'middle' };
+      sheetAudit.getRow(1).height = 40;
+
+      sheetAudit.mergeCells('A2:J2');
+      const subAudit = sheetAudit.getCell('A2');
+      subAudit.value = `AUDIT PERIOD: ${ledgerFilterMode === 'single' ? formatDateToDMY(ledgerSingleDate) : `${formatDateToDMY(ledgerRangeStart)} TO ${formatDateToDMY(ledgerRangeEnd)}`}  |  SHIFT: ${ledgerAuditShift}`;
+      subAudit.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFF59E0B' } };
+      subAudit.fill = subHeaderFill;
+      subAudit.alignment = { horizontal: 'center', vertical: 'middle' };
+      sheetAudit.getRow(2).height = 22;
+
+      sheetAudit.getRow(3).height = 10;
+
+      const auditHeaders = ['Material Name', 'Category', 'Shift', 'Opening Stock (kg)', 'Stock Received (+kg)', 'Consumption (-kg)', 'Process Wastage (kg)', 'Adjustments (kg)', 'Closing Stock (kg)', 'Shift Remarks'];
+      const auditHeaderRow = sheetAudit.getRow(4);
+      auditHeaderRow.height = 26;
+      auditHeaders.forEach((h, i) => {
+        const cell = auditHeaderRow.getCell(i + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = tableHeaderFill;
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF0F172A' } },
+          bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FF334155' } },
+          right: { style: 'thin', color: { argb: 'FF334155' } }
+        };
+      });
+
+      let auditRowIdx = 5;
+      let totOpening = 0;
+      let totReceived = 0;
+      let totConsumed = 0;
+      let totWastage = 0;
+      let totAdjustments = 0;
+      let totClosing = 0;
+
+      dailyAuditLedgerData.forEach((row) => {
+        const r = sheetAudit.getRow(auditRowIdx);
+        r.height = 22;
+
+        totOpening += row.openingStock;
+        totReceived += row.additions;
+        totConsumed += row.consumption;
+        totWastage += row.wastage;
+        totAdjustments += row.correction;
+        totClosing += row.finalStock;
+
+        const isEven = auditRowIdx % 2 === 0;
+        const bg = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
+
+        r.getCell(1).value = row.name;
+        r.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+        r.getCell(1).font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
+
+        r.getCell(2).value = row.category;
+        r.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+
+        r.getCell(3).value = row.shift;
+        r.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+        r.getCell(3).font = { name: 'Calibri', size: 10, bold: true };
+
+        r.getCell(4).value = row.openingStock;
+        r.getCell(4).numFmt = '#,##0.00';
+        r.getCell(4).alignment = { horizontal: 'left', vertical: 'middle' };
+
+        r.getCell(5).value = row.additions;
+        r.getCell(5).numFmt = '#,##0.00';
+        r.getCell(5).alignment = { horizontal: 'left', vertical: 'middle' };
+        if (row.additions > 0) r.getCell(5).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF15803D' } };
+
+        r.getCell(6).value = row.consumption;
+        r.getCell(6).numFmt = '#,##0.00';
+        r.getCell(6).alignment = { horizontal: 'left', vertical: 'middle' };
+        if (row.consumption > 0) r.getCell(6).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFE11D48' } };
+
+        r.getCell(7).value = row.wastage;
+        r.getCell(7).numFmt = '#,##0.00';
+        r.getCell(7).alignment = { horizontal: 'left', vertical: 'middle' };
+
+        r.getCell(8).value = row.correction;
+        r.getCell(8).numFmt = '#,##0.00';
+        r.getCell(8).alignment = { horizontal: 'left', vertical: 'middle' };
+
+        r.getCell(9).value = row.finalStock;
+        r.getCell(9).numFmt = '#,##0.00';
+        r.getCell(9).alignment = { horizontal: 'left', vertical: 'middle' };
+        r.getCell(9).font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
+
+        r.getCell(10).value = row.remarks || '—';
+        r.getCell(10).alignment = { horizontal: 'left', vertical: 'middle' };
+
+        for (let c = 1; c <= 10; c++) {
+          r.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+          r.getCell(c).border = thinBorder;
+        }
+
+        auditRowIdx++;
+      });
+
+      // Audit Totals Row
+      const auditTotalsRow = sheetAudit.getRow(auditRowIdx);
+      auditTotalsRow.height = 26;
+      for (let c = 1; c <= 10; c++) {
+        const cell = auditTotalsRow.getCell(c);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F172A' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF334155' } },
+          bottom: { style: 'double', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        };
+      }
+      auditTotalsRow.getCell(1).value = 'GRAND TOTALS';
+      auditTotalsRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+      auditTotalsRow.getCell(4).value = totOpening;
+      auditTotalsRow.getCell(4).numFmt = '#,##0.00';
+      auditTotalsRow.getCell(4).alignment = { horizontal: 'left', vertical: 'middle' };
+      auditTotalsRow.getCell(5).value = totReceived;
+      auditTotalsRow.getCell(5).numFmt = '#,##0.00';
+      auditTotalsRow.getCell(5).alignment = { horizontal: 'left', vertical: 'middle' };
+      auditTotalsRow.getCell(6).value = totConsumed;
+      auditTotalsRow.getCell(6).numFmt = '#,##0.00';
+      auditTotalsRow.getCell(6).alignment = { horizontal: 'left', vertical: 'middle' };
+      auditTotalsRow.getCell(7).value = totWastage;
+      auditTotalsRow.getCell(7).numFmt = '#,##0.00';
+      auditTotalsRow.getCell(7).alignment = { horizontal: 'left', vertical: 'middle' };
+      auditTotalsRow.getCell(8).value = totAdjustments;
+      auditTotalsRow.getCell(8).numFmt = '#,##0.00';
+      auditTotalsRow.getCell(8).alignment = { horizontal: 'left', vertical: 'middle' };
+      auditTotalsRow.getCell(9).value = totClosing;
+      auditTotalsRow.getCell(9).numFmt = '#,##0.00';
+      auditTotalsRow.getCell(9).alignment = { horizontal: 'left', vertical: 'middle' };
+
+      sheetAudit.columns = [
+        { width: 32 }, // Material Name
+        { width: 18 }, // Category
+        { width: 14 }, // Shift
+        { width: 20 }, // Opening Stock
+        { width: 20 }, // Received
+        { width: 20 }, // Consumption
+        { width: 20 }, // Wastage
+        { width: 18 }, // Adjustments
+        { width: 20 }, // Closing Stock
+        { width: 35 }  // Remarks
+      ];
+
+      // DOWNLOAD FILE
+      const dateStr = metricsFilterMode === 'single' ? metricsSingleDate : `${metricsRangeStart}_to_${metricsRangeEnd}`;
+      const fileName = `Raw_Materials_Inventory_Report_${dateStr}.xlsx`;
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+      triggerAlert('success', `Excel Report generated and downloaded successfully: ${fileName}`);
+    } catch (err) {
+      console.error('Failed to export raw material report to Excel', err);
+      triggerAlert('warn', 'Failed to generate Excel report. Check console log.');
+    }
+  };
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto w-full select-none" id="raw-materials-inventory-page">
       {/* 1. TOP HERO TITLE BANNER */}
@@ -1256,27 +2103,31 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         </div>
 
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto justify-end">
-          {/* Mode Selector Toggle Button Group */}
-          <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+          {/* Mode Selector Toggle: Stacked Single Date / Date Range */}
+          <div className="flex flex-col bg-slate-100 p-1 rounded-xl w-full sm:w-auto gap-1 border border-slate-200/60 shrink-0">
             <button
+              type="button"
               onClick={() => setMetricsFilterMode('single')}
-              className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
                 metricsFilterMode === 'single'
-                  ? 'bg-white text-slate-900 shadow-2xs'
+                  ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/80'
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              Single Date
+              <span className={`w-2 h-2 rounded-full ${metricsFilterMode === 'single' ? 'bg-amber-500' : 'bg-slate-300'}`} />
+              <span>Single Date</span>
             </button>
             <button
+              type="button"
               onClick={() => setMetricsFilterMode('range')}
-              className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
                 metricsFilterMode === 'range'
-                  ? 'bg-white text-slate-900 shadow-2xs'
+                  ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/80'
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              Date Range
+              <span className={`w-2 h-2 rounded-full ${metricsFilterMode === 'range' ? 'bg-amber-500' : 'bg-slate-300'}`} />
+              <span>Date Range</span>
             </button>
           </div>
 
@@ -1521,6 +2372,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
               <option value="Normal">Normal Stock (&ge;2t)</option>
             </select>
           </div>
+
+          <button
+            onClick={handleExportToExcel}
+            className="h-10 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black rounded-xl transition-all shadow-sm flex items-center gap-2 cursor-pointer uppercase tracking-wider shrink-0"
+            title="Export raw material stock & ledger report to Excel"
+          >
+            <FileSpreadsheet size={16} strokeWidth={2.5} />
+            <span>Export Excel Report</span>
+          </button>
 
           {/* Reset Filters */}
           {(categoryFilter !== 'All' || stockStatusFilter !== 'All' || searchQuery !== '') && (
@@ -2200,31 +3060,42 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
             </div>
           </div>
 
-          {/* TWO SEPARATE BUTTONS UNDER THE MATERIAL AUDIT LEDGER */}
-          <div className="flex flex-wrap items-center gap-3.5 py-1">
+          {/* BUTTONS UNDER THE MATERIAL AUDIT LEDGER */}
+          <div className="flex flex-wrap items-center justify-between gap-3.5 py-1">
+            <div className="flex flex-wrap items-center gap-3.5">
+              <button
+                onClick={() => {
+                  setAddHistoryMonth('All');
+                  setAddHistoryYear(String(new Date().getFullYear()));
+                  setShowAddHistoryModal(true);
+                }}
+                className="h-10 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl transition-all cursor-pointer flex items-center gap-2 shadow-sm shadow-emerald-200/50 uppercase tracking-wider"
+                title="View History of Stock Additions"
+              >
+                <History size={14} strokeWidth={2.5} />
+                <span>Add History Ledger</span>
+              </button>
+              <button
+                onClick={() => {
+                  setUseHistoryMonth('All');
+                  setUseHistoryYear(String(new Date().getFullYear()));
+                  setShowUseHistoryModal(true);
+                }}
+                className="h-10 px-5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl transition-all cursor-pointer flex items-center gap-2 shadow-sm shadow-rose-200/50 uppercase tracking-wider"
+                title="View History of Stock Usage / Deductions"
+              >
+                <History size={14} strokeWidth={2.5} />
+                <span>Use History Ledger</span>
+              </button>
+            </div>
+
             <button
-              onClick={() => {
-                setAddHistoryMonth('All');
-                setAddHistoryYear(String(new Date().getFullYear()));
-                setShowAddHistoryModal(true);
-              }}
-              className="h-10 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl transition-all cursor-pointer flex items-center gap-2 shadow-sm shadow-emerald-200/50 uppercase tracking-wider"
-              title="View History of Stock Additions"
+              onClick={handleExportToExcel}
+              className="h-10 px-5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-black text-xs rounded-xl transition-all cursor-pointer flex items-center gap-2 shadow-sm uppercase tracking-wider"
+              title="Export complete raw material inventory, stock & ledgers report to Excel"
             >
-              <History size={14} strokeWidth={2.5} />
-              <span>Add History Ledger</span>
-            </button>
-            <button
-              onClick={() => {
-                setUseHistoryMonth('All');
-                setUseHistoryYear(String(new Date().getFullYear()));
-                setShowUseHistoryModal(true);
-              }}
-              className="h-10 px-5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl transition-all cursor-pointer flex items-center gap-2 shadow-sm shadow-rose-200/50 uppercase tracking-wider"
-              title="View History of Stock Usage / Deductions"
-            >
-              <History size={14} strokeWidth={2.5} />
-              <span>Use History Ledger</span>
+              <FileSpreadsheet size={15} strokeWidth={2.5} className="text-emerald-400" />
+              <span>Export Full Excel Ledger</span>
             </button>
           </div>
 
@@ -2935,6 +3806,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                     <option value="2024">2024</option>
                   </select>
                 </div>
+
+                <button
+                  onClick={handleExportToExcel}
+                  className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black rounded-xl transition-all cursor-pointer flex items-center gap-1.5 uppercase tracking-wider"
+                  title="Export complete report to Excel"
+                >
+                  <FileSpreadsheet size={13} />
+                  <span>Export Excel</span>
+                </button>
               </div>
             </div>
 
@@ -3164,6 +4044,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
                     <option value="2024">2024</option>
                   </select>
                 </div>
+
+                <button
+                  onClick={handleExportToExcel}
+                  className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black rounded-xl transition-all cursor-pointer flex items-center gap-1.5 uppercase tracking-wider"
+                  title="Export complete report to Excel"
+                >
+                  <FileSpreadsheet size={13} />
+                  <span>Export Excel</span>
+                </button>
               </div>
             </div>
 

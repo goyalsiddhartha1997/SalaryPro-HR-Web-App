@@ -60,14 +60,29 @@ async function startServer() {
         text: `You are an expert OCR and data extraction system for a PP fabric weaving and manufacturing plant.
 Read the attached handwritten "Loom Running Report" image. It contains details about multiple looms and their manufacturing configurations.
 
-The ledger contains 7 columns ordered from left to right as:
+The ledger contains columns ordered from left to right as:
 1. Loom Number / No. (labeled "L/No" or "L/No. -", e.g., 17, 18, 19...)
-2. Size (labeled "Size.", e.g., 27\", 22\", 15\", 24\"...)
-3. DNR / Denier (labeled "DNR", e.g., 750, 650, 420, 520, 850...)
-4. Quality (labeled "Quality", e.g., "Silver", "Natural", or ditto marks)
-5. GSM (labeled "Gsm." or "Dnm.", this is a highly critical decimal factor ranging from 1.5 to 5.5, e.g., 3.5, 3.0, 1.95, 2.5, 4.0)
-6. Average Weight (labeled "Averge." or "Average", e.g., "93-95 gm", "80-82 gm", "41-43 gm")
-7. Running Status (labeled "Runing" or "Run", e.g., "yes", "no yes stop", "No Ready")
+2. Loom Operator Name (labeled "Operator", "Operator Name", "Name", "Op", e.g., "Ramesh", "Suresh", "Karan", or blank if omitted)
+3. Total Meters (labeled "Total Meters", "Meters", "Mtrs", "Total Mtr", e.g., 450, 500, 320, 600...)
+4. Size (labeled "Size.", e.g., 27", 22", 15", 24"...)
+5. DNR / Denier (labeled "DNR", e.g., 750, 650, 420, 520, 850...)
+6. Quality (labeled "Quality", e.g., "Silver", "Natural", or ditto marks)
+7. GSM (labeled "Gsm." or "Dnm.", this is a highly critical decimal factor ranging from 1.5 to 5.5, e.g., 3.5, 3.0, 1.95, 2.5, 4.0)
+8. Average Weight (labeled "Averge." or "Average", e.g., "93-95 gm", "80-82 gm", "41-43 gm")
+9. Gross Weight (kg) (labeled "Gross Wt", "Gross", "Gr Wt", e.g., 52.5)
+10. Core Weight (kg) (labeled "Core Wt", "Core", "C Wt", e.g., 1.5)
+11. Net Weight (kg) (labeled "Net Wt", "Net", "N Wt", e.g., 51.0)
+12. Avg Weight Calculated (kg) (labeled "Avg Wt", "Avg Wt [calc]", e.g., 0.102)
+13. Running Status (labeled "Runing" or "Run", e.g., "yes", "no yes stop", "No Ready")
+
+CRITICAL INSTRUCTIONS FOR WEIGHT METRICS (IN KG):
+- Extract Gross Wt, Core Wt, Net Wt, and Avg Wt [calculated] in kg if written on paper.
+- If Net Wt is omitted or 0 but Gross Wt and Core Wt are available, Net Wt = Gross Wt - Core Wt.
+- If Avg Wt [calculated] is omitted or 0 but Net Wt and Total Meters are available (>0), Avg Wt [calculated] = Net Wt / Total Meters.
+
+CRITICAL INSTRUCTIONS FOR OPERATOR NAME & TOTAL METERS:
+- Extract the Loom Operator Name if written in the 2nd column or anywhere for that row. If blank, return "".
+- Extract Total Meters as a numeric value (e.g., 450, 500, 320). If unreadable or missing, default to 0.
 
 CRITICAL INSTRUCTIONS FOR GSM DECIMAL EXTRACTION & CROSS-REFERENCE VERIFICATION:
 - The GSM column contains fractional/decimal values with an explicit decimal point (e.g., "3.5", "3.0", "1.95", "2.5", "4.0").
@@ -100,7 +115,7 @@ Return the result as a strictly formatted JSON array matching the requested sche
 
       // Try calling Gemini with multiple model options and robust exponential backoff retry to handle 503 high demand / 429 rate limit
       let response;
-      const modelsToTry = ['gemini-3.5-flash', 'gemini-2.5-flash'];
+      const modelsToTry = ['gemini-3.6-flash', 'gemini-2.5-flash'];
       let lastError: any = null;
 
       for (const model of modelsToTry) {
@@ -126,6 +141,14 @@ Return the result as a strictly formatted JSON array matching the requested sche
                         type: Type.STRING,
                         description: 'The identifier of the loom (e.g. "1", "2B", "15")'
                       },
+                      operatorName: {
+                        type: Type.STRING,
+                        description: 'Name of the loom operator (e.g. "Ramesh", "Suresh", or "" if empty)'
+                      },
+                      totalMeters: {
+                        type: Type.NUMBER,
+                        description: 'Total fabric length in meters (e.g. 450, 500, 320)'
+                      },
                       quality: {
                         type: Type.STRING,
                         description: 'Fabric grade or quality specification description'
@@ -146,13 +169,29 @@ Return the result as a strictly formatted JSON array matching the requested sche
                         type: Type.NUMBER,
                         description: 'Average value in grams'
                       },
+                      grossWt: {
+                        type: Type.NUMBER,
+                        description: 'Gross Weight in kilograms (kg)'
+                      },
+                      coreWt: {
+                        type: Type.NUMBER,
+                        description: 'Core Weight in kilograms (kg)'
+                      },
+                      netWt: {
+                        type: Type.NUMBER,
+                        description: 'Net Weight in kilograms (kg)'
+                      },
+                      avgWtCalculated: {
+                        type: Type.NUMBER,
+                        description: 'Calculated average weight in kilograms (kg)'
+                      },
                       runningStatus: {
                         type: Type.STRING,
                         enum: ['Running', 'Stopped'],
                         description: 'Status of loom (either "Running" or "Stopped")'
                       }
                     },
-                    required: ['loomNo', 'quality', 'size', 'gsm', 'denier', 'average', 'runningStatus']
+                    required: ['loomNo', 'operatorName', 'totalMeters', 'quality', 'size', 'gsm', 'denier', 'average', 'runningStatus']
                   }
                 }
               }
@@ -198,11 +237,34 @@ Return the result as a strictly formatted JSON array matching the requested sche
         const sizeNum = sizeMatch ? parseFloat(sizeMatch[0]) : 0;
         const gsmNum = typeof row.gsm === 'number' ? row.gsm : parseFloat(row.gsm) || 0;
         const calculatedAverage = parseFloat((sizeNum * gsmNum).toFixed(2));
-        
+        const metersNum = typeof row.totalMeters === 'number' ? row.totalMeters : (parseFloat(row.totalMeters) || 0);
+
+        const grossWtNum = typeof row.grossWt === 'number' ? row.grossWt : (parseFloat(row.grossWt) || 0);
+        const coreWtNum = typeof row.coreWt === 'number' ? row.coreWt : (parseFloat(row.coreWt) || 0);
+        let netWtNum = typeof row.netWt === 'number' ? row.netWt : (parseFloat(row.netWt) || 0);
+        if (!netWtNum && grossWtNum > 0) {
+          netWtNum = parseFloat(Math.max(0, grossWtNum - coreWtNum).toFixed(3));
+        }
+        let avgWtCalcNum = typeof row.avgWtCalculated === 'number' ? row.avgWtCalculated : (parseFloat(row.avgWtCalculated) || 0);
+        if (!avgWtCalcNum && netWtNum > 0 && metersNum > 0) {
+          avgWtCalcNum = parseFloat((netWtNum / metersNum).toFixed(4));
+        }
+
         return {
-          ...row,
+          loomNo: String(row.loomNo || ''),
+          operatorName: String(row.operatorName || ''),
+          totalMeters: metersNum,
+          quality: String(row.quality || ''),
+          size: sizeStr,
           gsm: gsmNum,
-          average: calculatedAverage
+          denier: typeof row.denier === 'number' ? row.denier : parseInt(row.denier) || 0,
+          average: calculatedAverage || (typeof row.average === 'number' ? row.average : parseFloat(row.average) || 0),
+          grossWt: grossWtNum,
+          coreWt: coreWtNum,
+          netWt: netWtNum,
+          avgWtCalculated: avgWtCalcNum,
+          runningStatus: row.runningStatus === 'Stopped' ? 'Stopped' : 'Running',
+          remarks: String(row.remarks || '')
         };
       });
 

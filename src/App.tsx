@@ -567,6 +567,19 @@ export default function App() {
           });
           console.log("Seeded custom login credentials for Demo Account");
         }
+
+        const accountsRef = doc(db, 'custom_users', 'accounts@fortuneflexipack.com');
+        const accountsSnap = await getDoc(accountsRef);
+        if (!accountsSnap.exists()) {
+          await setDoc(accountsRef, {
+            email: 'accounts@fortuneflexipack.com',
+            password: 'Paonta@2025',
+            role: 'editor',
+            name: 'Accounts Fortuneflexipack',
+            createdAt: new Date().toISOString()
+          });
+          console.log("Seeded custom login credentials for Accounts");
+        }
       } catch (err) {
         console.error("Failed to seed custom login credentials:", err);
       }
@@ -625,7 +638,7 @@ export default function App() {
         localStorage.setItem('salarypro_logged_in_photo', photo);
       } else {
         const cachedEmail = localStorage.getItem('salarypro_logged_in_email') || '';
-        const isCustomEmail = ['hr@fortuneflexipack.com', 'demo@fortuneflexipack.com', 'laxmanverma@fortuneflexipack.com'].includes(cachedEmail.toLowerCase());
+        const isCustomEmail = ['hr@fortuneflexipack.com', 'demo@fortuneflexipack.com', 'laxmanverma@fortuneflexipack.com', 'accounts@fortuneflexipack.com'].includes(cachedEmail.toLowerCase());
         if (!isCustomEmail) {
           setLoggedInEmail(null);
           setLoggedInName(null);
@@ -801,8 +814,11 @@ export default function App() {
   const [customLoginLoading, setCustomLoginLoading] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'payroll' | 'calendar' | 'attendance' | 'performance' | 'advance' | 'gatepass' | 'overtime' | 'looms' | 'inventory' | 'loom-production' | 'loom-running' | 'tape-production'>(() => {
-    const email = localStorage.getItem('salarypro_logged_in_email');
-    return email === 'hr@fortuneflexipack.com' ? 'gatepass' : 'employees';
+    const email = (localStorage.getItem('salarypro_logged_in_email') || '').toLowerCase();
+    if (email === 'hr@fortuneflexipack.com' || email === 'accounts@fortuneflexipack.com') {
+      return 'advance';
+    }
+    return 'employees';
   });
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('55'); // Hardyal (First employee in yesterday's attendance PDF!)
   const [sundayPaidRule, setSundayPaidRule] = useState<'totalMonthDays' | '26Days'>(() => {
@@ -814,10 +830,27 @@ export default function App() {
   }, [sundayPaidRule]);
   const [alertMsg, setAlertMsg] = useState<{ type: 'success' | 'info' | 'warn'; text: string } | null>(null);
   
-  // Guard observer hr email to only access and use Advances, Gate Pass, and Overtime tabs
+  // Guard restricted custom logins (hr@ and accounts@) to allowed tabs
   useEffect(() => {
-    if (loggedInEmail === 'hr@fortuneflexipack.com' && activeTab !== 'advance' && activeTab !== 'gatepass' && activeTab !== 'overtime') {
-      setActiveTab('gatepass');
+    if (loggedInEmail === 'hr@fortuneflexipack.com') {
+      const allowedHrTabs = ['advance', 'gatepass', 'overtime'];
+      if (!allowedHrTabs.includes(activeTab)) {
+        setActiveTab('advance');
+      }
+    } else if (loggedInEmail === 'accounts@fortuneflexipack.com') {
+      const allowedAccountsTabs = [
+        'advance',
+        'gatepass',
+        'overtime',
+        'looms',
+        'loom-production',
+        'loom-running',
+        'tape-production',
+        'inventory'
+      ];
+      if (!allowedAccountsTabs.includes(activeTab)) {
+        setActiveTab('advance');
+      }
     }
   }, [loggedInEmail, activeTab]);
   
@@ -2073,6 +2106,16 @@ export default function App() {
           setAuthLoading(false);
           return;
         }
+      } else if (trimmedEmail === 'accounts@fortuneflexipack.com') {
+        if (trimmedPassword === 'Paonta@2025') {
+          authenticated = true;
+          userName = 'Accounts Fortuneflexipack';
+          userEmail = 'accounts@fortuneflexipack.com';
+        } else {
+          setOtpError('Incorrect password. Please verify and try again.');
+          setAuthLoading(false);
+          return;
+        }
       } else {
         // Query Firestore custom_users collection as a fallback
         try {
@@ -2353,7 +2396,7 @@ export default function App() {
           <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto cursor-pointer">
             
             {/* Dashboard Link */}
-            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
+            {!['hr@fortuneflexipack.com', 'accounts@fortuneflexipack.com'].includes(loggedInEmail || '') && (
               <button
                 onClick={() => { setActiveTab('dashboard'); setMobileMenuOpen(false); }}
                 className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
@@ -2368,7 +2411,7 @@ export default function App() {
             )}
 
             {/* Search EMP Link */}
-            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
+            {!['hr@fortuneflexipack.com', 'accounts@fortuneflexipack.com'].includes(loggedInEmail || '') && (
               <button
                 onClick={() => { setActiveTab('calendar'); setMobileMenuOpen(false); }}
                 className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
@@ -2383,7 +2426,7 @@ export default function App() {
             )}
 
             {/* Employees Link (Active in the UI mockup with Mint background!) */}
-            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
+            {!['hr@fortuneflexipack.com', 'accounts@fortuneflexipack.com'].includes(loggedInEmail || '') && (
               <button
                 onClick={() => { setActiveTab('employees'); setMobileMenuOpen(false); }}
                 className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
@@ -2398,7 +2441,7 @@ export default function App() {
             )}
 
             {/* Attendance Link */}
-            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
+            {!['hr@fortuneflexipack.com', 'accounts@fortuneflexipack.com'].includes(loggedInEmail || '') && (
               <button
                 onClick={() => { setActiveTab('attendance'); setMobileMenuOpen(false); }}
                 className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
@@ -2518,7 +2561,7 @@ export default function App() {
             )}
 
             {/* Payroll Ledger Link (Our powerful Spreadsheet table!) */}
-            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
+            {!['hr@fortuneflexipack.com', 'accounts@fortuneflexipack.com'].includes(loggedInEmail || '') && (
               <button
                 onClick={() => { setActiveTab('payroll'); setMobileMenuOpen(false); }}
                 className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all ${
@@ -2942,7 +2985,7 @@ export default function App() {
           </div>
 
           {/* ==================== TAB: 1. OVERALL ANALYTICS ==================== */}
-          {activeTab === 'dashboard' && loggedInEmail !== 'hr@fortuneflexipack.com' && (
+          {activeTab === 'dashboard' && !['hr@fortuneflexipack.com', 'accounts@fortuneflexipack.com'].includes(loggedInEmail || '') && (
             <div className="space-y-6">
               <div className="bg-white border border-slate-100 rounded-3xl p-6.5 shadow-xs relative">
                 <h3 className="text-lg font-bold text-slate-800 tracking-tight uppercase mb-4">Corporate Workforce Analytics</h3>
@@ -2978,7 +3021,7 @@ export default function App() {
           )}
 
           {/* ==================== TAB: 2. DETAILED BENTO EMPLOYEES (Matches screenshot layout!) ==================== */}
-          {activeTab === 'employees' && activeSelectedEmployee && loggedInEmail !== 'hr@fortuneflexipack.com' && (
+          {activeTab === 'employees' && activeSelectedEmployee && !['hr@fortuneflexipack.com', 'accounts@fortuneflexipack.com'].includes(loggedInEmail || '') && (
             <div className="w-full">
               <EmployeeProfileDetails 
                 employee={activeSelectedEmployee}
@@ -2999,7 +3042,7 @@ export default function App() {
           )}
 
           {/* ==================== TAB: 3. EDITABLE EXCEL LEDGER SHEET ==================== */}
-          {activeTab === 'payroll' && loggedInEmail !== 'hr@fortuneflexipack.com' && (
+          {activeTab === 'payroll' && !['hr@fortuneflexipack.com', 'accounts@fortuneflexipack.com'].includes(loggedInEmail || '') && (
             <div className="flex-grow flex flex-col space-y-6">
               
               {/* Informative Instructions / excel mappings header card */}
@@ -3052,7 +3095,7 @@ export default function App() {
           )}
 
           {/* ==================== TAB: 6. ATTENDANCE LOG INTEGRATOR ==================== */}
-          {activeTab === 'attendance' && loggedInEmail !== 'hr@fortuneflexipack.com' && (
+          {activeTab === 'attendance' && !['hr@fortuneflexipack.com', 'accounts@fortuneflexipack.com'].includes(loggedInEmail || '') && (
             <AttendanceImport 
               employees={employees}
               onUpdateEmployee={handleUpdateEmployee}
@@ -3074,7 +3117,7 @@ export default function App() {
               employees={computedEmployees}
               allMonthlyOverrides={allMonthlyOverrides}
               triggerAlert={triggerAlert}
-              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
+              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com' || loggedInEmail === 'accounts@fortuneflexipack.com')}
               ledgerMonth={ledgerMonth}
               ledgerYear={ledgerYear}
               setAllMonthlyOverrides={setAllMonthlyOverrides}
@@ -3088,7 +3131,7 @@ export default function App() {
             <GatePassRecord 
               employees={computedEmployees}
               triggerAlert={triggerAlert}
-              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
+              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com' || loggedInEmail === 'accounts@fortuneflexipack.com')}
               ledgerMonth={ledgerMonth}
               ledgerYear={ledgerYear}
               setLedgerMonth={setLedgerMonth}
@@ -3101,7 +3144,7 @@ export default function App() {
             <OvertimeLogs 
               employees={computedEmployees}
               triggerAlert={triggerAlert}
-              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
+              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com' || loggedInEmail === 'accounts@fortuneflexipack.com')}
               ledgerMonth={ledgerMonth}
               ledgerYear={ledgerYear}
               setLedgerMonth={setLedgerMonth}
@@ -3113,7 +3156,7 @@ export default function App() {
           {activeTab === 'looms' && (
             <LoomOrders 
               triggerAlert={triggerAlert}
-              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
+              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com' || loggedInEmail === 'accounts@fortuneflexipack.com')}
             />
           )}
 
@@ -3121,7 +3164,7 @@ export default function App() {
           {activeTab === 'loom-production' && (
             <LoomProduction 
               triggerAlert={triggerAlert}
-              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
+              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com' || loggedInEmail === 'accounts@fortuneflexipack.com')}
             />
           )}
 
@@ -3129,7 +3172,7 @@ export default function App() {
           {activeTab === 'loom-running' && (
             <LoomRunningReport 
               triggerAlert={triggerAlert}
-              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
+              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com' || loggedInEmail === 'accounts@fortuneflexipack.com')}
             />
           )}
 
@@ -3137,7 +3180,7 @@ export default function App() {
           {activeTab === 'tape-production' && (
             <TapePlantProduction 
               triggerAlert={triggerAlert}
-              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
+              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com' || loggedInEmail === 'accounts@fortuneflexipack.com')}
             />
           )}
 
@@ -3145,12 +3188,12 @@ export default function App() {
           {activeTab === 'inventory' && (
             <RawMaterialsInventory 
               triggerAlert={triggerAlert}
-              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com')}
+              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com' || loggedInEmail === 'accounts@fortuneflexipack.com')}
             />
           )}
 
           {/* ==================== TAB: SEARCH EMP ==================== */}
-          {activeTab === 'calendar' && loggedInEmail !== 'hr@fortuneflexipack.com' && (
+          {activeTab === 'calendar' && !['hr@fortuneflexipack.com', 'accounts@fortuneflexipack.com'].includes(loggedInEmail || '') && (
             <SearchEmp 
               employees={computedEmployees}
               onViewProfile={handleTransitionToProfile}

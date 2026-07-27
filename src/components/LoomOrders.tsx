@@ -146,7 +146,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [duplicateSearchQuery, setDuplicateSearchQuery] = useState<string>('');
 
   // --- MASTER ROLL LEDGER MODAL STATES ---
-  type MasterLedgerSortKey = 'rollNo' | 'size' | 'gsm' | 'denier' | 'fabricWeight' | 'quality' | 'dispatchStatus' | 'remarks' | 'orderNo';
+  type MasterLedgerSortKey = 'rollNo' | 'size' | 'gsm' | 'denier' | 'fabricWeight' | 'grossWt' | 'coreWt' | 'netWt' | 'avgWtCalculated' | 'meters' | 'quality' | 'dispatchStatus' | 'remarks' | 'orderNo';
 
   const [isMasterLedgerOpen, setIsMasterLedgerOpen] = useState<boolean>(false);
   const [masterLedgerSearchQuery, setMasterLedgerSearchQuery] = useState<string>('');
@@ -172,7 +172,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       case 'size': return 'Size';
       case 'gsm': return 'GSM';
       case 'denier': return 'Denier';
-      case 'fabricWeight': return 'Fabric Weight';
+      case 'fabricWeight': return 'AVG WT';
+      case 'grossWt': return 'Gross Wt (kg)';
+      case 'coreWt': return 'Core Wt (kg)';
+      case 'netWt': return 'Net Wt (kg)';
+      case 'avgWtCalculated': return 'Avg Wt [calc] (kg)';
+      case 'meters': return 'Meters';
       case 'quality': return 'Weave Quality';
       case 'dispatchStatus': return 'Dispatch Status';
       case 'remarks': return 'Remarks';
@@ -187,9 +192,56 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [masterEditGsm, setMasterEditGsm] = useState<string>('');
   const [masterEditDenier, setMasterEditDenier] = useState<string>('');
   const [masterEditFabricWeight, setMasterEditFabricWeight] = useState<string>('');
+  const [masterEditGrossWt, setMasterEditGrossWt] = useState<string>('');
+  const [masterEditCoreWt, setMasterEditCoreWt] = useState<string>('');
+  const [masterEditNetWt, setMasterEditNetWt] = useState<string>('');
+  const [masterEditAvgWtCalculated, setMasterEditAvgWtCalculated] = useState<string>('');
+  const [masterEditMeters, setMasterEditMeters] = useState<string>('');
   const [masterEditQuality, setMasterEditQuality] = useState<string>('');
   const [masterEditRemarks, setMasterEditRemarks] = useState<string>('');
   const [masterEditDispatchStatus, setMasterEditDispatchStatus] = useState<'Dispatched' | 'Not Dispatched'>('Not Dispatched');
+
+  const handleMasterEditGrossChange = (val: string) => {
+    setMasterEditGrossWt(val);
+    const g = parseFloat(val) || 0;
+    const c = parseFloat(masterEditCoreWt) || 0;
+    const net = Math.max(0, g - c);
+    setMasterEditNetWt(net ? String(parseFloat(net.toFixed(3))) : '');
+    const m = parseFloat(masterEditMeters) || 0;
+    if (m > 0 && net > 0) {
+      setMasterEditAvgWtCalculated(String(parseFloat((net / m).toFixed(4))));
+    }
+  };
+
+  const handleMasterEditCoreChange = (val: string) => {
+    setMasterEditCoreWt(val);
+    const g = parseFloat(masterEditGrossWt) || 0;
+    const c = parseFloat(val) || 0;
+    const net = Math.max(0, g - c);
+    setMasterEditNetWt(net ? String(parseFloat(net.toFixed(3))) : '');
+    const m = parseFloat(masterEditMeters) || 0;
+    if (m > 0 && net > 0) {
+      setMasterEditAvgWtCalculated(String(parseFloat((net / m).toFixed(4))));
+    }
+  };
+
+  const handleMasterEditNetChange = (val: string) => {
+    setMasterEditNetWt(val);
+    const net = parseFloat(val) || 0;
+    const m = parseFloat(masterEditMeters) || 0;
+    if (m > 0 && net > 0) {
+      setMasterEditAvgWtCalculated(String(parseFloat((net / m).toFixed(4))));
+    }
+  };
+
+  const handleMasterEditMetersChange = (val: string) => {
+    setMasterEditMeters(val);
+    const m = parseFloat(val) || 0;
+    const net = parseFloat(masterEditNetWt) || 0;
+    if (m > 0 && net > 0) {
+      setMasterEditAvgWtCalculated(String(parseFloat((net / m).toFixed(4))));
+    }
+  };
 
   // Master Ledger "Add Roll" panel states
   const [isAddingRollInLedger, setIsAddingRollInLedger] = useState<boolean>(false);
@@ -1403,6 +1455,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       gsm: number;
       denier: number;
       fabricWeight: number;
+      grossWt: number;
+      coreWt: number;
+      netWt: number;
+      avgWtCalculated: number;
+      meters: number;
       quality: string;
       remarks: string;
       dispatchStatus: 'Dispatched' | 'Not Dispatched';
@@ -1431,6 +1488,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               gsm: row.gsm || 0,
               denier: row.denier || 0,
               fabricWeight: row.fabricWeight || 0,
+              grossWt: (row.rollGrossWt && row.rollGrossWt[trimmed]) ?? 0,
+              coreWt: (row.rollCoreWt && row.rollCoreWt[trimmed]) ?? 0,
+              netWt: (row.rollNetWt && row.rollNetWt[trimmed]) ?? 0,
+              avgWtCalculated: (row.rollAvgWtCalculated && row.rollAvgWtCalculated[trimmed]) ?? 0,
+              meters: (row.rollMeters && row.rollMeters[trimmed]) ?? 0,
               quality: row.quality || '',
               remarks: (row.rollRemarks && row.rollRemarks[trimmed]) || '',
               dispatchStatus: isDispatched ? 'Dispatched' : 'Not Dispatched',
@@ -1458,6 +1520,21 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           break;
         case 'fabricWeight':
           cmp = a.fabricWeight - b.fabricWeight;
+          break;
+        case 'grossWt':
+          cmp = a.grossWt - b.grossWt;
+          break;
+        case 'coreWt':
+          cmp = a.coreWt - b.coreWt;
+          break;
+        case 'netWt':
+          cmp = a.netWt - b.netWt;
+          break;
+        case 'avgWtCalculated':
+          cmp = a.avgWtCalculated - b.avgWtCalculated;
+          break;
+        case 'meters':
+          cmp = a.meters - b.meters;
           break;
         case 'quality':
           cmp = a.quality.localeCompare(b.quality, undefined, { numeric: true, sensitivity: 'base' });
@@ -1494,6 +1571,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     setMasterEditGsm(item.gsm ? String(item.gsm) : '');
     setMasterEditDenier(item.denier ? String(item.denier) : '');
     setMasterEditFabricWeight(item.fabricWeight ? String(item.fabricWeight) : '');
+    setMasterEditGrossWt(item.grossWt ? String(item.grossWt) : '');
+    setMasterEditCoreWt(item.coreWt ? String(item.coreWt) : '');
+    setMasterEditNetWt(item.netWt ? String(item.netWt) : '');
+    setMasterEditAvgWtCalculated(item.avgWtCalculated ? String(item.avgWtCalculated) : '');
+    setMasterEditMeters(item.meters ? String(item.meters) : '');
     setMasterEditQuality(item.quality);
     setMasterEditRemarks(item.remarks);
     setMasterEditDispatchStatus(item.dispatchStatus);
@@ -1598,13 +1680,36 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     targetRow.fabricWeight = Number(masterEditFabricWeight) || 0;
     targetRow.quality = masterEditQuality.trim();
 
-    // Store per-roll remarks (unsynced across rolls)
+    // Store per-roll remarks and per-roll weight/meter maps
     const existingRollRemarks = { ...(targetRow.rollRemarks || {}) };
-    if (item.rollNo !== trimmedNewRollNo && item.rollNo in existingRollRemarks) {
-      delete existingRollRemarks[item.rollNo];
+    const existingRollGrossWt = { ...(targetRow.rollGrossWt || {}) };
+    const existingRollCoreWt = { ...(targetRow.rollCoreWt || {}) };
+    const existingRollNetWt = { ...(targetRow.rollNetWt || {}) };
+    const existingRollAvgWtCalculated = { ...(targetRow.rollAvgWtCalculated || {}) };
+    const existingRollMeters = { ...(targetRow.rollMeters || {}) };
+
+    if (item.rollNo !== trimmedNewRollNo) {
+      if (item.rollNo in existingRollRemarks) delete existingRollRemarks[item.rollNo];
+      if (item.rollNo in existingRollGrossWt) delete existingRollGrossWt[item.rollNo];
+      if (item.rollNo in existingRollCoreWt) delete existingRollCoreWt[item.rollNo];
+      if (item.rollNo in existingRollNetWt) delete existingRollNetWt[item.rollNo];
+      if (item.rollNo in existingRollAvgWtCalculated) delete existingRollAvgWtCalculated[item.rollNo];
+      if (item.rollNo in existingRollMeters) delete existingRollMeters[item.rollNo];
     }
+
     existingRollRemarks[trimmedNewRollNo] = masterEditRemarks.trim();
+    existingRollGrossWt[trimmedNewRollNo] = Number(masterEditGrossWt) || 0;
+    existingRollCoreWt[trimmedNewRollNo] = Number(masterEditCoreWt) || 0;
+    existingRollNetWt[trimmedNewRollNo] = Number(masterEditNetWt) || 0;
+    existingRollAvgWtCalculated[trimmedNewRollNo] = Number(masterEditAvgWtCalculated) || 0;
+    existingRollMeters[trimmedNewRollNo] = Number(masterEditMeters) || 0;
+
     targetRow.rollRemarks = existingRollRemarks;
+    targetRow.rollGrossWt = existingRollGrossWt;
+    targetRow.rollCoreWt = existingRollCoreWt;
+    targetRow.rollNetWt = existingRollNetWt;
+    targetRow.rollAvgWtCalculated = existingRollAvgWtCalculated;
+    targetRow.rollMeters = existingRollMeters;
 
     // Update dispatch status
     const currentDispatchedSet = new Set(targetRow.dispatchedRolls || []);
@@ -1679,6 +1784,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       delete updatedMap[item.rollNo];
       targetRow.rollDispatchStatus = updatedMap;
     }
+    if (targetRow.rollGrossWt) { const m = { ...targetRow.rollGrossWt }; delete m[item.rollNo]; targetRow.rollGrossWt = m; }
+    if (targetRow.rollCoreWt) { const m = { ...targetRow.rollCoreWt }; delete m[item.rollNo]; targetRow.rollCoreWt = m; }
+    if (targetRow.rollNetWt) { const m = { ...targetRow.rollNetWt }; delete m[item.rollNo]; targetRow.rollNetWt = m; }
+    if (targetRow.rollAvgWtCalculated) { const m = { ...targetRow.rollAvgWtCalculated }; delete m[item.rollNo]; targetRow.rollAvgWtCalculated = m; }
+    if (targetRow.rollMeters) { const m = { ...targetRow.rollMeters }; delete m[item.rollNo]; targetRow.rollMeters = m; }
+
     updatedRows[item.subOrderIdx] = targetRow;
 
     try {
@@ -1776,7 +1887,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       worksheet.views = [{ showGridLines: true }];
 
       // 1. TOP BANNER ROW (Row 1)
-      worksheet.mergeCells('A1:L1');
+      worksheet.mergeCells('A1:N1');
       const titleCell = worksheet.getCell('A1');
       titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • MASTER ROLL DIRECTORY LEDGER - ${modeTitle}`;
       titleCell.font = { name: 'Calibri', size: 15, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -1784,7 +1895,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(1).height = 40;
 
-      for (let col = 1; col <= 12; col++) {
+      for (let col = 1; col <= 14; col++) {
         worksheet.getRow(1).getCell(col).fill = titleCell.fill;
       }
 
@@ -1794,23 +1905,23 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       const notDispCount = totalCount - dispCount;
 
       worksheet.mergeCells('A2:D2');
-      worksheet.mergeCells('E2:H2');
-      worksheet.mergeCells('I2:L2');
+      worksheet.mergeCells('E2:I2');
+      worksheet.mergeCells('J2:N2');
 
       worksheet.mergeCells('A3:D3');
-      worksheet.mergeCells('E3:H3');
-      worksheet.mergeCells('I3:L3');
+      worksheet.mergeCells('E3:I3');
+      worksheet.mergeCells('J3:N3');
 
       worksheet.getRow(2).height = 18;
       worksheet.getRow(3).height = 22;
 
       worksheet.getCell('A2').value = 'Total Registered Rolls:';
       worksheet.getCell('E2').value = 'Dispatched Rolls:';
-      worksheet.getCell('I2').value = 'Non-Dispatched Rolls:';
+      worksheet.getCell('J2').value = 'Non-Dispatched Rolls:';
 
       worksheet.getCell('A3').value = `${totalCount} Rolls`;
       worksheet.getCell('E3').value = `${dispCount} Rolls (${totalCount > 0 ? Math.round((dispCount / totalCount) * 100) : 0}%)`;
-      worksheet.getCell('I3').value = `${notDispCount} Rolls (${totalCount > 0 ? Math.round((notDispCount / totalCount) * 100) : 0}%)`;
+      worksheet.getCell('J3').value = `${notDispCount} Rolls (${totalCount > 0 ? Math.round((notDispCount / totalCount) * 100) : 0}%)`;
 
       const thinCardBorder = {
         top: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
@@ -1829,7 +1940,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         });
       }
 
-      for (let col = 5; col <= 8; col++) {
+      for (let col = 5; col <= 9; col++) {
         [2, 3].forEach(r => {
           const c = worksheet.getRow(r).getCell(col);
           c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
@@ -1839,7 +1950,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         });
       }
 
-      for (let col = 9; col <= 12; col++) {
+      for (let col = 10; col <= 14; col++) {
         [2, 3].forEach(r => {
           const c = worksheet.getRow(r).getCell(col);
           c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEDD5' } };
@@ -1852,18 +1963,20 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       // 3. TABLE HEADER ROW (Row 5)
       worksheet.getRow(4).height = 10;
       const headers = [
-        'S.No',
         'Roll Number',
         'Size',
         'GSM',
         'Denier',
-        'Fabric Weight (g)',
+        'AVG WT (g)',
+        'Gross Wt (kg)',
+        'Core Wt (kg)',
+        'Net Wt (kg)',
+        'Avg Wt [calc] (kg)',
+        'Meters',
         'Weave Quality',
         'Dispatch Status',
         'Remarks',
-        'Order No',
-        'Order Date',
-        'Sub-Order #'
+        'Order No'
       ];
 
       const headerRow = worksheet.getRow(5);
@@ -1884,25 +1997,27 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
       // 4. DATA ROWS
       let currentR = 6;
-      filteredData.forEach((item, index) => {
+      filteredData.forEach((item) => {
         const r = worksheet.getRow(currentR);
         r.height = 22;
         const isEven = currentR % 2 === 0;
         const rowBg = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
 
         const rowValues = [
-          index + 1,
           item.rollNo,
           item.size,
           item.gsm,
           item.denier,
           item.fabricWeight,
+          item.grossWt || 0,
+          item.coreWt || 0,
+          item.netWt || 0,
+          item.avgWtCalculated || 0,
+          item.meters || 0,
           item.quality,
           item.dispatchStatus,
           item.remarks || '-',
-          item.orderNo,
-          item.orderDate,
-          item.subOrderIdx + 1
+          item.orderNo
         ];
 
         rowValues.forEach((val, colIdx) => {
@@ -1917,21 +2032,18 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
             right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
           };
 
-          if (colIdx === 0) { // S.No
-            cell.alignment = { horizontal: 'center', vertical: 'middle' };
-            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF475569' } };
-          } else if (colIdx === 1) { // Roll Number
+          if (colIdx === 0) { // Roll Number
             cell.alignment = { horizontal: 'center', vertical: 'middle' };
             cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFB45309' } };
-          } else if (colIdx === 2 || colIdx === 3 || colIdx === 4) { // Size, GSM, Denier
+          } else if (colIdx === 1 || colIdx === 2 || colIdx === 3) { // Size, GSM, Denier
             cell.alignment = { horizontal: 'center', vertical: 'middle' };
-          } else if (colIdx === 5) { // Fabric Weight
+          } else if (colIdx >= 4 && colIdx <= 9) { // Fabric Wt, Gross, Core, Net, Avg, Meters
             cell.alignment = { horizontal: 'right', vertical: 'middle' };
-            cell.numFmt = '#,##0.00';
-          } else if (colIdx === 6) { // Quality
+            cell.numFmt = colIdx === 8 ? '#,##0.0000' : '#,##0.00';
+          } else if (colIdx === 10) { // Quality
             cell.alignment = { horizontal: 'left', vertical: 'middle' };
             cell.font = { name: 'Calibri', size: 10.5, bold: true };
-          } else if (colIdx === 7) { // Dispatch Status
+          } else if (colIdx === 11) { // Dispatch Status
             cell.alignment = { horizontal: 'center', vertical: 'middle' };
             if (val === 'Dispatched') {
               cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
@@ -1940,9 +2052,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEDD5' } };
               cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFC2410C' } };
             }
-          } else if (colIdx === 8) { // Remarks
+          } else if (colIdx === 12) { // Remarks
             cell.alignment = { horizontal: 'left', vertical: 'middle' };
-          } else if (colIdx === 9 || colIdx === 10 || colIdx === 11) { // Order No, Date, Sub-order #
+          } else if (colIdx === 13) { // Order No
             cell.alignment = { horizontal: 'center', vertical: 'middle' };
           }
         });
@@ -1952,18 +2064,20 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
       // 5. COLUMN WIDTHS
       worksheet.columns = [
-        { width: 7 },   // S.No
-        { width: 16 },  // Roll Number
+        { width: 18 },  // Roll Number
         { width: 14 },  // Size
         { width: 10 },  // GSM
         { width: 10 },  // Denier
         { width: 18 },  // Fabric Weight
+        { width: 16 },  // Gross Wt (kg)
+        { width: 14 },  // Core Wt (kg)
+        { width: 14 },  // Net Wt (kg)
+        { width: 20 },  // Avg Wt [calc] (kg)
+        { width: 14 },  // Meters
         { width: 24 },  // Weave Quality
         { width: 18 },  // Dispatch Status
-        { width: 24 },  // Remarks
-        { width: 16 },  // Order No
-        { width: 14 },  // Order Date
-        { width: 14 }   // Sub-Order #
+        { width: 26 },  // Remarks
+        { width: 16 }   // Order No
       ];
 
       const dateStr = new Date().toISOString().split('T')[0];
@@ -4406,8 +4520,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
       {/* POP-UP WINDOW: MASTER ROLL LEDGER DIRECTORY MODAL */}
       {isMasterLedgerOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
-          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col max-h-[96vh] sm:max-h-[92vh]">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-1.5 sm:p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-[98vw] 2xl:max-w-[1920px] shadow-2xl overflow-hidden flex flex-col max-h-[96vh] sm:max-h-[93vh]">
             
             {/* Modal Header */}
             <div className="bg-zinc-900 text-white px-3.5 py-3 sm:px-6 sm:py-4 flex justify-between items-center border-b border-zinc-800 shrink-0">
@@ -4649,21 +4763,21 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
                   {/* DESKTOP / TABLET RESPONSIVE TABLE VIEW */}
                   <div className="hidden sm:block overflow-x-auto rounded-2xl border border-zinc-200 shadow-3xs bg-white">
-                    <table className="w-full text-left border-collapse min-w-[1050px]">
+                    <table className="w-full text-left border-collapse min-w-[1200px] 2xl:min-w-0">
                       <thead>
-                        <tr className="bg-zinc-900 text-zinc-300 text-[10px] font-black uppercase tracking-wider border-b border-zinc-800">
+                        <tr className="bg-zinc-900 text-white text-[10px] font-black uppercase tracking-wider border-b border-zinc-800">
                           {/* 1. Roll Number */}
                           <th
                             onClick={() => handleMasterLedgerSort('rollNo')}
-                            className={`py-3 px-3.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 font-mono ${
-                              masterLedgerSortKey === 'rollNo' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            className={`py-2.5 px-2.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 font-mono text-yellow-400 ${
+                              masterLedgerSortKey === 'rollNo' ? 'bg-zinc-800' : ''
                             }`}
                             title="Click to sort by Roll Number"
                           >
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1">
                               <span>Roll Number</span>
                               {masterLedgerSortKey === 'rollNo' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
                                 <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
@@ -4673,15 +4787,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           {/* 2. Size */}
                           <th
                             onClick={() => handleMasterLedgerSort('size')}
-                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'size' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            className={`py-2.5 px-2 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'size' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Size"
                           >
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1">
                               <span>Size</span>
                               {masterLedgerSortKey === 'size' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
                                 <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
@@ -4691,15 +4805,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           {/* 3. GSM */}
                           <th
                             onClick={() => handleMasterLedgerSort('gsm')}
-                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'gsm' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'gsm' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by GSM"
                           >
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1">
                               <span>GSM</span>
                               {masterLedgerSortKey === 'gsm' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
                                 <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
@@ -4709,33 +4823,123 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           {/* 4. Denier */}
                           <th
                             onClick={() => handleMasterLedgerSort('denier')}
-                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'denier' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'denier' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Denier"
                           >
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1">
                               <span>Denier</span>
                               {masterLedgerSortKey === 'denier' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
                                 <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
-                          {/* 5. Fabric Weight */}
+                          {/* 5. AVG WT */}
                           <th
                             onClick={() => handleMasterLedgerSort('fabricWeight')}
-                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'fabricWeight' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'fabricWeight' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
-                            title="Click to sort by Fabric Weight"
+                            title="Click to sort by AVG WT"
                           >
-                            <div className="flex items-center gap-1.5">
-                              <span>Fabric Weight</span>
+                            <div className="flex items-center gap-1">
+                              <span>AVG WT</span>
                               {masterLedgerSortKey === 'fabricWeight' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* Gross Weight (kg) */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('grossWt')}
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'grossWt' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
+                            }`}
+                            title="Click to sort by Gross Weight"
+                          >
+                            <div className="flex items-center gap-1">
+                              <span>Gross Wt</span>
+                              {masterLedgerSortKey === 'grossWt' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* Core Weight (kg) */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('coreWt')}
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'coreWt' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
+                            }`}
+                            title="Click to sort by Core Weight"
+                          >
+                            <div className="flex items-center gap-1">
+                              <span>Core Wt</span>
+                              {masterLedgerSortKey === 'coreWt' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* Net Weight (kg) */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('netWt')}
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'netWt' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
+                            }`}
+                            title="Click to sort by Net Weight"
+                          >
+                            <div className="flex items-center gap-1">
+                              <span>Net Wt</span>
+                              {masterLedgerSortKey === 'netWt' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* Average Weight (calc) (kg) */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('avgWtCalculated')}
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'avgWtCalculated' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
+                            }`}
+                            title="Click to sort by Average Weight (calc)"
+                          >
+                            <div className="flex items-center gap-1">
+                              <span>Avg Wt [calc]</span>
+                              {masterLedgerSortKey === 'avgWtCalculated' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* Meters */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('meters')}
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'meters' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
+                            }`}
+                            title="Click to sort by Meters"
+                          >
+                            <div className="flex items-center gap-1">
+                              <span>Meters</span>
+                              {masterLedgerSortKey === 'meters' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
                                 <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
@@ -4745,15 +4949,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           {/* 6. Weave Quality */}
                           <th
                             onClick={() => handleMasterLedgerSort('quality')}
-                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'quality' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            className={`py-2.5 px-2 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'quality' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Weave Quality"
                           >
-                            <div className="flex items-center gap-1.5">
-                              <span>Weave Quality</span>
+                            <div className="flex items-center gap-1">
+                              <span>Quality</span>
                               {masterLedgerSortKey === 'quality' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
                                 <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
@@ -4763,15 +4967,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           {/* 7. Dispatch Status */}
                           <th
                             onClick={() => handleMasterLedgerSort('dispatchStatus')}
-                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'dispatchStatus' ? 'text-amber-400 bg-zinc-850' : 'text-amber-300'
+                            className={`py-2.5 px-2 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'dispatchStatus' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Dispatch Status"
                           >
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1">
                               <span>Dispatch Status</span>
                               {masterLedgerSortKey === 'dispatchStatus' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
                                 <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
@@ -4781,15 +4985,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           {/* 8. Remarks */}
                           <th
                             onClick={() => handleMasterLedgerSort('remarks')}
-                            className={`py-3 px-3 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'remarks' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            className={`py-2.5 px-2 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'remarks' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Remarks"
                           >
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1">
                               <span>Remarks</span>
                               {masterLedgerSortKey === 'remarks' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
                                 <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
@@ -4799,12 +5003,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           {/* 9. Order Ref & Actions */}
                           <th
                             onClick={() => handleMasterLedgerSort('orderNo')}
-                            className={`py-3 px-3.5 text-right cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'orderNo' ? 'text-amber-400 bg-zinc-850' : 'text-zinc-300'
+                            className={`py-2.5 px-2.5 text-right cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'orderNo' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Order Ref"
                           >
-                            <div className="flex items-center justify-end gap-1.5">
+                            <div className="flex items-center justify-end gap-1">
                               <span>Order Ref & Actions</span>
                               {masterLedgerSortKey === 'orderNo' ? (
                                 masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
@@ -4836,7 +5040,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               item.remarks.toLowerCase().includes(q) ||
                               item.dispatchStatus.toLowerCase().includes(q) ||
                               String(item.gsm).includes(q) ||
-                              String(item.denier).includes(q)
+                              String(item.denier).includes(q) ||
+                              String(item.grossWt).includes(q) ||
+                              String(item.coreWt).includes(q) ||
+                              String(item.netWt).includes(q) ||
+                              String(item.avgWtCalculated).includes(q) ||
+                              String(item.meters).includes(q)
                             );
                           })
                           .map((item) => {
@@ -4892,11 +5101,66 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       step="0.01"
                                       value={masterEditFabricWeight}
                                       onChange={(e) => setMasterEditFabricWeight(e.target.value)}
-                                      className="w-24 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
                                       placeholder="Weight"
                                     />
                                   </td>
-                                  {/* Col 6: Weave Quality */}
+                                  {/* Gross Weight (kg) */}
+                                  <td className="py-2.5 px-2">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={masterEditGrossWt}
+                                      onChange={(e) => handleMasterEditGrossChange(e.target.value)}
+                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      placeholder="Gross Wt"
+                                    />
+                                  </td>
+                                  {/* Core Weight (kg) */}
+                                  <td className="py-2.5 px-2">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={masterEditCoreWt}
+                                      onChange={(e) => handleMasterEditCoreChange(e.target.value)}
+                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      placeholder="Core Wt"
+                                    />
+                                  </td>
+                                  {/* Net Weight (kg) */}
+                                  <td className="py-2.5 px-2">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      value={masterEditNetWt}
+                                      onChange={(e) => handleMasterEditNetChange(e.target.value)}
+                                      className="w-20 bg-indigo-50 border border-indigo-400 rounded-lg px-2 py-1 text-xs font-mono font-black text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                      placeholder="Net Wt"
+                                    />
+                                  </td>
+                                  {/* Average Weight (calc) (kg) */}
+                                  <td className="py-2.5 px-2">
+                                    <input
+                                      type="number"
+                                      step="0.0001"
+                                      value={masterEditAvgWtCalculated}
+                                      onChange={(e) => setMasterEditAvgWtCalculated(e.target.value)}
+                                      className="w-24 bg-emerald-50 border border-emerald-400 rounded-lg px-2 py-1 text-xs font-mono font-black text-emerald-950 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                      placeholder="Avg Calc"
+                                    />
+                                  </td>
+                                  {/* Meters */}
+                                  <td className="py-2.5 px-2">
+                                    <input
+                                      type="number"
+                                      step="1"
+                                      value={masterEditMeters}
+                                      onChange={(e) => handleMasterEditMetersChange(e.target.value)}
+                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      placeholder="Meters"
+                                    />
+                                  </td>
+                                  {/* Col 11: Weave Quality */}
                                   <td className="py-2.5 px-2">
                                     <input
                                       type="text"
@@ -4906,7 +5170,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       placeholder="Quality"
                                     />
                                   </td>
-                                  {/* Col 7: Dispatch Status */}
+                                  {/* Col 12: Dispatch Status */}
                                   <td className="py-2.5 px-2">
                                     <select
                                       value={masterEditDispatchStatus}
@@ -4917,7 +5181,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       <option value="Dispatched">Dispatched</option>
                                     </select>
                                   </td>
-                                  {/* Col 8: Remarks */}
+                                  {/* Col 13: Remarks */}
                                   <td className="py-2.5 px-2">
                                     <input
                                       type="text"
@@ -4927,7 +5191,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       placeholder="Remarks..."
                                     />
                                   </td>
-                                  {/* Col 9: Actions */}
+                                  {/* Col 14: Actions */}
                                   <td className="py-2.5 px-3 text-right">
                                     <div className="flex items-center justify-end gap-1.5">
                                       <button
@@ -4977,11 +5241,31 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 <td className="py-2.5 px-3 font-mono font-bold text-zinc-700">
                                   {item.fabricWeight ? `${item.fabricWeight}` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
-                                {/* 6. Weave Quality */}
+                                {/* 6. Gross Weight */}
+                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-800">
+                                  {item.grossWt ? `${item.grossWt}` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* 7. Core Weight */}
+                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-600">
+                                  {item.coreWt ? `${item.coreWt}` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* 8. Net Weight */}
+                                <td className="py-2.5 px-3 font-mono font-black text-indigo-900">
+                                  {item.netWt ? `${item.netWt}` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* 9. Average Weight (calc) */}
+                                <td className="py-2.5 px-3 font-mono font-black text-emerald-800">
+                                  {item.avgWtCalculated ? `${item.avgWtCalculated}` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* 10. Meters */}
+                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-800">
+                                  {item.meters ? `${item.meters}` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* 11. Weave Quality */}
                                 <td className="py-2.5 px-3 font-semibold text-zinc-900">
                                   {item.quality || <span className="text-zinc-300 italic">-</span>}
                                 </td>
-                                {/* 7. Dispatch Status Dropdown */}
+                                {/* 12. Dispatch Status Dropdown */}
                                 <td className="py-2.5 px-3">
                                   <select
                                     value={item.dispatchStatus}
@@ -4997,7 +5281,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                     <option value="Dispatched">Dispatched</option>
                                   </select>
                                 </td>
-                                {/* 8. Remarks */}
+                                {/* 13. Remarks */}
                                 <td className="py-2.5 px-3 text-zinc-600 text-xs max-w-[150px] truncate">
                                   {item.remarks ? (
                                     <span className="font-medium">{item.remarks}</span>
@@ -5005,7 +5289,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                     <span className="text-zinc-300 italic text-[11px]">No remarks</span>
                                   )}
                                 </td>
-                                {/* 9. Order Ref & Actions */}
+                                {/* 14. Order Ref & Actions */}
                                 <td className="py-2.5 px-3.5 text-right">
                                   <div className="flex items-center justify-end gap-2">
                                     <span className="bg-zinc-100 text-zinc-600 font-mono font-bold text-[10px] px-2 py-0.5 rounded border border-zinc-200">
@@ -5059,7 +5343,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           <option value="size">Size</option>
                           <option value="gsm">GSM</option>
                           <option value="denier">Denier</option>
-                          <option value="fabricWeight">Fabric Weight</option>
+                          <option value="fabricWeight">AVG WT</option>
+                          <option value="grossWt">Gross Weight</option>
+                          <option value="coreWt">Core Weight</option>
+                          <option value="netWt">Net Weight</option>
+                          <option value="avgWtCalculated">Avg Weight (calc)</option>
+                          <option value="meters">Meters</option>
                           <option value="quality">Weave Quality</option>
                           <option value="dispatchStatus">Dispatch Status</option>
                           <option value="remarks">Remarks</option>
@@ -5094,7 +5383,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           item.remarks.toLowerCase().includes(q) ||
                           item.dispatchStatus.toLowerCase().includes(q) ||
                           String(item.gsm).includes(q) ||
-                          String(item.denier).includes(q)
+                          String(item.denier).includes(q) ||
+                          String(item.grossWt).includes(q) ||
+                          String(item.coreWt).includes(q) ||
+                          String(item.netWt).includes(q) ||
+                          String(item.avgWtCalculated).includes(q) ||
+                          String(item.meters).includes(q)
                         );
                       })
                       .map((item) => {
@@ -5150,12 +5444,62 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                   />
                                 </div>
                                 <div>
-                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Fabric Weight</label>
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">AVG WT</label>
                                   <input
                                     type="number"
                                     step="0.01"
                                     value={masterEditFabricWeight}
                                     onChange={(e) => setMasterEditFabricWeight(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 font-mono text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Gross Weight (kg)</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={masterEditGrossWt}
+                                    onChange={(e) => handleMasterEditGrossChange(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 font-mono text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Core Weight (kg)</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={masterEditCoreWt}
+                                    onChange={(e) => handleMasterEditCoreChange(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 font-mono text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-indigo-600 uppercase block">Net Weight (kg)</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={masterEditNetWt}
+                                    onChange={(e) => handleMasterEditNetChange(e.target.value)}
+                                    className="w-full bg-indigo-50 border border-indigo-400 rounded px-2 py-1 font-mono font-bold text-xs text-indigo-950"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-emerald-600 uppercase block">Avg Wt [calc] (kg)</label>
+                                  <input
+                                    type="number"
+                                    step="0.0001"
+                                    value={masterEditAvgWtCalculated}
+                                    onChange={(e) => setMasterEditAvgWtCalculated(e.target.value)}
+                                    className="w-full bg-emerald-50 border border-emerald-400 rounded px-2 py-1 font-mono font-bold text-xs text-emerald-950"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Meters</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    value={masterEditMeters}
+                                    onChange={(e) => handleMasterEditMetersChange(e.target.value)}
                                     className="w-full bg-white border border-amber-400 rounded px-2 py-1 font-mono text-xs"
                                   />
                                 </div>
@@ -5227,7 +5571,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               <div><span className="text-zinc-400 text-[10px]">Size:</span> <strong className="text-zinc-800">{item.size || '-'}</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">GSM:</span> <strong className="text-zinc-800 font-mono">{item.gsm || '-'}</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">Denier:</span> <strong className="text-zinc-800 font-mono">{item.denier || '-'}</strong></div>
-                              <div><span className="text-zinc-400 text-[10px]">Fabric Wt:</span> <strong className="text-zinc-800 font-mono">{item.fabricWeight || '-'}</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">AVG WT:</span> <strong className="text-zinc-800 font-mono">{item.fabricWeight || '-'}</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Gross Wt:</span> <strong className="text-zinc-800 font-mono">{item.grossWt || '-'} kg</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Core Wt:</span> <strong className="text-zinc-800 font-mono">{item.coreWt || '-'} kg</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Net Wt:</span> <strong className="text-indigo-900 font-mono font-black">{item.netWt || '-'} kg</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Avg Wt [calc]:</span> <strong className="text-emerald-800 font-mono font-black">{item.avgWtCalculated || '-'} kg</strong></div>
+                              <div className="col-span-2"><span className="text-zinc-400 text-[10px]">Meters:</span> <strong className="text-zinc-800 font-mono">{item.meters || '-'} m</strong></div>
                               <div className="col-span-2"><span className="text-zinc-400 text-[10px]">Quality:</span> <strong className="text-zinc-900">{item.quality || '-'}</strong></div>
                               <div className="col-span-2 flex items-center justify-between pt-1 border-t border-zinc-100">
                                 <span className="text-zinc-500 text-[10px] font-bold flex items-center gap-1">
