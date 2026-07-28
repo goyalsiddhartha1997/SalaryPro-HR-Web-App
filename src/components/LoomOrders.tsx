@@ -134,6 +134,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [rollModalDispatchFilter, setRollModalDispatchFilter] = useState<'all' | 'not_dispatched' | 'dispatched'>('all');
   const [selectedRollsForBatch, setSelectedRollsForBatch] = useState<string[]>([]);
   const [selectedLedgerRollIds, setSelectedLedgerRollIds] = useState<string[]>([]);
+  const [rollDetailModalItem, setRollDetailModalItem] = useState<any | null>(null);
 
   // Suborder draft roll numbers (for new sub-order being created)
   const [subRollNumbers, setSubRollNumbers] = useState<string[]>([]);
@@ -146,7 +147,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [duplicateSearchQuery, setDuplicateSearchQuery] = useState<string>('');
 
   // --- MASTER ROLL LEDGER MODAL STATES ---
-  type MasterLedgerSortKey = 'rollNo' | 'size' | 'gsm' | 'denier' | 'fabricWeight' | 'grossWt' | 'coreWt' | 'netWt' | 'avgWtCalculated' | 'meters' | 'quality' | 'dispatchStatus' | 'remarks' | 'orderNo';
+  type MasterLedgerSortKey = 'rollNo' | 'size' | 'gsm' | 'denier' | 'fabricWeight' | 'grossWt' | 'coreWt' | 'netWt' | 'avgWtCalculated' | 'gsmCalculated' | 'meters' | 'strength' | 'elongation' | 'quality' | 'dispatchStatus' | 'remarks' | 'orderNo';
 
   const [isMasterLedgerOpen, setIsMasterLedgerOpen] = useState<boolean>(false);
   const [masterLedgerSearchQuery, setMasterLedgerSearchQuery] = useState<string>('');
@@ -177,7 +178,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       case 'coreWt': return 'Core Wt (kg)';
       case 'netWt': return 'Net Wt (kg)';
       case 'avgWtCalculated': return 'Avg Wt [calc] (kg)';
+      case 'gsmCalculated': return 'GSM [calc]';
       case 'meters': return 'Meters';
+      case 'strength': return 'Strength';
+      case 'elongation': return 'Elongation (%)';
       case 'quality': return 'Weave Quality';
       case 'dispatchStatus': return 'Dispatch Status';
       case 'remarks': return 'Remarks';
@@ -197,6 +201,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [masterEditNetWt, setMasterEditNetWt] = useState<string>('');
   const [masterEditAvgWtCalculated, setMasterEditAvgWtCalculated] = useState<string>('');
   const [masterEditMeters, setMasterEditMeters] = useState<string>('');
+  const [masterEditStrength, setMasterEditStrength] = useState<string>('');
+  const [masterEditElongation, setMasterEditElongation] = useState<string>('');
   const [masterEditQuality, setMasterEditQuality] = useState<string>('');
   const [masterEditRemarks, setMasterEditRemarks] = useState<string>('');
   const [masterEditDispatchStatus, setMasterEditDispatchStatus] = useState<'Dispatched' | 'Not Dispatched'>('Not Dispatched');
@@ -823,6 +829,58 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     setRollModalDispatchFilter('all');
     setIsBulkRollMode(false);
     setIsRollModalOpen(true);
+  };
+
+  const handleViewRollDetail = (rollNo: string) => {
+    const trimmed = (rollNo || '').trim();
+    if (!trimmed) return;
+
+    let item = masterRollLedgerData.find(
+      m => m.rollNo === trimmed &&
+           rollModalContext?.orderId && m.orderId === rollModalContext.orderId &&
+           rollModalContext?.subOrderIdx !== undefined && m.subOrderIdx === rollModalContext.subOrderIdx
+    );
+
+    if (!item) {
+      item = masterRollLedgerData.find(m => m.rollNo === trimmed);
+    }
+
+    if (!item) {
+      const targetOrder = rollModalContext?.orderId ? orders.find(o => o.id === rollModalContext.orderId) : null;
+      const targetSubRow = (targetOrder && rollModalContext?.subOrderIdx !== undefined)
+        ? targetOrder.rows[rollModalContext.subOrderIdx]
+        : null;
+
+      const dispMap = targetSubRow?.rollDispatchStatus || {};
+      const dispList = targetSubRow?.dispatchedRolls || [];
+      const isDispatched = dispMap[trimmed] === 'Dispatched' || dispList.includes(trimmed);
+
+      item = {
+        id: `fallback___${trimmed}`,
+        rollNo: trimmed,
+        orderId: targetOrder?.id || '',
+        orderNo: targetOrder?.orderNo || 'N/A',
+        orderDate: targetOrder?.date || 'N/A',
+        subOrderIdx: rollModalContext?.subOrderIdx || 0,
+        rollNoIdx: 0,
+        size: targetSubRow?.size || 'N/A',
+        gsm: targetSubRow?.gsm || 0,
+        denier: targetSubRow?.denier || 0,
+        fabricWeight: targetSubRow?.fabricWeight || 0,
+        grossWt: targetSubRow?.rollGrossWt?.[trimmed] ?? 0,
+        coreWt: targetSubRow?.rollCoreWt?.[trimmed] ?? 0,
+        netWt: targetSubRow?.rollNetWt?.[trimmed] ?? 0,
+        avgWtCalculated: targetSubRow?.rollAvgWtCalculated?.[trimmed] ?? 0,
+        meters: targetSubRow?.rollMeters?.[trimmed] ?? 0,
+        strength: targetSubRow?.rollStrength?.[trimmed] ?? '',
+        elongation: targetSubRow?.rollElongation?.[trimmed] ?? '',
+        quality: targetSubRow?.quality || 'N/A',
+        remarks: targetSubRow?.rollRemarks?.[trimmed] || '',
+        dispatchStatus: isDispatched ? 'Dispatched' : 'Not Dispatched',
+      };
+    }
+
+    setRollDetailModalItem(item);
   };
 
   const handleToggleRollDispatchStatusInModal = async (rollNo: string, newStatus: 'Dispatched' | 'Not Dispatched') => {
@@ -1460,6 +1518,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       netWt: number;
       avgWtCalculated: number;
       meters: number;
+      strength: string | number;
+      elongation: string | number;
       quality: string;
       remarks: string;
       dispatchStatus: 'Dispatched' | 'Not Dispatched';
@@ -1493,6 +1553,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               netWt: (row.rollNetWt && row.rollNetWt[trimmed]) ?? 0,
               avgWtCalculated: (row.rollAvgWtCalculated && row.rollAvgWtCalculated[trimmed]) ?? 0,
               meters: (row.rollMeters && row.rollMeters[trimmed]) ?? 0,
+              strength: (row.rollStrength && row.rollStrength[trimmed]) ?? '',
+              elongation: (row.rollElongation && row.rollElongation[trimmed]) ?? '',
               quality: row.quality || '',
               remarks: (row.rollRemarks && row.rollRemarks[trimmed]) || '',
               dispatchStatus: isDispatched ? 'Dispatched' : 'Not Dispatched',
@@ -1533,8 +1595,24 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         case 'avgWtCalculated':
           cmp = a.avgWtCalculated - b.avgWtCalculated;
           break;
+        case 'gsmCalculated': {
+          const szA = parseFloat(String(a.size || '').replace(/[^0-9.]/g, '')) || 0;
+          const avgA = Number(a.avgWtCalculated) || 0;
+          const gsmA = (szA > 0 && avgA > 0) ? avgA / szA : 0;
+          const szB = parseFloat(String(b.size || '').replace(/[^0-9.]/g, '')) || 0;
+          const avgB = Number(b.avgWtCalculated) || 0;
+          const gsmB = (szB > 0 && avgB > 0) ? avgB / szB : 0;
+          cmp = gsmA - gsmB;
+          break;
+        }
         case 'meters':
           cmp = a.meters - b.meters;
+          break;
+        case 'strength':
+          cmp = String(a.strength).localeCompare(String(b.strength), undefined, { numeric: true, sensitivity: 'base' });
+          break;
+        case 'elongation':
+          cmp = (Number(a.elongation) || 0) - (Number(b.elongation) || 0);
           break;
         case 'quality':
           cmp = a.quality.localeCompare(b.quality, undefined, { numeric: true, sensitivity: 'base' });
@@ -1576,6 +1654,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     setMasterEditNetWt(item.netWt ? String(item.netWt) : '');
     setMasterEditAvgWtCalculated(item.avgWtCalculated ? String(item.avgWtCalculated) : '');
     setMasterEditMeters(item.meters ? String(item.meters) : '');
+    setMasterEditStrength(item.strength ? String(item.strength) : '');
+    setMasterEditElongation(item.elongation ? String(item.elongation) : '');
     setMasterEditQuality(item.quality);
     setMasterEditRemarks(item.remarks);
     setMasterEditDispatchStatus(item.dispatchStatus);
@@ -1687,6 +1767,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     const existingRollNetWt = { ...(targetRow.rollNetWt || {}) };
     const existingRollAvgWtCalculated = { ...(targetRow.rollAvgWtCalculated || {}) };
     const existingRollMeters = { ...(targetRow.rollMeters || {}) };
+    const existingRollStrength = { ...(targetRow.rollStrength || {}) };
+    const existingRollElongation = { ...(targetRow.rollElongation || {}) };
 
     if (item.rollNo !== trimmedNewRollNo) {
       if (item.rollNo in existingRollRemarks) delete existingRollRemarks[item.rollNo];
@@ -1695,6 +1777,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       if (item.rollNo in existingRollNetWt) delete existingRollNetWt[item.rollNo];
       if (item.rollNo in existingRollAvgWtCalculated) delete existingRollAvgWtCalculated[item.rollNo];
       if (item.rollNo in existingRollMeters) delete existingRollMeters[item.rollNo];
+      if (item.rollNo in existingRollStrength) delete existingRollStrength[item.rollNo];
+      if (item.rollNo in existingRollElongation) delete existingRollElongation[item.rollNo];
     }
 
     existingRollRemarks[trimmedNewRollNo] = masterEditRemarks.trim();
@@ -1703,6 +1787,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     existingRollNetWt[trimmedNewRollNo] = Number(masterEditNetWt) || 0;
     existingRollAvgWtCalculated[trimmedNewRollNo] = Number(masterEditAvgWtCalculated) || 0;
     existingRollMeters[trimmedNewRollNo] = Number(masterEditMeters) || 0;
+    existingRollStrength[trimmedNewRollNo] = masterEditStrength.trim();
+    existingRollElongation[trimmedNewRollNo] = masterEditElongation.trim();
 
     targetRow.rollRemarks = existingRollRemarks;
     targetRow.rollGrossWt = existingRollGrossWt;
@@ -1710,6 +1796,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     targetRow.rollNetWt = existingRollNetWt;
     targetRow.rollAvgWtCalculated = existingRollAvgWtCalculated;
     targetRow.rollMeters = existingRollMeters;
+    targetRow.rollStrength = existingRollStrength;
+    targetRow.rollElongation = existingRollElongation;
 
     // Update dispatch status
     const currentDispatchedSet = new Set(targetRow.dispatchedRolls || []);
@@ -1789,6 +1877,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     if (targetRow.rollNetWt) { const m = { ...targetRow.rollNetWt }; delete m[item.rollNo]; targetRow.rollNetWt = m; }
     if (targetRow.rollAvgWtCalculated) { const m = { ...targetRow.rollAvgWtCalculated }; delete m[item.rollNo]; targetRow.rollAvgWtCalculated = m; }
     if (targetRow.rollMeters) { const m = { ...targetRow.rollMeters }; delete m[item.rollNo]; targetRow.rollMeters = m; }
+    if (targetRow.rollStrength) { const m = { ...targetRow.rollStrength }; delete m[item.rollNo]; targetRow.rollStrength = m; }
+    if (targetRow.rollElongation) { const m = { ...targetRow.rollElongation }; delete m[item.rollNo]; targetRow.rollElongation = m; }
 
     updatedRows[item.subOrderIdx] = targetRow;
 
@@ -1887,7 +1977,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       worksheet.views = [{ showGridLines: true }];
 
       // 1. TOP BANNER ROW (Row 1)
-      worksheet.mergeCells('A1:N1');
+      worksheet.mergeCells('A1:P1');
       const titleCell = worksheet.getCell('A1');
       titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • MASTER ROLL DIRECTORY LEDGER - ${modeTitle}`;
       titleCell.font = { name: 'Calibri', size: 15, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -1895,7 +1985,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(1).height = 40;
 
-      for (let col = 1; col <= 14; col++) {
+      for (let col = 1; col <= 16; col++) {
         worksheet.getRow(1).getCell(col).fill = titleCell.fill;
       }
 
@@ -1905,23 +1995,23 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       const notDispCount = totalCount - dispCount;
 
       worksheet.mergeCells('A2:D2');
-      worksheet.mergeCells('E2:I2');
-      worksheet.mergeCells('J2:N2');
+      worksheet.mergeCells('E2:J2');
+      worksheet.mergeCells('K2:P2');
 
       worksheet.mergeCells('A3:D3');
-      worksheet.mergeCells('E3:I3');
-      worksheet.mergeCells('J3:N3');
+      worksheet.mergeCells('E3:J3');
+      worksheet.mergeCells('K3:P3');
 
       worksheet.getRow(2).height = 18;
       worksheet.getRow(3).height = 22;
 
       worksheet.getCell('A2').value = 'Total Registered Rolls:';
       worksheet.getCell('E2').value = 'Dispatched Rolls:';
-      worksheet.getCell('J2').value = 'Non-Dispatched Rolls:';
+      worksheet.getCell('K2').value = 'Non-Dispatched Rolls:';
 
       worksheet.getCell('A3').value = `${totalCount} Rolls`;
       worksheet.getCell('E3').value = `${dispCount} Rolls (${totalCount > 0 ? Math.round((dispCount / totalCount) * 100) : 0}%)`;
-      worksheet.getCell('J3').value = `${notDispCount} Rolls (${totalCount > 0 ? Math.round((notDispCount / totalCount) * 100) : 0}%)`;
+      worksheet.getCell('K3').value = `${notDispCount} Rolls (${totalCount > 0 ? Math.round((notDispCount / totalCount) * 100) : 0}%)`;
 
       const thinCardBorder = {
         top: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
@@ -1940,7 +2030,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         });
       }
 
-      for (let col = 5; col <= 9; col++) {
+      for (let col = 5; col <= 10; col++) {
         [2, 3].forEach(r => {
           const c = worksheet.getRow(r).getCell(col);
           c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
@@ -1950,7 +2040,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         });
       }
 
-      for (let col = 10; col <= 14; col++) {
+      for (let col = 11; col <= 16; col++) {
         [2, 3].forEach(r => {
           const c = worksheet.getRow(r).getCell(col);
           c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEDD5' } };
@@ -1972,7 +2062,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         'Core Wt (kg)',
         'Net Wt (kg)',
         'Avg Wt [calc] (kg)',
+        'GSM [calc]',
         'Meters',
+        'Strength',
+        'Elongation (%)',
         'Weave Quality',
         'Dispatch Status',
         'Remarks',
@@ -2003,6 +2096,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         const isEven = currentR % 2 === 0;
         const rowBg = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
 
+        const szVal = parseFloat(String(item.size || '').replace(/[^0-9.]/g, '')) || 0;
+        const avgVal = Number(item.avgWtCalculated) || 0;
+        const gsmCalcVal = (szVal > 0 && avgVal > 0) ? parseFloat((avgVal / szVal).toFixed(2)) : 0;
+
         const rowValues = [
           item.rollNo,
           item.size,
@@ -2013,7 +2110,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           item.coreWt || 0,
           item.netWt || 0,
           item.avgWtCalculated || 0,
+          gsmCalcVal,
           item.meters || 0,
+          item.strength || '-',
+          item.elongation || '-',
           item.quality,
           item.dispatchStatus,
           item.remarks || '-',
@@ -2037,13 +2137,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
             cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFB45309' } };
           } else if (colIdx === 1 || colIdx === 2 || colIdx === 3) { // Size, GSM, Denier
             cell.alignment = { horizontal: 'center', vertical: 'middle' };
-          } else if (colIdx >= 4 && colIdx <= 9) { // Fabric Wt, Gross, Core, Net, Avg, Meters
+          } else if (colIdx >= 4 && colIdx <= 10) { // Fabric Wt, Gross, Core, Net, Avg, GSM calc, Meters
             cell.alignment = { horizontal: 'right', vertical: 'middle' };
             cell.numFmt = colIdx === 8 ? '#,##0.0000' : '#,##0.00';
-          } else if (colIdx === 10) { // Quality
+          } else if (colIdx === 11 || colIdx === 12) { // Strength, Elongation
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { name: 'Calibri', size: 10.5, bold: true };
+          } else if (colIdx === 13) { // Quality
             cell.alignment = { horizontal: 'left', vertical: 'middle' };
             cell.font = { name: 'Calibri', size: 10.5, bold: true };
-          } else if (colIdx === 11) { // Dispatch Status
+          } else if (colIdx === 14) { // Dispatch Status
             cell.alignment = { horizontal: 'center', vertical: 'middle' };
             if (val === 'Dispatched') {
               cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
@@ -2052,9 +2155,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEDD5' } };
               cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFC2410C' } };
             }
-          } else if (colIdx === 12) { // Remarks
+          } else if (colIdx === 15) { // Remarks
             cell.alignment = { horizontal: 'left', vertical: 'middle' };
-          } else if (colIdx === 13) { // Order No
+          } else if (colIdx === 16) { // Order No
             cell.alignment = { horizontal: 'center', vertical: 'middle' };
           }
         });
@@ -2073,7 +2176,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         { width: 14 },  // Core Wt (kg)
         { width: 14 },  // Net Wt (kg)
         { width: 20 },  // Avg Wt [calc] (kg)
+        { width: 14 },  // GSM [calc]
         { width: 14 },  // Meters
+        { width: 14 },  // Strength
+        { width: 16 },  // Elongation (%)
         { width: 24 },  // Weave Quality
         { width: 18 },  // Dispatch Status
         { width: 26 },  // Remarks
@@ -4176,9 +4282,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                               <span className="text-[10px] font-mono font-black text-zinc-400 shrink-0">
                                                 #{originalIndex + 1}
                                               </span>
-                                              <span className="text-xs sm:text-sm font-extrabold font-mono text-zinc-900 whitespace-nowrap" title={rollNo}>
-                                                {rollNo}
-                                              </span>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleViewRollDetail(rollNo)}
+                                                className="text-xs sm:text-sm font-extrabold font-mono text-zinc-900 hover:text-amber-700 hover:underline cursor-pointer flex items-center gap-1.5 transition-colors whitespace-nowrap group/roll"
+                                                title={`Click to view Master Roll Ledger details for Roll #${rollNo}`}
+                                              >
+                                                <span>{rollNo}</span>
+                                                <Info size={12} className="text-amber-600 opacity-70 group-hover/roll:opacity-100 shrink-0" />
+                                              </button>
                                             </div>
 
                                             <div className="flex items-center gap-1.5 shrink-0">
@@ -4233,9 +4345,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                               <span className="text-[10px] font-mono font-black text-emerald-600 shrink-0">
                                                 #{originalIndex + 1}
                                               </span>
-                                              <span className="text-xs sm:text-sm font-extrabold font-mono text-emerald-950 whitespace-nowrap" title={rollNo}>
-                                                {rollNo}
-                                              </span>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleViewRollDetail(rollNo)}
+                                                className="text-xs sm:text-sm font-extrabold font-mono text-emerald-950 hover:text-emerald-700 hover:underline cursor-pointer flex items-center gap-1.5 transition-colors whitespace-nowrap group/roll"
+                                                title={`Click to view Master Roll Ledger details for Roll #${rollNo}`}
+                                              >
+                                                <span>{rollNo}</span>
+                                                <Info size={12} className="text-emerald-700 opacity-80 group-hover/roll:opacity-100 shrink-0" />
+                                              </button>
                                               <span className="bg-emerald-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded shrink-0 uppercase tracking-wider">
                                                 DISPATCHED
                                               </span>
@@ -4290,6 +4408,178 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 className="bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-amber-400 font-black text-xs uppercase tracking-wider py-2.5 px-4 sm:px-6 rounded-xl border border-zinc-800 transition-all shadow-3xs cursor-pointer"
               >
                 Done / Save Entry
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* POP-UP WINDOW: INDIVIDUAL ROLL MASTER LEDGER DETAILS                       */}
+      {/* ========================================================================= */}
+      {rollDetailModalItem && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            
+            {/* Modal Header */}
+            <div className="bg-zinc-900 text-white px-4 py-3 sm:px-6 sm:py-4 flex justify-between items-center border-b border-zinc-800 shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                  <FileText size={18} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-400 leading-tight font-mono">
+                      Roll #{rollDetailModalItem.rollNo}
+                    </h3>
+                    <span
+                      className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                        rollDetailModalItem.dispatchStatus === 'Dispatched'
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                      }`}
+                    >
+                      {rollDetailModalItem.dispatchStatus}
+                    </span>
+                  </div>
+                  <p className="text-[10px] sm:text-xs text-zinc-400 font-semibold truncate mt-0.5">
+                    Master Roll Ledger Record • Order #{rollDetailModalItem.orderNo}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setRollDetailModalItem(null)}
+                className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-400 hover:text-white flex items-center justify-center transition-all cursor-pointer shrink-0"
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs">
+              {/* Order Context Card */}
+              <div className="bg-amber-50/60 border border-amber-200/80 rounded-xl p-3 grid grid-cols-2 gap-2 text-zinc-800">
+                <div>
+                  <span className="text-[10px] font-bold text-amber-800 uppercase block">Order #</span>
+                  <span className="font-extrabold font-mono text-zinc-900">{rollDetailModalItem.orderNo}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-amber-800 uppercase block">Order Date</span>
+                  <span className="font-semibold text-zinc-800">{rollDetailModalItem.orderDate || '—'}</span>
+                </div>
+                <div className="col-span-2 pt-1 border-t border-amber-200/60 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-amber-800 uppercase block">Weave Quality / Variety</span>
+                    <span className="font-extrabold text-zinc-900">{rollDetailModalItem.quality || '—'}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold text-amber-800 uppercase block">Size</span>
+                    <span className="font-extrabold text-zinc-900">{rollDetailModalItem.size || '—'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Key Measurements & Weights */}
+              <div>
+                <h4 className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-2 flex items-center gap-1.5">
+                  <Layers size={12} className="text-amber-600" />
+                  <span>Roll Specifications & Weights</span>
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-2.5">
+                    <span className="text-[9.5px] font-bold text-zinc-500 uppercase block">Meters (MTR)</span>
+                    <span className="font-mono font-black text-sm text-zinc-900">
+                      {rollDetailModalItem.meters ? `${rollDetailModalItem.meters} m` : '—'}
+                    </span>
+                  </div>
+
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-2.5">
+                    <span className="text-[9.5px] font-bold text-zinc-500 uppercase block">Gross Weight</span>
+                    <span className="font-mono font-black text-sm text-zinc-900">
+                      {rollDetailModalItem.grossWt ? `${rollDetailModalItem.grossWt} kg` : '—'}
+                    </span>
+                  </div>
+
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-2.5">
+                    <span className="text-[9.5px] font-bold text-zinc-500 uppercase block">Core Weight</span>
+                    <span className="font-mono font-black text-sm text-zinc-700">
+                      {rollDetailModalItem.coreWt ? `${rollDetailModalItem.coreWt} kg` : '—'}
+                    </span>
+                  </div>
+
+                  <div className="bg-indigo-50/80 border border-indigo-200 rounded-xl p-2.5">
+                    <span className="text-[9.5px] font-bold text-indigo-900 uppercase block">Net Weight</span>
+                    <span className="font-mono font-black text-sm text-indigo-950">
+                      {rollDetailModalItem.netWt ? `${rollDetailModalItem.netWt} kg` : '—'}
+                    </span>
+                  </div>
+
+                  <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-2.5">
+                    <span className="text-[9.5px] font-bold text-emerald-900 uppercase block">Avg Weight [calc]</span>
+                    <span className="font-mono font-black text-sm text-emerald-950">
+                      {rollDetailModalItem.avgWtCalculated ? `${rollDetailModalItem.avgWtCalculated} kg` : '—'}
+                    </span>
+                  </div>
+
+                  <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-2.5">
+                    <span className="text-[9.5px] font-bold text-amber-900 uppercase block">GSM [calc]</span>
+                    <span className="font-mono font-black text-sm text-amber-950">
+                      {(() => {
+                        const sz = parseFloat(String(rollDetailModalItem.size || '').replace(/[^0-9.]/g, '')) || 0;
+                        const avg = Number(rollDetailModalItem.avgWtCalculated) || 0;
+                        return (sz > 0 && avg > 0) ? `${(avg / sz).toFixed(2)}` : '—';
+                      })()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Technical Specifications */}
+              <div className="border-t border-zinc-100 pt-3">
+                <h4 className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-2">
+                  Technical Fabric Specs
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-zinc-800 bg-zinc-50 p-2.5 rounded-xl border border-zinc-200">
+                  <div>
+                    <span className="text-[9px] font-bold text-zinc-400 uppercase block">Target GSM</span>
+                    <span className="font-mono font-bold">{rollDetailModalItem.gsm || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-bold text-zinc-400 uppercase block">Denier</span>
+                    <span className="font-mono font-bold">{rollDetailModalItem.denier || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-bold text-zinc-400 uppercase block">Strength</span>
+                    <span className="font-mono font-bold">{rollDetailModalItem.strength || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-bold text-zinc-400 uppercase block">Elongation</span>
+                    <span className="font-mono font-bold">
+                      {rollDetailModalItem.elongation ? `${rollDetailModalItem.elongation}%` : '—'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Remarks */}
+              {rollDetailModalItem.remarks && (
+                <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-2.5">
+                  <span className="text-[9.5px] font-bold text-zinc-500 uppercase block mb-0.5">Remarks</span>
+                  <p className="text-zinc-800 font-medium italic text-[11px]">{rollDetailModalItem.remarks}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-zinc-50 px-4 py-3 sm:px-6 sm:py-3.5 border-t border-zinc-200 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setRollDetailModalItem(null)}
+                className="bg-zinc-900 hover:bg-zinc-800 text-amber-400 font-black text-xs uppercase tracking-wider py-2 px-5 rounded-xl border border-zinc-800 transition-all cursor-pointer shadow-3xs"
+              >
+                Close Window
               </button>
             </div>
 
@@ -4755,7 +5045,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           i.orderNo.toLowerCase().includes(q) ||
                           i.remarks.toLowerCase().includes(q) ||
                           String(i.gsm).includes(q) ||
-                          String(i.denier).includes(q)
+                          String(i.denier).includes(q) ||
+                          String(i.strength).toLowerCase().includes(q) ||
+                          String(i.elongation).toLowerCase().includes(q)
                         );
                       }).length} of {masterRollLedgerData.length} rolls
                     </span>
@@ -4763,7 +5055,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
                   {/* DESKTOP / TABLET RESPONSIVE TABLE VIEW */}
                   <div className="hidden sm:block overflow-x-auto rounded-2xl border border-zinc-200 shadow-3xs bg-white">
-                    <table className="w-full text-left border-collapse min-w-[1200px] 2xl:min-w-0">
+                    <table className="w-full text-left border-collapse min-w-[1000px] xl:min-w-0 text-xs">
                       <thead>
                         <tr className="bg-zinc-900 text-white text-[10px] font-black uppercase tracking-wider border-b border-zinc-800">
                           {/* 1. Roll Number */}
@@ -4928,6 +5220,24 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             </div>
                           </th>
 
+                          {/* GSM [CALC] */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('gsmCalculated')}
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'gsmCalculated' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
+                            }`}
+                            title="Click to sort by GSM [CALC] (AVG WT [CALC] / SIZE)"
+                          >
+                            <div className="flex items-center gap-1">
+                              <span>GSM [CALC]</span>
+                              {masterLedgerSortKey === 'gsmCalculated' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
                           {/* Meters */}
                           <th
                             onClick={() => handleMasterLedgerSort('meters')}
@@ -4939,6 +5249,42 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             <div className="flex items-center gap-1">
                               <span>Meters</span>
                               {masterLedgerSortKey === 'meters' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* Strength */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('strength')}
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'strength' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
+                            }`}
+                            title="Click to sort by Strength"
+                          >
+                            <div className="flex items-center gap-1">
+                              <span>Strength</span>
+                              {masterLedgerSortKey === 'strength' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* Elongation (%) */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('elongation')}
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'elongation' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
+                            }`}
+                            title="Click to sort by Elongation (%)"
+                          >
+                            <div className="flex items-center gap-1">
+                              <span>Elongation (%)</span>
+                              {masterLedgerSortKey === 'elongation' ? (
                                 masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
                                 <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
@@ -5045,7 +5391,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               String(item.coreWt).includes(q) ||
                               String(item.netWt).includes(q) ||
                               String(item.avgWtCalculated).includes(q) ||
-                              String(item.meters).includes(q)
+                              (() => {
+                                const szVal = parseFloat(String(item.size || '').replace(/[^0-9.]/g, '')) || 0;
+                                const avgVal = Number(item.avgWtCalculated) || 0;
+                                const gsmCalcStr = (szVal > 0 && avgVal > 0) ? (avgVal / szVal).toFixed(2) : '';
+                                return gsmCalcStr.includes(q);
+                              })() ||
+                              String(item.meters).includes(q) ||
+                              String(item.strength).toLowerCase().includes(q) ||
+                              String(item.elongation).toLowerCase().includes(q)
                             );
                           })
                           .map((item) => {
@@ -5149,6 +5503,19 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       placeholder="Avg Calc"
                                     />
                                   </td>
+                                  {/* GSM [CALC] */}
+                                  <td className="py-2.5 px-2">
+                                    {(() => {
+                                      const sz = parseFloat(String(masterEditSize || '').replace(/[^0-9.]/g, '')) || 0;
+                                      const avg = parseFloat(masterEditAvgWtCalculated) || 0;
+                                      const gCalc = (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : '-';
+                                      return (
+                                        <span className="text-xs font-mono font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded block text-center min-w-[60px]">
+                                          {gCalc}
+                                        </span>
+                                      );
+                                    })()}
+                                  </td>
                                   {/* Meters */}
                                   <td className="py-2.5 px-2">
                                     <input
@@ -5158,6 +5525,26 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       onChange={(e) => handleMasterEditMetersChange(e.target.value)}
                                       className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
                                       placeholder="Meters"
+                                    />
+                                  </td>
+                                  {/* Strength */}
+                                  <td className="py-2.5 px-1.5">
+                                    <input
+                                      type="text"
+                                      value={masterEditStrength}
+                                      onChange={(e) => setMasterEditStrength(e.target.value)}
+                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      placeholder="Strength"
+                                    />
+                                  </td>
+                                  {/* Elongation (%) */}
+                                  <td className="py-2.5 px-1.5">
+                                    <input
+                                      type="text"
+                                      value={masterEditElongation}
+                                      onChange={(e) => setMasterEditElongation(e.target.value)}
+                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      placeholder="Elongation %"
                                     />
                                   </td>
                                   {/* Col 11: Weave Quality */}
@@ -5257,9 +5644,25 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 <td className="py-2.5 px-3 font-mono font-black text-emerald-800">
                                   {item.avgWtCalculated ? `${item.avgWtCalculated}` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
+                                {/* GSM [CALC] */}
+                                <td className="py-2.5 px-3 font-mono font-black text-amber-900">
+                                  {(() => {
+                                    const sz = parseFloat(String(item.size || '').replace(/[^0-9.]/g, '')) || 0;
+                                    const avg = Number(item.avgWtCalculated) || 0;
+                                    return (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : <span className="text-zinc-300 font-normal italic">-</span>;
+                                  })()}
+                                </td>
                                 {/* 10. Meters */}
                                 <td className="py-2.5 px-3 font-mono font-bold text-zinc-800">
                                   {item.meters ? `${item.meters}` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* Strength */}
+                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-800">
+                                  {item.strength ? `${item.strength}` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* Elongation (%) */}
+                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-800">
+                                  {item.elongation ? `${item.elongation}%` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
                                 {/* 11. Weave Quality */}
                                 <td className="py-2.5 px-3 font-semibold text-zinc-900">
@@ -5348,6 +5751,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           <option value="coreWt">Core Weight</option>
                           <option value="netWt">Net Weight</option>
                           <option value="avgWtCalculated">Avg Weight (calc)</option>
+                          <option value="gsmCalculated">GSM [calc]</option>
                           <option value="meters">Meters</option>
                           <option value="quality">Weave Quality</option>
                           <option value="dispatchStatus">Dispatch Status</option>
@@ -5494,6 +5898,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                   />
                                 </div>
                                 <div>
+                                  <label className="text-[9px] font-bold text-amber-800 uppercase block">GSM [calc]</label>
+                                  <div className="w-full bg-amber-50 border border-amber-300 rounded px-2 py-1 font-mono font-bold text-xs text-amber-950">
+                                    {(() => {
+                                      const sz = parseFloat(String(masterEditSize || '').replace(/[^0-9.]/g, '')) || 0;
+                                      const avg = parseFloat(masterEditAvgWtCalculated) || 0;
+                                      return (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : '-';
+                                    })()}
+                                  </div>
+                                </div>
+                                <div>
                                   <label className="text-[9px] font-bold text-zinc-500 uppercase block">Meters</label>
                                   <input
                                     type="number"
@@ -5501,6 +5915,26 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                     value={masterEditMeters}
                                     onChange={(e) => handleMasterEditMetersChange(e.target.value)}
                                     className="w-full bg-white border border-amber-400 rounded px-2 py-1 font-mono text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Strength</label>
+                                  <input
+                                    type="text"
+                                    value={masterEditStrength}
+                                    onChange={(e) => setMasterEditStrength(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 text-xs"
+                                    placeholder="Strength"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Elongation (%)</label>
+                                  <input
+                                    type="text"
+                                    value={masterEditElongation}
+                                    onChange={(e) => setMasterEditElongation(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 text-xs"
+                                    placeholder="Elongation %"
                                   />
                                 </div>
                                 <div>
@@ -5576,7 +6010,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               <div><span className="text-zinc-400 text-[10px]">Core Wt:</span> <strong className="text-zinc-800 font-mono">{item.coreWt || '-'} kg</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">Net Wt:</span> <strong className="text-indigo-900 font-mono font-black">{item.netWt || '-'} kg</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">Avg Wt [calc]:</span> <strong className="text-emerald-800 font-mono font-black">{item.avgWtCalculated || '-'} kg</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">GSM [calc]:</span> <strong className="text-amber-900 font-mono font-black">{(() => {
+                                const sz = parseFloat(String(item.size || '').replace(/[^0-9.]/g, '')) || 0;
+                                const avg = Number(item.avgWtCalculated) || 0;
+                                return (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : '-';
+                              })()}</strong></div>
                               <div className="col-span-2"><span className="text-zinc-400 text-[10px]">Meters:</span> <strong className="text-zinc-800 font-mono">{item.meters || '-'} m</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Strength:</span> <strong className="text-zinc-800 font-mono">{item.strength || '-'}</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Elongation:</span> <strong className="text-zinc-800 font-mono">{item.elongation ? `${item.elongation}%` : '-'}</strong></div>
                               <div className="col-span-2"><span className="text-zinc-400 text-[10px]">Quality:</span> <strong className="text-zinc-900">{item.quality || '-'}</strong></div>
                               <div className="col-span-2 flex items-center justify-between pt-1 border-t border-zinc-100">
                                 <span className="text-zinc-500 text-[10px] font-bold flex items-center gap-1">

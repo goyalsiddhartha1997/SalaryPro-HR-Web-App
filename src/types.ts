@@ -103,6 +103,8 @@ export interface LoomOrderRow {
   rollNetWt?: Record<string, number>;
   rollAvgWtCalculated?: Record<string, number>;
   rollMeters?: Record<string, number>;
+  rollStrength?: Record<string, string | number>;
+  rollElongation?: Record<string, string | number>;
 }
 
 export interface LoomOrder {
