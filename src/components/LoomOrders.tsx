@@ -991,6 +991,26 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     }
   };
 
+  const recalculateRowProductionCompleted = (row: LoomOrderRow): number => {
+    const rolls = row.rollNumbers || [];
+    if (rolls.length === 0) {
+      return row.productionCompleted || 0;
+    }
+    const rollNetWtMap = row.rollNetWt || {};
+    let sumNetWt = 0;
+    let hasRecordedWeights = false;
+    rolls.forEach((rNo) => {
+      if (rNo in rollNetWtMap && typeof rollNetWtMap[rNo] === 'number') {
+        sumNetWt += rollNetWtMap[rNo];
+        hasRecordedWeights = true;
+      }
+    });
+    if (hasRecordedWeights) {
+      return parseFloat(sumNetWt.toFixed(2));
+    }
+    return row.productionCompleted || 0;
+  };
+
   const syncRollNumbersStateAndFirestore = async (updatedRolls: string[]) => {
     if (!rollModalContext) return;
 
@@ -1018,6 +1038,21 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       if (targetRow.noOfRolls === undefined || targetRow.noOfRolls < sortedRolls.length) {
         targetRow.noOfRolls = sortedRolls.length;
       }
+
+      // Clean up orphaned roll metadata for deleted rolls
+      const activeRollSet = new Set(sortedRolls);
+      if (targetRow.rollGrossWt) { const m = { ...targetRow.rollGrossWt }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollGrossWt = m; }
+      if (targetRow.rollCoreWt) { const m = { ...targetRow.rollCoreWt }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollCoreWt = m; }
+      if (targetRow.rollNetWt) { const m = { ...targetRow.rollNetWt }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollNetWt = m; }
+      if (targetRow.rollAvgWtCalculated) { const m = { ...targetRow.rollAvgWtCalculated }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollAvgWtCalculated = m; }
+      if (targetRow.rollMeters) { const m = { ...targetRow.rollMeters }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollMeters = m; }
+      if (targetRow.rollStrength) { const m = { ...targetRow.rollStrength }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollStrength = m; }
+      if (targetRow.rollElongation) { const m = { ...targetRow.rollElongation }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollElongation = m; }
+      if (targetRow.rollRemarks) { const m = { ...targetRow.rollRemarks }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollRemarks = m; }
+      if (targetRow.rollDispatchStatus) { const m = { ...targetRow.rollDispatchStatus }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollDispatchStatus = m; }
+      if (targetRow.dispatchedRolls) { targetRow.dispatchedRolls = targetRow.dispatchedRolls.filter(r => activeRollSet.has(r)); }
+
+      targetRow.productionCompleted = recalculateRowProductionCompleted(targetRow);
 
       updatedRows[rollModalContext.subOrderIdx] = targetRow;
 
@@ -1818,6 +1853,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
     targetRow.dispatchedRolls = Array.from(currentDispatchedSet);
     targetRow.rollDispatchStatus = currentDispatchStatusMap;
+    targetRow.productionCompleted = recalculateRowProductionCompleted(targetRow);
 
     updatedRows[item.subOrderIdx] = targetRow;
 
@@ -1880,6 +1916,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     if (targetRow.rollStrength) { const m = { ...targetRow.rollStrength }; delete m[item.rollNo]; targetRow.rollStrength = m; }
     if (targetRow.rollElongation) { const m = { ...targetRow.rollElongation }; delete m[item.rollNo]; targetRow.rollElongation = m; }
 
+    targetRow.productionCompleted = recalculateRowProductionCompleted(targetRow);
     updatedRows[item.subOrderIdx] = targetRow;
 
     try {
@@ -1939,6 +1976,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       targetRow.noOfRolls = targetRow.rollNumbers.length;
     }
 
+    targetRow.productionCompleted = recalculateRowProductionCompleted(targetRow);
     updatedRows[ledgerAddSubOrderIdx] = targetRow;
 
     try {
