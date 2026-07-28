@@ -177,7 +177,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       case 'grossWt': return 'Gross Wt (kg)';
       case 'coreWt': return 'Core Wt (kg)';
       case 'netWt': return 'Net Wt (kg)';
-      case 'avgWtCalculated': return 'Avg Wt [calc] (kg)';
+      case 'avgWtCalculated': return 'Avg Wt [calc] (grams)';
       case 'gsmCalculated': return 'GSM [calc]';
       case 'meters': return 'Meters';
       case 'strength': return 'Strength';
@@ -2099,7 +2099,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         'Gross Wt (kg)',
         'Core Wt (kg)',
         'Net Wt (kg)',
-        'Avg Wt [calc] (kg)',
+        'Avg Wt [calc] (grams)',
         'GSM [calc]',
         'Meters',
         'Strength',
@@ -2213,7 +2213,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         { width: 16 },  // Gross Wt (kg)
         { width: 14 },  // Core Wt (kg)
         { width: 14 },  // Net Wt (kg)
-        { width: 20 },  // Avg Wt [calc] (kg)
+        { width: 20 },  // Avg Wt [calc] (grams)
         { width: 14 },  // GSM [calc]
         { width: 14 },  // Meters
         { width: 14 },  // Strength
@@ -2246,7 +2246,22 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
   // Aggregate stats for the currently opened Modal Order
   const modalStats = useMemo(() => {
-    if (!modalOrder) return { totalTarget: 0, totalCompleted: 0, completionRate: 0, pendingCount: 0, prodCount: 0, compCount: 0, totalRollsReady: 0, totalRolls: 0, totalDispatchedRolls: 0, totalRecordedRolls: 0 };
+    if (!modalOrder) return { 
+      totalTarget: 0, 
+      totalCompleted: 0, 
+      completionRate: 0, 
+      pendingCount: 0, 
+      prodCount: 0, 
+      compCount: 0, 
+      totalRollsReady: 0, 
+      totalRolls: 0, 
+      totalDispatchedRolls: 0, 
+      totalNotDispatchedRolls: 0,
+      totalRecordedRolls: 0,
+      totalRecordedNetWt: 0,
+      totalDispatchedNetWt: 0,
+      totalNotDispatchedNetWt: 0
+    };
     
     let totalTarget = 0;
     let totalCompleted = 0;
@@ -2256,10 +2271,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     let totalRollsReady = 0;
     let totalRolls = 0;
     let totalDispatchedRolls = 0;
+    let totalNotDispatchedRolls = 0;
     let totalRecordedRolls = 0;
 
-    modalOrder.rows.forEach(r => {
-      totalTarget += r.totalQuantity;
+    let totalRecordedNetWt = 0;
+    let totalDispatchedNetWt = 0;
+    let totalNotDispatchedNetWt = 0;
+
+    (modalOrder.rows || []).forEach(r => {
+      totalTarget += r.totalQuantity || 0;
       totalCompleted += (r.productionCompleted || 0);
       
       const rolls = r.noOfRolls || 0;
@@ -2269,11 +2289,20 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       totalRecordedRolls += rollList.length;
       const dispSet = new Set(r.dispatchedRolls || []);
       const dispMap = r.rollDispatchStatus || {};
+      const rollNetWtMap = r.rollNetWt || {};
 
       rollList.forEach(rollNo => {
         const trimmed = rollNo.trim();
-        if (dispMap[trimmed] === 'Dispatched' || dispSet.has(trimmed)) {
+        const nw = Number(rollNetWtMap[trimmed]) || 0;
+        totalRecordedNetWt += nw;
+
+        const isDispatched = dispMap[trimmed] === 'Dispatched' || dispSet.has(trimmed);
+        if (isDispatched) {
           totalDispatchedRolls++;
+          totalDispatchedNetWt += nw;
+        } else {
+          totalNotDispatchedRolls++;
+          totalNotDispatchedNetWt += nw;
         }
       });
 
@@ -2298,7 +2327,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       totalRollsReady,
       totalRolls,
       totalDispatchedRolls,
-      totalRecordedRolls
+      totalNotDispatchedRolls,
+      totalRecordedRolls,
+      totalRecordedNetWt,
+      totalDispatchedNetWt,
+      totalNotDispatchedNetWt
     };
   }, [modalOrder]);
 
@@ -2962,98 +2995,126 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
             <div className="p-6 overflow-y-auto flex-1 space-y-6">
               
               {/* STUNNING INDUSTRIAL METRICS ROW */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
                 
                 {/* Metric 1: Turnaround target */}
-                <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl flex items-start justify-between shadow-3xs col-span-1">
-                  <div>
+                <div className="bg-zinc-50 border border-zinc-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-3xs">
+                  <div className="flex items-start justify-between">
                     <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none">
                       Turnaround Target
                     </span>
-                    <span className="text-lg font-black text-zinc-900 font-mono block mt-1.5">
+                    <div className="w-8 h-8 rounded-xl bg-zinc-900 flex items-center justify-center text-amber-400 border border-zinc-800 shrink-0">
+                      <BarChart4 size={15} />
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-base font-black text-zinc-900 font-mono block">
                       {modalStats.totalTarget.toFixed(2)} KG
                     </span>
-                    <span className="text-[10px] text-zinc-500 font-bold mt-0.5 block">
-                      Target manufacturing volume
+                    <span className="text-[10px] text-zinc-500 font-bold block mt-0.5">
+                      Target volume
                     </span>
-                  </div>
-                  <div className="w-9 h-9 rounded-xl bg-zinc-900 flex items-center justify-center text-amber-400 border border-zinc-800">
-                    <BarChart4 size={16} />
                   </div>
                 </div>
 
                 {/* Metric 2: Completed Fabric */}
-                <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl flex items-start justify-between shadow-3xs col-span-1">
-                  <div>
+                <div className="bg-zinc-50 border border-zinc-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-3xs">
+                  <div className="flex items-start justify-between">
                     <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none">
                       Completed Fabric
                     </span>
-                    <span className="text-lg font-black text-emerald-600 font-mono block mt-1.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500 flex items-center justify-center text-zinc-950 shrink-0">
+                      <CheckCircle size={15} className="stroke-[2.5]" />
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-base font-black text-emerald-600 font-mono block">
                       {modalStats.totalCompleted.toFixed(2)} KG
                     </span>
                     <span className="text-[10px] text-zinc-500 font-semibold block mt-0.5">
                       {modalStats.completionRate.toFixed(1)}% completed
                     </span>
                   </div>
-                  <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center text-zinc-950">
-                    <CheckCircle size={16} className="stroke-[2.5]" />
-                  </div>
                 </div>
 
-                {/* Metric 3: Total Rolls Ready */}
-                <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl flex items-start justify-between shadow-3xs col-span-1">
-                  <div>
+                {/* Metric 3: Total Rolls */}
+                <div className="bg-zinc-50 border border-zinc-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-3xs">
+                  <div className="flex items-start justify-between">
                     <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none">
-                      Total Rolls Ready
+                      Total Rolls
                     </span>
-                    <span className="text-lg font-black text-blue-600 font-mono block mt-1.5">
-                      {modalStats.totalRolls} Rolls
-                    </span>
-                    <span className="text-[10px] text-zinc-500 font-semibold block mt-0.5">
-                      Fully manufactured & prepared
-                    </span>
+                    <div className="w-8 h-8 rounded-xl bg-zinc-900 flex items-center justify-center text-blue-400 border border-zinc-800 shrink-0">
+                      <Layers size={15} />
+                    </div>
                   </div>
-                  <div className="w-9 h-9 rounded-xl bg-zinc-900 flex items-center justify-center text-blue-400 border border-zinc-800">
-                    <Layers size={16} />
+                  <div className="mt-2">
+                    <span className="text-base font-black text-blue-600 font-mono block">
+                      {modalStats.totalRecordedRolls} Rolls
+                    </span>
+                    <div className="text-[10px] text-blue-800 font-mono font-extrabold mt-0.5 bg-blue-50/80 px-2 py-0.5 rounded border border-blue-200/60 inline-block">
+                      {modalStats.totalRecordedNetWt.toFixed(2)} KG Net Wt
+                    </div>
                   </div>
                 </div>
 
                 {/* Metric 4: Dispatched Rolls */}
-                <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl flex items-start justify-between shadow-3xs col-span-1">
-                  <div>
+                <div className="bg-zinc-50 border border-zinc-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-3xs">
+                  <div className="flex items-start justify-between">
                     <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none">
                       Dispatched Rolls
                     </span>
-                    <span className="text-lg font-black text-emerald-700 font-mono block mt-1.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-600 flex items-center justify-center text-white border border-emerald-700 shadow-3xs shrink-0">
+                      <Truck size={15} />
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-base font-black text-emerald-700 font-mono block">
                       {modalStats.totalDispatchedRolls} Dispatched
                     </span>
-                    <span className="text-[10px] text-zinc-500 font-semibold block mt-0.5">
-                      {modalStats.totalRecordedRolls > 0 ? `${modalStats.totalDispatchedRolls}/${modalStats.totalRecordedRolls} rolls dispatched` : 'No rolls recorded'}
-                    </span>
-                  </div>
-                  <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center text-white border border-emerald-700 shadow-3xs">
-                    <Truck size={16} />
+                    <div className="text-[10px] text-emerald-800 font-mono font-extrabold mt-0.5 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/80 inline-block">
+                      {modalStats.totalDispatchedNetWt.toFixed(2)} KG Net Wt
+                    </div>
                   </div>
                 </div>
 
-                {/* Metric 5: Item Status Breakdown */}
-                <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-2xl col-span-1 sm:col-span-2 shadow-3xs">
-                  <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none mb-2.5">
-                    Sub-order Status Breakdown
+                {/* Metric 5: Not Dispatched Rolls */}
+                <div className="bg-zinc-50 border border-zinc-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-3xs">
+                  <div className="flex items-start justify-between">
+                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none">
+                      Not Dispatched Rolls
+                    </span>
+                    <div className="w-8 h-8 rounded-xl bg-amber-500 flex items-center justify-center text-zinc-950 border border-amber-600 shadow-3xs shrink-0">
+                      <PackageX size={15} />
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-base font-black text-amber-700 font-mono block">
+                      {modalStats.totalNotDispatchedRolls} Not Dispatched
+                    </span>
+                    <div className="text-[10px] text-amber-900 font-mono font-extrabold mt-0.5 bg-amber-50 px-2 py-0.5 rounded border border-amber-200/80 inline-block">
+                      {modalStats.totalNotDispatchedNetWt.toFixed(2)} KG Net Wt
+                    </div>
+                  </div>
+                </div>
+
+                {/* Metric 6: Sub-order Status Breakdown */}
+                <div className="bg-zinc-50 border border-zinc-200 p-3.5 rounded-2xl flex flex-col justify-between shadow-3xs">
+                  <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block leading-none mb-1">
+                    Status Breakdown
                   </span>
                   
-                  <div className="grid grid-cols-3 gap-2 text-center mt-1">
-                    <div className="bg-white border border-zinc-200/80 rounded-xl p-2">
-                      <p className="text-[8px] font-extrabold text-zinc-400 uppercase leading-none">Pending</p>
-                      <p className="text-sm font-black text-amber-600 font-mono mt-1">{modalStats.pendingCount}</p>
+                  <div className="grid grid-cols-3 gap-1.5 text-center mt-1">
+                    <div className="bg-white border border-zinc-200/80 rounded-lg p-1.5">
+                      <p className="text-[7.5px] font-extrabold text-zinc-400 uppercase leading-none">Pending</p>
+                      <p className="text-xs font-black text-amber-600 font-mono mt-0.5">{modalStats.pendingCount}</p>
                     </div>
-                    <div className="bg-white border border-zinc-200/80 rounded-xl p-2">
-                      <p className="text-[8px] font-extrabold text-zinc-400 uppercase leading-none">In Production</p>
-                      <p className="text-sm font-black text-orange-600 font-mono mt-1">{modalStats.prodCount}</p>
+                    <div className="bg-white border border-zinc-200/80 rounded-lg p-1.5">
+                      <p className="text-[7.5px] font-extrabold text-zinc-400 uppercase leading-none">In Prod</p>
+                      <p className="text-xs font-black text-orange-600 font-mono mt-0.5">{modalStats.prodCount}</p>
                     </div>
-                    <div className="bg-white border border-zinc-200/80 rounded-xl p-2">
-                      <p className="text-[8px] font-extrabold text-zinc-400 uppercase leading-none">Completed</p>
-                      <p className="text-sm font-black text-emerald-600 font-mono mt-1">{modalStats.compCount}</p>
+                    <div className="bg-white border border-zinc-200/80 rounded-lg p-1.5">
+                      <p className="text-[7.5px] font-extrabold text-zinc-400 uppercase leading-none">Done</p>
+                      <p className="text-xs font-black text-emerald-600 font-mono mt-0.5">{modalStats.compCount}</p>
                     </div>
                   </div>
                 </div>
@@ -3082,23 +3143,23 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 ) : (
                   <>
                     {/* Desktop View Table */}
-                    <div className="hidden md:block overflow-x-auto">
+                    <div className="hidden md:block overflow-auto max-h-[60vh]">
                       <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-zinc-50/80 text-zinc-500 border-b border-zinc-200">
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[40px]">#</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[140px]">Weave Quality</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[130px]">Lamination Type</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[100px]">Size</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[70px]">GSM</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[75px]">Denier</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[85px]">Fabric Wt (g)</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[125px]">No. of Rolls</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[95px]">Target (KG)</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[110px]">Completed (KG)</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[100px]">Status</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[150px]">Remarks</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right min-w-[110px]">Actions</th>
+                        <thead className="sticky top-0 z-20 bg-zinc-100 shadow-2xs">
+                          <tr className="bg-zinc-100 text-zinc-600 border-b border-zinc-200">
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[40px] bg-zinc-100">#</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[140px] bg-zinc-100">Weave Quality</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[130px] bg-zinc-100">Lamination Type</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[100px] bg-zinc-100">Size</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[70px] bg-zinc-100">GSM</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[75px] bg-zinc-100">Denier</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[85px] bg-zinc-100">Fabric Wt (g)</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[125px] bg-zinc-100">No. of Rolls</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[95px] bg-zinc-100">Target (KG)</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[110px] bg-zinc-100">Completed (KG)</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[100px] bg-zinc-100">Status</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[150px] bg-zinc-100">Remarks</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right min-w-[110px] bg-zinc-100">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-200">
@@ -4557,7 +4618,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-2.5">
                     <span className="text-[9.5px] font-bold text-emerald-900 uppercase block">Avg Weight [calc]</span>
                     <span className="font-mono font-black text-sm text-emerald-950">
-                      {rollDetailModalItem.avgWtCalculated ? `${rollDetailModalItem.avgWtCalculated} kg` : '—'}
+                      {rollDetailModalItem.avgWtCalculated ? `${rollDetailModalItem.avgWtCalculated} grams` : '—'}
                     </span>
                   </div>
 
@@ -4579,10 +4640,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 <h4 className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-2">
                   Technical Fabric Specs
                 </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-zinc-800 bg-zinc-50 p-2.5 rounded-xl border border-zinc-200">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-zinc-800 bg-zinc-50 p-2.5 rounded-xl border border-zinc-200">
                   <div>
                     <span className="text-[9px] font-bold text-zinc-400 uppercase block">Target GSM</span>
                     <span className="font-mono font-bold">{rollDetailModalItem.gsm || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-bold text-zinc-400 uppercase block">Target Avg Weight</span>
+                    <span className="font-mono font-bold">
+                      {rollDetailModalItem.fabricWeight ? `${rollDetailModalItem.fabricWeight} grams` : '—'}
+                    </span>
                   </div>
                   <div>
                     <span className="text-[9px] font-bold text-zinc-400 uppercase block">Denier</span>
@@ -5092,9 +5159,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   </div>
 
                   {/* DESKTOP / TABLET RESPONSIVE TABLE VIEW */}
-                  <div className="hidden sm:block overflow-x-auto rounded-2xl border border-zinc-200 shadow-3xs bg-white">
+                  <div className="hidden sm:block overflow-auto max-h-[65vh] rounded-2xl border border-zinc-200 shadow-3xs bg-white">
                     <table className="w-full text-left border-collapse min-w-[1000px] xl:min-w-0 text-xs">
-                      <thead>
+                      <thead className="sticky top-0 z-20 bg-zinc-900 shadow-xs">
                         <tr className="bg-zinc-900 text-white text-[10px] font-black uppercase tracking-wider border-b border-zinc-800">
                           {/* 1. Roll Number */}
                           <th
@@ -5240,7 +5307,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             </div>
                           </th>
 
-                          {/* Average Weight (calc) (kg) */}
+                          {/* Average Weight (calc) (grams) */}
                           <th
                             onClick={() => handleMasterLedgerSort('avgWtCalculated')}
                             className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
@@ -5249,7 +5316,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             title="Click to sort by Average Weight (calc)"
                           >
                             <div className="flex items-center gap-1">
-                              <span>Avg Wt [calc]</span>
+                              <span>Avg Wt [calc] (grams)</span>
                               {masterLedgerSortKey === 'avgWtCalculated' ? (
                                 masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
@@ -5530,7 +5597,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       placeholder="Net Wt"
                                     />
                                   </td>
-                                  {/* Average Weight (calc) (kg) */}
+                                  {/* Average Weight (calc) (grams) */}
                                   <td className="py-2.5 px-2">
                                     <input
                                       type="number"
@@ -5926,7 +5993,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                   />
                                 </div>
                                 <div>
-                                  <label className="text-[9px] font-bold text-emerald-600 uppercase block">Avg Wt [calc] (kg)</label>
+                                  <label className="text-[9px] font-bold text-emerald-600 uppercase block">Avg Wt [calc] (grams)</label>
                                   <input
                                     type="number"
                                     step="0.0001"
@@ -6047,7 +6114,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               <div><span className="text-zinc-400 text-[10px]">Gross Wt:</span> <strong className="text-zinc-800 font-mono">{item.grossWt || '-'} kg</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">Core Wt:</span> <strong className="text-zinc-800 font-mono">{item.coreWt || '-'} kg</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">Net Wt:</span> <strong className="text-indigo-900 font-mono font-black">{item.netWt || '-'} kg</strong></div>
-                              <div><span className="text-zinc-400 text-[10px]">Avg Wt [calc]:</span> <strong className="text-emerald-800 font-mono font-black">{item.avgWtCalculated || '-'} kg</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Avg Wt [calc]:</span> <strong className="text-emerald-800 font-mono font-black">{item.avgWtCalculated ? `${item.avgWtCalculated} grams` : '-'}</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">GSM [calc]:</span> <strong className="text-amber-900 font-mono font-black">{(() => {
                                 const sz = parseFloat(String(item.size || '').replace(/[^0-9.]/g, '')) || 0;
                                 const avg = Number(item.avgWtCalculated) || 0;
