@@ -7,6 +7,9 @@ import React, { useMemo, useState } from 'react';
 import { ComputedEmployee } from '../types';
 import { 
   Users, 
+  UserCheck,
+  UserX,
+  Filter,
   IndianRupee, 
   Percent, 
   AlertTriangle, 
@@ -37,10 +40,37 @@ export default function Dashboard({
   const [modalType, setModalType] = useState<'payroll' | 'deductions' | null>(null);
   const [modalSearch, setModalSearch] = useState('');
   const [auditFilter, setAuditFilter] = useState<'all' | 'hourly_abs' | 'full_day_abs' | 'advances_food'>('all');
+  const [employeeStatusFilter, setEmployeeStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+
+  // Counts of valid employees by active status
+  const statusCounts = useMemo(() => {
+    const valid = employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_'));
+    let active = 0;
+    let inactive = 0;
+    valid.forEach(emp => {
+      if (emp.activeStatus === 'INACTIVE') {
+        inactive++;
+      } else {
+        active++;
+      }
+    });
+    return { all: valid.length, active, inactive };
+  }, [employees]);
+
+  // Filtered employee list according to active/inactive/all status selection
+  const filteredEmployees = useMemo(() => {
+    return employees.filter(emp => {
+      if ((emp.name || '').trim() === '' || emp.id.startsWith('EMP_TEMP_')) return false;
+      const status = emp.activeStatus || 'ACTIVE';
+      if (employeeStatusFilter === 'active') return status === 'ACTIVE';
+      if (employeeStatusFilter === 'inactive') return status === 'INACTIVE';
+      return true;
+    });
+  }, [employees, employeeStatusFilter]);
 
   // Memoize summaries for performance
   const stats = useMemo(() => {
-    const liveEmployees = employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_'));
+    const liveEmployees = filteredEmployees;
     const totalCount = liveEmployees.length;
     let totalBaseSalary = 0;
     let totalDeductions = 0;
@@ -160,7 +190,7 @@ export default function Dashboard({
       totalDailyOwed,
       daysInMonth
     };
-  }, [employees, ledgerMonth, ledgerYear]);
+  }, [filteredEmployees, ledgerMonth, ledgerYear]);
 
   // Helper to format currency
   const formatINR = (value: number) => {
@@ -178,14 +208,81 @@ export default function Dashboard({
 
   return (
     <div className="space-y-6" id="dashboard-section">
-      {/* Dynamic Month/Year Reporting Period Filter for Corporate Workforce Analytics */}
-      {setLedgerMonth && setLedgerYear && ledgerMonth !== undefined && ledgerYear !== undefined && (
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-slate-50 border border-slate-100 rounded-2xl gap-3 select-none">
+      {/* Dynamic Filter Section Bar: Employee Status Filter (All/Active/Inactive) & Reporting Period */}
+      <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 shadow-3xs flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 select-none" id="dashboard-filter-section">
+        
+        {/* Left: Filter Header & Employee Status Filter Pills */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full lg:w-auto">
           <div>
-            <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Analysis Reporting Period</h4>
-            <p className="text-[11px] text-slate-400 font-medium">Select a payroll month and year to view real-time corporate analytics</p>
+            <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+              <Filter size={14} className="text-emerald-600" />
+              Dashboard Filters
+            </h4>
+            <p className="text-[11px] text-slate-400 font-medium hidden sm:block">Filter metrics by employee status and period</p>
           </div>
-          <div className="flex items-center gap-2">
+
+          {/* Employee Status Filter Buttons */}
+          <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl shadow-3xs w-full sm:w-auto overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setEmployeeStatusFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                employeeStatusFilter === 'all'
+                  ? 'bg-slate-800 text-white shadow-3xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <Users size={13} />
+              <span>All Staff</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                employeeStatusFilter === 'all' ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-600'
+              }`}>
+                {statusCounts.all}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setEmployeeStatusFilter('active')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                employeeStatusFilter === 'active'
+                  ? 'bg-emerald-600 text-white shadow-3xs'
+                  : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50'
+              }`}
+            >
+              <UserCheck size={13} />
+              <span>Active</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                employeeStatusFilter === 'active' ? 'bg-emerald-700 text-emerald-100' : 'bg-emerald-100 text-emerald-800'
+              }`}>
+                {statusCounts.active}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setEmployeeStatusFilter('inactive')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                employeeStatusFilter === 'inactive'
+                  ? 'bg-rose-600 text-white shadow-3xs'
+                  : 'text-slate-600 hover:text-rose-800 hover:bg-rose-50'
+              }`}
+            >
+              <UserX size={13} />
+              <span>Inactive</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                employeeStatusFilter === 'inactive' ? 'bg-rose-700 text-rose-100' : 'bg-rose-100 text-rose-800'
+              }`}>
+                {statusCounts.inactive}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* Right: Reporting Period Selectors */}
+        {setLedgerMonth && setLedgerYear && ledgerMonth !== undefined && ledgerYear !== undefined && (
+          <div className="flex items-center gap-2 self-end lg:self-auto shrink-0">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider hidden md:inline">Period:</span>
             <select
               value={ledgerMonth}
               onChange={(e) => setLedgerMonth(Number(e.target.value))}
@@ -205,15 +302,17 @@ export default function Dashboard({
               ))}
             </select>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* KPI Overviews */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Metric 1: Total Headcount */}
+        {/* Metric 1: Headcount */}
         <div id="stat-total-employees" className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm transition-all hover:shadow-md flex flex-col justify-between min-w-0">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">Total Headcount</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">
+              {employeeStatusFilter === 'active' ? 'Active Headcount' : employeeStatusFilter === 'inactive' ? 'Inactive Headcount' : 'Total Headcount'}
+            </span>
             <div className="p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0">
               <Users size={18} />
             </div>
@@ -342,7 +441,9 @@ export default function Dashboard({
                 <IndianRupee size={16} className="text-emerald-600" />
                 Advances & Balance Ledger Overview
               </h4>
-              <span className="text-xs px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full font-bold">Active Records</span>
+              <span className="text-xs px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full font-bold">
+                {employeeStatusFilter === 'active' ? 'Active Staff Records' : employeeStatusFilter === 'inactive' ? 'Inactive Staff Records' : 'All Staff Records'}
+              </span>
             </div>
             <p className="text-xs text-slate-500 mb-4 font-normal">
               Tracking corporate advances and accumulated canteen/food tab balances for salary deduction.
@@ -358,7 +459,7 @@ export default function Dashboard({
                   </span>
                 </div>
                 <span className="text-[10px] text-slate-500 font-medium block mt-1.5">
-                  {employees.filter(e => (e.advancePayment || 0) > 0).length} staff holding advances
+                  {filteredEmployees.filter(e => (e.advancePayment || 0) > 0).length} staff holding advances
                 </span>
               </div>
               <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-between">
@@ -369,7 +470,7 @@ export default function Dashboard({
                   </span>
                 </div>
                 <span className="text-[10px] text-slate-500 font-medium block mt-1.5">
-                  {employees.filter(e => (e.foodBalance || 0) > 0).length} active food tabs
+                  {filteredEmployees.filter(e => (e.foodBalance || 0) > 0).length} active food tabs
                 </span>
               </div>
             </div>
@@ -400,7 +501,7 @@ export default function Dashboard({
               <span className="text-[10px] text-slate-400 font-normal">Ranked by combined liabilities</span>
             </div>
             <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
-              {employees
+              {filteredEmployees
                 .filter(e => (e.advancePayment || 0) > 0 || (e.foodBalance || 0) > 0)
                 .map(e => ({
                   ...e,
@@ -416,15 +517,15 @@ export default function Dashboard({
                         <p className="text-xs font-bold text-slate-800 truncate">{emp.name}</p>
                       </div>
                       <p className="text-[10px] text-slate-500 mt-1 truncate">
-                        Adv: <span className="font-semibold text-slate-700">{formatINR(emp.advancePayment || 0)}</span> {emp.advanceRemarks ? `(${emp.advanceRemarks}) border` : ''} • Food: <span className="font-semibold text-slate-700">{formatINR(emp.foodBalance || 0)}</span> {emp.foodRemarks ? `(${emp.foodRemarks})` : ''}
+                        Adv: <span className="font-semibold text-slate-700">{formatINR(emp.advancePayment || 0)}</span> {emp.advanceRemarks ? `(${emp.advanceRemarks})` : ''} • Food: <span className="font-semibold text-slate-700">{formatINR(emp.foodBalance || 0)}</span> {emp.foodRemarks ? `(${emp.foodRemarks})` : ''}
                       </p>
                     </div>
                     <span className="font-extrabold text-slate-700 font-mono text-xs shrink-0">{formatINR(emp.totalDue)}</span>
                   </div>
                 ))}
-              {employees.filter(e => (e.advancePayment || 0) > 0 || (e.foodBalance || 0) > 0).length === 0 && (
+              {filteredEmployees.filter(e => (e.advancePayment || 0) > 0 || (e.foodBalance || 0) > 0).length === 0 && (
                 <div className="py-6 flex flex-col items-center justify-center bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400 font-medium select-none">
-                  All employee ledgers are fully balanced!
+                  All filtered employee ledgers are fully balanced!
                 </div>
               )}
             </div>
@@ -631,25 +732,25 @@ export default function Dashboard({
                           onClick={() => setAuditFilter('all')}
                           className={`px-3 py-1 rounded-lg text-[10px] font-black cursor-pointer transition-all ${auditFilter === 'all' ? 'bg-white shadow-xs text-slate-800' : 'text-slate-500 hover:text-slate-800'}`}
                         >
-                          All ({employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_')).length})
+                          All ({filteredEmployees.length})
                         </button>
                         <button 
                           onClick={() => setAuditFilter('hourly_abs')}
                           className={`px-3 py-1 rounded-lg text-[10px] font-black cursor-pointer transition-all ${auditFilter === 'hourly_abs' ? 'bg-rose-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                         >
-                          Hourly Absences ({employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_')).filter(emp => (emp.deductionHourly || 0) + (emp.deductionPartialDay || 0) > 0).length})
+                          Hourly Absences ({filteredEmployees.filter(emp => (emp.deductionHourly || 0) + (emp.deductionPartialDay || 0) > 0).length})
                         </button>
                         <button 
                           onClick={() => setAuditFilter('full_day_abs')}
                           className={`px-3 py-1 rounded-lg text-[10px] font-black cursor-pointer transition-all ${auditFilter === 'full_day_abs' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                         >
-                          Full-Day Absences ({employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_')).filter(emp => emp.fullDaysAbsent > 0).length})
+                          Full-Day Absences ({filteredEmployees.filter(emp => emp.fullDaysAbsent > 0).length})
                         </button>
                         <button 
                           onClick={() => setAuditFilter('advances_food')}
                           className={`px-3 py-1 rounded-lg text-[10px] font-black cursor-pointer transition-all ${auditFilter === 'advances_food' ? 'bg-indigo-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
                         >
-                          Advances & Food ({employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_')).filter(emp => (emp.advancePayment || 0) + (emp.foodBalance || 0) > 0).length})
+                          Advances & Food ({filteredEmployees.filter(emp => (emp.advancePayment || 0) + (emp.foodBalance || 0) > 0).length})
                         </button>
                       </div>
                     )}
@@ -675,7 +776,9 @@ export default function Dashboard({
                       </button>
                     )}
                   </div>
-                </div>                {/* Table Header/Container */}
+                </div>
+
+                {/* Table Header/Container */}
                 <div className="border border-slate-150 rounded-2xl overflow-hidden bg-white">
                   <div className="overflow-x-auto max-h-72">
                     <table className="w-full text-left text-xs">
@@ -703,7 +806,7 @@ export default function Dashboard({
                       )}
                       <tbody>
                         {(() => {
-                          const live = employees.filter(emp => (emp.name || '').trim() !== '' && !emp.id.startsWith('EMP_TEMP_'));
+                          const live = filteredEmployees;
                           let filtered = modalSearch.trim() === '' ? live : live.filter(emp => 
                             (emp.name || '').toLowerCase().includes(modalSearch.toLowerCase()) || 
                             (emp.id || '').toLowerCase().includes(modalSearch.toLowerCase()) ||

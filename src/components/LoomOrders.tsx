@@ -46,8 +46,7 @@ import {
   PackageCheck,
   PackageX,
   Filter,
-  CheckSquare,
-  Search
+  CheckSquare
 } from 'lucide-react';
 import { LoomOrder, LoomOrderRow } from '../types';
 import * as XLSX from 'xlsx';
@@ -2172,13 +2171,13 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         'Roll Number',
         'Size',
         'GSM',
+        'GSM [calc]',
         'Denier',
         'AVG WT (g)',
+        'Avg Wt [calc] (grams)',
         'Gross Wt (kg)',
         'Core Wt (kg)',
         'Net Wt (kg)',
-        'Avg Wt [calc] (grams)',
-        'GSM [calc]',
         'Meters',
         'Strength',
         'Elongation (%)',
@@ -2218,13 +2217,13 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           item.rollNo,
           item.size,
           item.gsm,
+          gsmCalcVal,
           item.denier,
           item.fabricWeight,
+          item.avgWtCalculated || 0,
           item.grossWt || 0,
           item.coreWt || 0,
           item.netWt || 0,
-          item.avgWtCalculated || 0,
-          gsmCalcVal,
           item.meters || 0,
           item.strength || '-',
           item.elongation || '-',
@@ -2247,8 +2246,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
           if (colIdx === 0) { // Roll Number
             cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFB45309' } };
-          } else if (colIdx >= 4 && colIdx <= 10) { // Fabric Wt, Gross, Core, Net, Avg, GSM calc, Meters
-            cell.numFmt = colIdx === 8 ? '#,##0.0000' : '#,##0.00';
+          } else if (colIdx === 3) { // GSM [calc]
+            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF78350F' } };
+            cell.numFmt = '#,##0.00';
+          } else if (colIdx >= 5 && colIdx <= 10) { // Fabric Wt (5), Avg Wt calc (6), Gross (7), Core (8), Net (9), Meters (10)
+            cell.numFmt = colIdx === 6 ? '#,##0.0000' : '#,##0.00';
           } else if (colIdx === 11 || colIdx === 12 || colIdx === 13) { // Strength, Elongation, Quality
             cell.font = { name: 'Calibri', size: 10.5, bold: true };
           } else if (colIdx === 14) { // Dispatch Status
@@ -2270,13 +2272,13 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         { width: 18 },  // Roll Number
         { width: 14 },  // Size
         { width: 10 },  // GSM
+        { width: 14 },  // GSM [calc]
         { width: 10 },  // Denier
         { width: 18 },  // Fabric Weight
+        { width: 20 },  // Avg Wt [calc] (grams)
         { width: 16 },  // Gross Wt (kg)
         { width: 14 },  // Core Wt (kg)
         { width: 14 },  // Net Wt (kg)
-        { width: 20 },  // Avg Wt [calc] (grams)
-        { width: 14 },  // GSM [calc]
         { width: 14 },  // Meters
         { width: 14 },  // Strength
         { width: 16 },  // Elongation (%)
@@ -5274,6 +5276,24 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             </div>
                           </th>
 
+                          {/* GSM [CALC] */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('gsmCalculated')}
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'gsmCalculated' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
+                            }`}
+                            title="Click to sort by GSM [CALC] (AVG WT [CALC] / SIZE)"
+                          >
+                            <div className="flex items-center gap-1">
+                              <span>GSM [CALC]</span>
+                              {masterLedgerSortKey === 'gsmCalculated' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
                           {/* 4. Denier */}
                           <th
                             onClick={() => handleMasterLedgerSort('denier')}
@@ -5303,6 +5323,24 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             <div className="flex items-center gap-1">
                               <span>AVG WT</span>
                               {masterLedgerSortKey === 'fabricWeight' ? (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                              ) : (
+                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* Average Weight (calc) (grams) */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('avgWtCalculated')}
+                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'avgWtCalculated' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
+                            }`}
+                            title="Click to sort by Average Weight (calc)"
+                          >
+                            <div className="flex items-center gap-1">
+                              <span>Avg Wt [calc] (grams)</span>
+                              {masterLedgerSortKey === 'avgWtCalculated' ? (
                                 masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
                                 <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
@@ -5357,42 +5395,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             <div className="flex items-center gap-1">
                               <span>Net Wt</span>
                               {masterLedgerSortKey === 'netWt' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
-                              ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
-                              )}
-                            </div>
-                          </th>
-
-                          {/* Average Weight (calc) (grams) */}
-                          <th
-                            onClick={() => handleMasterLedgerSort('avgWtCalculated')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'avgWtCalculated' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
-                            }`}
-                            title="Click to sort by Average Weight (calc)"
-                          >
-                            <div className="flex items-center gap-1">
-                              <span>Avg Wt [calc] (grams)</span>
-                              {masterLedgerSortKey === 'avgWtCalculated' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
-                              ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
-                              )}
-                            </div>
-                          </th>
-
-                          {/* GSM [CALC] */}
-                          <th
-                            onClick={() => handleMasterLedgerSort('gsmCalculated')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'gsmCalculated' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
-                            }`}
-                            title="Click to sort by GSM [CALC] (AVG WT [CALC] / SIZE)"
-                          >
-                            <div className="flex items-center gap-1">
-                              <span>GSM [CALC]</span>
-                              {masterLedgerSortKey === 'gsmCalculated' ? (
                                 masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
                                 <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
@@ -5600,6 +5602,19 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       placeholder="GSM"
                                     />
                                   </td>
+                                  {/* GSM [CALC] */}
+                                  <td className="py-2.5 px-2">
+                                    {(() => {
+                                      const sz = parseFloat(String(masterEditSize || '').replace(/[^0-9.]/g, '')) || 0;
+                                      const avg = parseFloat(masterEditAvgWtCalculated) || 0;
+                                      const gCalc = (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : '-';
+                                      return (
+                                        <span className="text-xs font-mono font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded block text-center min-w-[60px]">
+                                          {gCalc}
+                                        </span>
+                                      );
+                                    })()}
+                                  </td>
                                   {/* Col 4: Denier */}
                                   <td className="py-2.5 px-2">
                                     <input
@@ -5619,6 +5634,17 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       onChange={(e) => setMasterEditFabricWeight(e.target.value)}
                                       className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
                                       placeholder="Weight"
+                                    />
+                                  </td>
+                                  {/* Average Weight (calc) (grams) */}
+                                  <td className="py-2.5 px-2">
+                                    <input
+                                      type="number"
+                                      step="0.0001"
+                                      value={masterEditAvgWtCalculated}
+                                      onChange={(e) => setMasterEditAvgWtCalculated(e.target.value)}
+                                      className="w-24 bg-emerald-50 border border-emerald-400 rounded-lg px-2 py-1 text-xs font-mono font-black text-emerald-950 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                      placeholder="Avg Calc"
                                     />
                                   </td>
                                   {/* Gross Weight (kg) */}
@@ -5653,30 +5679,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       className="w-20 bg-indigo-50 border border-indigo-400 rounded-lg px-2 py-1 text-xs font-mono font-black text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                       placeholder="Net Wt"
                                     />
-                                  </td>
-                                  {/* Average Weight (calc) (grams) */}
-                                  <td className="py-2.5 px-2">
-                                    <input
-                                      type="number"
-                                      step="0.0001"
-                                      value={masterEditAvgWtCalculated}
-                                      onChange={(e) => setMasterEditAvgWtCalculated(e.target.value)}
-                                      className="w-24 bg-emerald-50 border border-emerald-400 rounded-lg px-2 py-1 text-xs font-mono font-black text-emerald-950 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                      placeholder="Avg Calc"
-                                    />
-                                  </td>
-                                  {/* GSM [CALC] */}
-                                  <td className="py-2.5 px-2">
-                                    {(() => {
-                                      const sz = parseFloat(String(masterEditSize || '').replace(/[^0-9.]/g, '')) || 0;
-                                      const avg = parseFloat(masterEditAvgWtCalculated) || 0;
-                                      const gCalc = (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : '-';
-                                      return (
-                                        <span className="text-xs font-mono font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded block text-center min-w-[60px]">
-                                          {gCalc}
-                                        </span>
-                                      );
-                                    })()}
                                   </td>
                                   {/* Meters */}
                                   <td className="py-2.5 px-2">
@@ -5782,6 +5784,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 <td className="py-2.5 px-3 font-mono font-bold text-zinc-700">
                                   {item.gsm ? `${item.gsm}` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
+                                {/* GSM [CALC] */}
+                                <td className="py-2.5 px-3 font-mono font-black text-amber-900">
+                                  {(() => {
+                                    const sz = parseFloat(String(item.size || '').replace(/[^0-9.]/g, '')) || 0;
+                                    const avg = Number(item.avgWtCalculated) || 0;
+                                    return (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : <span className="text-zinc-300 font-normal italic">-</span>;
+                                  })()}
+                                </td>
                                 {/* 4. Denier */}
                                 <td className="py-2.5 px-3 font-mono font-bold text-zinc-700">
                                   {item.denier ? `${item.denier}` : <span className="text-zinc-300 font-normal italic">-</span>}
@@ -5789,6 +5799,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 {/* 5. Fabric Weight */}
                                 <td className="py-2.5 px-3 font-mono font-bold text-zinc-700">
                                   {item.fabricWeight ? `${item.fabricWeight}` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* 9. Average Weight (calc) */}
+                                <td className="py-2.5 px-3 font-mono font-black text-emerald-800">
+                                  {item.avgWtCalculated ? `${item.avgWtCalculated}` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
                                 {/* 6. Gross Weight */}
                                 <td className="py-2.5 px-3 font-mono font-bold text-zinc-800">
@@ -5801,18 +5815,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 {/* 8. Net Weight */}
                                 <td className="py-2.5 px-3 font-mono font-black text-indigo-900">
                                   {item.netWt ? `${item.netWt}` : <span className="text-zinc-300 font-normal italic">-</span>}
-                                </td>
-                                {/* 9. Average Weight (calc) */}
-                                <td className="py-2.5 px-3 font-mono font-black text-emerald-800">
-                                  {item.avgWtCalculated ? `${item.avgWtCalculated}` : <span className="text-zinc-300 font-normal italic">-</span>}
-                                </td>
-                                {/* GSM [CALC] */}
-                                <td className="py-2.5 px-3 font-mono font-black text-amber-900">
-                                  {(() => {
-                                    const sz = parseFloat(String(item.size || '').replace(/[^0-9.]/g, '')) || 0;
-                                    const avg = Number(item.avgWtCalculated) || 0;
-                                    return (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : <span className="text-zinc-300 font-normal italic">-</span>;
-                                  })()}
                                 </td>
                                 {/* 10. Meters */}
                                 <td className="py-2.5 px-3 font-mono font-bold text-zinc-800">
@@ -5907,13 +5909,13 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           <option value="rollNo">Roll Number</option>
                           <option value="size">Size</option>
                           <option value="gsm">GSM</option>
+                          <option value="gsmCalculated">GSM [calc]</option>
                           <option value="denier">Denier</option>
                           <option value="fabricWeight">AVG WT</option>
+                          <option value="avgWtCalculated">Avg Weight (calc)</option>
                           <option value="grossWt">Gross Weight</option>
                           <option value="coreWt">Core Weight</option>
                           <option value="netWt">Net Weight</option>
-                          <option value="avgWtCalculated">Avg Weight (calc)</option>
-                          <option value="gsmCalculated">GSM [calc]</option>
                           <option value="meters">Meters</option>
                           <option value="quality">Weave Quality</option>
                           <option value="dispatchStatus">Dispatch Status</option>
@@ -6001,6 +6003,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                   />
                                 </div>
                                 <div>
+                                  <label className="text-[9px] font-bold text-amber-800 uppercase block">GSM [calc]</label>
+                                  <div className="w-full bg-amber-50 border border-amber-300 rounded px-2 py-1 font-mono font-bold text-xs text-amber-950">
+                                    {(() => {
+                                      const sz = parseFloat(String(masterEditSize || '').replace(/[^0-9.]/g, '')) || 0;
+                                      const avg = parseFloat(masterEditAvgWtCalculated) || 0;
+                                      return (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : '-';
+                                    })()}
+                                  </div>
+                                </div>
+                                <div>
                                   <label className="text-[9px] font-bold text-zinc-500 uppercase block">Denier</label>
                                   <input
                                     type="number"
@@ -6017,6 +6029,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                     value={masterEditFabricWeight}
                                     onChange={(e) => setMasterEditFabricWeight(e.target.value)}
                                     className="w-full bg-white border border-amber-400 rounded px-2 py-1 font-mono text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-emerald-600 uppercase block">Avg Wt [calc] (grams)</label>
+                                  <input
+                                    type="number"
+                                    step="0.0001"
+                                    value={masterEditAvgWtCalculated}
+                                    onChange={(e) => setMasterEditAvgWtCalculated(e.target.value)}
+                                    className="w-full bg-emerald-50 border border-emerald-400 rounded px-2 py-1 font-mono font-bold text-xs text-emerald-950"
                                   />
                                 </div>
                                 <div>
@@ -6048,26 +6070,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                     onChange={(e) => handleMasterEditNetChange(e.target.value)}
                                     className="w-full bg-indigo-50 border border-indigo-400 rounded px-2 py-1 font-mono font-bold text-xs text-indigo-950"
                                   />
-                                </div>
-                                <div>
-                                  <label className="text-[9px] font-bold text-emerald-600 uppercase block">Avg Wt [calc] (grams)</label>
-                                  <input
-                                    type="number"
-                                    step="0.0001"
-                                    value={masterEditAvgWtCalculated}
-                                    onChange={(e) => setMasterEditAvgWtCalculated(e.target.value)}
-                                    className="w-full bg-emerald-50 border border-emerald-400 rounded px-2 py-1 font-mono font-bold text-xs text-emerald-950"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[9px] font-bold text-amber-800 uppercase block">GSM [calc]</label>
-                                  <div className="w-full bg-amber-50 border border-amber-300 rounded px-2 py-1 font-mono font-bold text-xs text-amber-950">
-                                    {(() => {
-                                      const sz = parseFloat(String(masterEditSize || '').replace(/[^0-9.]/g, '')) || 0;
-                                      const avg = parseFloat(masterEditAvgWtCalculated) || 0;
-                                      return (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : '-';
-                                    })()}
-                                  </div>
                                 </div>
                                 <div>
                                   <label className="text-[9px] font-bold text-zinc-500 uppercase block">Meters</label>
@@ -6166,17 +6168,17 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             <div className="grid grid-cols-2 gap-1.5 text-xs pt-1 border-t border-zinc-100">
                               <div><span className="text-zinc-400 text-[10px]">Size:</span> <strong className="text-zinc-800">{item.size || '-'}</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">GSM:</span> <strong className="text-zinc-800 font-mono">{item.gsm || '-'}</strong></div>
-                              <div><span className="text-zinc-400 text-[10px]">Denier:</span> <strong className="text-zinc-800 font-mono">{item.denier || '-'}</strong></div>
-                              <div><span className="text-zinc-400 text-[10px]">AVG WT:</span> <strong className="text-zinc-800 font-mono">{item.fabricWeight || '-'}</strong></div>
-                              <div><span className="text-zinc-400 text-[10px]">Gross Wt:</span> <strong className="text-zinc-800 font-mono">{item.grossWt || '-'} kg</strong></div>
-                              <div><span className="text-zinc-400 text-[10px]">Core Wt:</span> <strong className="text-zinc-800 font-mono">{item.coreWt || '-'} kg</strong></div>
-                              <div><span className="text-zinc-400 text-[10px]">Net Wt:</span> <strong className="text-indigo-900 font-mono font-black">{item.netWt || '-'} kg</strong></div>
-                              <div><span className="text-zinc-400 text-[10px]">Avg Wt [calc]:</span> <strong className="text-emerald-800 font-mono font-black">{item.avgWtCalculated ? `${item.avgWtCalculated} grams` : '-'}</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">GSM [calc]:</span> <strong className="text-amber-900 font-mono font-black">{(() => {
                                 const sz = parseFloat(String(item.size || '').replace(/[^0-9.]/g, '')) || 0;
                                 const avg = Number(item.avgWtCalculated) || 0;
                                 return (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : '-';
                               })()}</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Denier:</span> <strong className="text-zinc-800 font-mono">{item.denier || '-'}</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">AVG WT:</span> <strong className="text-zinc-800 font-mono">{item.fabricWeight || '-'}</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Avg Wt [calc]:</span> <strong className="text-emerald-800 font-mono font-black">{item.avgWtCalculated ? `${item.avgWtCalculated} grams` : '-'}</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Gross Wt:</span> <strong className="text-zinc-800 font-mono">{item.grossWt || '-'} kg</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Core Wt:</span> <strong className="text-zinc-800 font-mono">{item.coreWt || '-'} kg</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Net Wt:</span> <strong className="text-indigo-900 font-mono font-black">{item.netWt || '-'} kg</strong></div>
                               <div className="col-span-2"><span className="text-zinc-400 text-[10px]">Meters:</span> <strong className="text-zinc-800 font-mono">{item.meters || '-'} m</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">Strength:</span> <strong className="text-zinc-800 font-mono">{item.strength || '-'}</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">Elongation:</span> <strong className="text-zinc-800 font-mono">{item.elongation ? `${item.elongation}%` : '-'}</strong></div>
