@@ -45,7 +45,9 @@ import {
   Truck,
   PackageCheck,
   PackageX,
-  Filter
+  Filter,
+  CheckSquare,
+  Search
 } from 'lucide-react';
 import { LoomOrder, LoomOrderRow } from '../types';
 import * as XLSX from 'xlsx';
@@ -87,6 +89,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   // --- MASTER ROLL LEDGER EXPORT MODAL STATES ---
   const [isMasterLedgerExportModalOpen, setIsMasterLedgerExportModalOpen] = useState<boolean>(false);
   const [masterLedgerExportOption, setMasterLedgerExportOption] = useState<'dispatched' | 'not_dispatched' | 'both'>('dispatched');
+  const [selectedMasterExportOrderIds, setSelectedMasterExportOrderIds] = useState<string[]>([]);
+  const [masterExportOrderSearch, setMasterExportOrderSearch] = useState<string>('');
 
   // --- NEW SUB-ORDER FORM STATES (USED IN BOTH SIDEBAR & MODAL) ---
   const [subSize, setSubSize] = useState<string>('');
@@ -1676,6 +1680,67 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     return list;
   }, [orders, masterLedgerSortKey, masterLedgerSortOrder]);
 
+  // List of all available parent orders with registered roll counts for export selection
+  const availableMasterOrders = useMemo(() => {
+    const map = new Map<string, { id: string; orderNo: string; count: number }>();
+    orders.forEach(o => {
+      map.set(o.id, { id: o.id, orderNo: o.orderNo, count: 0 });
+    });
+    masterRollLedgerData.forEach(item => {
+      const existing = map.get(item.orderId);
+      if (existing) {
+        existing.count++;
+      } else {
+        map.set(item.orderId, { id: item.orderId, orderNo: item.orderNo, count: 1 });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) =>
+      a.orderNo.localeCompare(b.orderNo, undefined, { numeric: true, sensitivity: 'base' })
+    );
+  }, [orders, masterRollLedgerData]);
+
+  // Open handler for Master Roll Ledger Export modal
+  const handleOpenMasterLedgerExportModal = () => {
+    setMasterLedgerExportOption('dispatched');
+    setSelectedMasterExportOrderIds(availableMasterOrders.map(o => o.id));
+    setMasterExportOrderSearch('');
+    setIsMasterLedgerExportModalOpen(true);
+  };
+
+  // Filtered order selection list based on modal search box
+  const filteredMasterExportOrders = useMemo(() => {
+    if (!masterExportOrderSearch.trim()) return availableMasterOrders;
+    const q = masterExportOrderSearch.toLowerCase().trim();
+    return availableMasterOrders.filter(o => o.orderNo.toLowerCase().includes(q));
+  }, [availableMasterOrders, masterExportOrderSearch]);
+
+  const isAllMasterExportOrdersSelected = availableMasterOrders.length > 0 && selectedMasterExportOrderIds.length === availableMasterOrders.length;
+
+  const handleToggleSelectAllMasterExportOrders = () => {
+    if (isAllMasterExportOrdersSelected) {
+      setSelectedMasterExportOrderIds([]);
+    } else {
+      setSelectedMasterExportOrderIds(availableMasterOrders.map(o => o.id));
+    }
+  };
+
+  const handleToggleMasterExportOrder = (orderId: string) => {
+    setSelectedMasterExportOrderIds(prev =>
+      prev.includes(orderId) ? prev.filter(id => id !== orderId) : [...prev, orderId]
+    );
+  };
+
+  // Preview roll count matching currently selected orders and dispatch option
+  const masterExportPreviewRollsCount = useMemo(() => {
+    const selectedSet = new Set(selectedMasterExportOrderIds);
+    return masterRollLedgerData.filter(item => {
+      if (!selectedSet.has(item.orderId)) return false;
+      if (masterLedgerExportOption === 'dispatched') return item.dispatchStatus === 'Dispatched';
+      if (masterLedgerExportOption === 'not_dispatched') return item.dispatchStatus === 'Not Dispatched';
+      return true;
+    }).length;
+  }, [masterRollLedgerData, selectedMasterExportOrderIds, masterLedgerExportOption]);
+
   // Master Ledger Inline Edit Handlers
   const handleStartEditMasterRoll = (item: typeof masterRollLedgerData[0]) => {
     setEditingMasterRollId(item.id);
@@ -1996,18 +2061,30 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
   const handleExportMasterRollLedgerToExcel = async (selectedOption: 'dispatched' | 'not_dispatched' | 'both' = masterLedgerExportOption) => {
     try {
-      let filteredData = masterRollLedgerData;
+      if (selectedMasterExportOrderIds.length === 0) {
+        triggerAlert('warn', 'Please select at least one order to export.');
+        return;
+      }
+
+      const selectedOrderSet = new Set(selectedMasterExportOrderIds);
+      let filteredData = masterRollLedgerData.filter(item => selectedOrderSet.has(item.orderId));
+
       let modeTitle = 'FULL REPORT';
       let fileNameSuffix = 'Full_Report';
 
       if (selectedOption === 'dispatched') {
-        filteredData = masterRollLedgerData.filter(item => item.dispatchStatus === 'Dispatched');
+        filteredData = filteredData.filter(item => item.dispatchStatus === 'Dispatched');
         modeTitle = 'DISPATCHED ROLLS ONLY';
         fileNameSuffix = 'Dispatched_Rolls';
       } else if (selectedOption === 'not_dispatched') {
-        filteredData = masterRollLedgerData.filter(item => item.dispatchStatus === 'Not Dispatched');
+        filteredData = filteredData.filter(item => item.dispatchStatus === 'Not Dispatched');
         modeTitle = 'NON-DISPATCHED ROLLS ONLY';
         fileNameSuffix = 'Not_Dispatched_Rolls';
+      }
+
+      if (selectedMasterExportOrderIds.length < availableMasterOrders.length) {
+        modeTitle += ` (${selectedMasterExportOrderIds.length} ORDERS)`;
+        fileNameSuffix += `_${selectedMasterExportOrderIds.length}_Orders`;
       }
 
       const workbook = new ExcelJS.Workbook();
@@ -2015,7 +2092,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       worksheet.views = [{ showGridLines: true }];
 
       // 1. TOP BANNER ROW (Row 1)
-      worksheet.mergeCells('A1:P1');
+      worksheet.mergeCells('A1:O1');
       const titleCell = worksheet.getCell('A1');
       titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • MASTER ROLL DIRECTORY LEDGER - ${modeTitle}`;
       titleCell.font = { name: 'Calibri', size: 15, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -2023,32 +2100,33 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(1).height = 40;
 
-      for (let col = 1; col <= 16; col++) {
+      for (let col = 1; col <= 15; col++) {
         worksheet.getRow(1).getCell(col).fill = titleCell.fill;
       }
 
       // 2. METRICS CARDS (Rows 2 & 3)
-      const totalCount = masterRollLedgerData.length;
-      const dispCount = masterRollLedgerData.filter(i => i.dispatchStatus === 'Dispatched').length;
+      const selectedOrderRolls = masterRollLedgerData.filter(item => selectedOrderSet.has(item.orderId));
+      const totalCount = selectedOrderRolls.length;
+      const dispCount = selectedOrderRolls.filter(i => i.dispatchStatus === 'Dispatched').length;
       const notDispCount = totalCount - dispCount;
 
-      worksheet.mergeCells('A2:D2');
-      worksheet.mergeCells('E2:J2');
-      worksheet.mergeCells('K2:P2');
+      worksheet.mergeCells('A2:E2');
+      worksheet.mergeCells('F2:J2');
+      worksheet.mergeCells('K2:O2');
 
-      worksheet.mergeCells('A3:D3');
-      worksheet.mergeCells('E3:J3');
-      worksheet.mergeCells('K3:P3');
+      worksheet.mergeCells('A3:E3');
+      worksheet.mergeCells('F3:J3');
+      worksheet.mergeCells('K3:O3');
 
       worksheet.getRow(2).height = 18;
       worksheet.getRow(3).height = 22;
 
       worksheet.getCell('A2').value = 'Total Registered Rolls:';
-      worksheet.getCell('E2').value = 'Dispatched Rolls:';
+      worksheet.getCell('F2').value = 'Dispatched Rolls:';
       worksheet.getCell('K2').value = 'Non-Dispatched Rolls:';
 
       worksheet.getCell('A3').value = `${totalCount} Rolls`;
-      worksheet.getCell('E3').value = `${dispCount} Rolls (${totalCount > 0 ? Math.round((dispCount / totalCount) * 100) : 0}%)`;
+      worksheet.getCell('F3').value = `${dispCount} Rolls (${totalCount > 0 ? Math.round((dispCount / totalCount) * 100) : 0}%)`;
       worksheet.getCell('K3').value = `${notDispCount} Rolls (${totalCount > 0 ? Math.round((notDispCount / totalCount) * 100) : 0}%)`;
 
       const thinCardBorder = {
@@ -2058,7 +2136,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         right: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
       };
 
-      for (let col = 1; col <= 4; col++) {
+      for (let col = 1; col <= 5; col++) {
         [2, 3].forEach(r => {
           const c = worksheet.getRow(r).getCell(col);
           c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
@@ -2068,7 +2146,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         });
       }
 
-      for (let col = 5; col <= 10; col++) {
+      for (let col = 6; col <= 10; col++) {
         [2, 3].forEach(r => {
           const c = worksheet.getRow(r).getCell(col);
           c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
@@ -2078,7 +2156,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         });
       }
 
-      for (let col = 11; col <= 16; col++) {
+      for (let col = 11; col <= 15; col++) {
         [2, 3].forEach(r => {
           const c = worksheet.getRow(r).getCell(col);
           c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEDD5' } };
@@ -2105,9 +2183,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         'Strength',
         'Elongation (%)',
         'Weave Quality',
-        'Dispatch Status',
-        'Remarks',
-        'Order No'
+        'Dispatch Status'
       ];
 
       const headerRow = worksheet.getRow(5);
@@ -2117,7 +2193,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         cell.value = h;
         cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
         cell.border = {
           top: { style: 'medium', color: { argb: 'FF0F172A' } },
           left: { style: 'thin', color: { argb: 'FF334155' } },
@@ -2153,9 +2229,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           item.strength || '-',
           item.elongation || '-',
           item.quality,
-          item.dispatchStatus,
-          item.remarks || '-',
-          item.orderNo
+          item.dispatchStatus
         ];
 
         rowValues.forEach((val, colIdx) => {
@@ -2163,6 +2237,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           cell.value = val;
           cell.font = { name: 'Calibri', size: 10.5, color: { argb: 'FF1E293B' } };
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
           cell.border = {
             top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
             left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
@@ -2171,21 +2246,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           };
 
           if (colIdx === 0) { // Roll Number
-            cell.alignment = { horizontal: 'center', vertical: 'middle' };
             cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFB45309' } };
-          } else if (colIdx === 1 || colIdx === 2 || colIdx === 3) { // Size, GSM, Denier
-            cell.alignment = { horizontal: 'center', vertical: 'middle' };
           } else if (colIdx >= 4 && colIdx <= 10) { // Fabric Wt, Gross, Core, Net, Avg, GSM calc, Meters
-            cell.alignment = { horizontal: 'right', vertical: 'middle' };
             cell.numFmt = colIdx === 8 ? '#,##0.0000' : '#,##0.00';
-          } else if (colIdx === 11 || colIdx === 12) { // Strength, Elongation
-            cell.alignment = { horizontal: 'center', vertical: 'middle' };
-            cell.font = { name: 'Calibri', size: 10.5, bold: true };
-          } else if (colIdx === 13) { // Quality
-            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          } else if (colIdx === 11 || colIdx === 12 || colIdx === 13) { // Strength, Elongation, Quality
             cell.font = { name: 'Calibri', size: 10.5, bold: true };
           } else if (colIdx === 14) { // Dispatch Status
-            cell.alignment = { horizontal: 'center', vertical: 'middle' };
             if (val === 'Dispatched') {
               cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
               cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF15803D' } };
@@ -2193,10 +2259,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEDD5' } };
               cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFC2410C' } };
             }
-          } else if (colIdx === 15) { // Remarks
-            cell.alignment = { horizontal: 'left', vertical: 'middle' };
-          } else if (colIdx === 16) { // Order No
-            cell.alignment = { horizontal: 'center', vertical: 'middle' };
           }
         });
 
@@ -2219,9 +2281,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         { width: 14 },  // Strength
         { width: 16 },  // Elongation (%)
         { width: 24 },  // Weave Quality
-        { width: 18 },  // Dispatch Status
-        { width: 26 },  // Remarks
-        { width: 16 }   // Order No
+        { width: 18 }   // Dispatch Status
       ];
 
       const dateStr = new Date().toISOString().split('T')[0];
@@ -5036,10 +5096,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setMasterLedgerExportOption('dispatched');
-                    setIsMasterLedgerExportModalOpen(true);
-                  }}
+                  onClick={handleOpenMasterLedgerExportModal}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider px-3 py-2 rounded-xl border border-emerald-700 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
                   title="Export Master Ledger to Excel"
                 >
@@ -6346,7 +6403,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       {/* EXPORT OPTIONS SELECTION MODAL DIALOG FOR MASTER ROLL LEDGER */}
       {isMasterLedgerExportModalOpen && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
-          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             
             {/* Modal Header */}
             <div className="bg-zinc-900 text-white px-4 py-3.5 sm:px-6 sm:py-4 flex justify-between items-center border-b border-zinc-800 shrink-0">
@@ -6359,7 +6416,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                     Export Master Roll Ledger
                   </h3>
                   <p className="text-xs text-zinc-400 font-semibold">
-                    Directory Registry • Total: <span className="text-amber-300 font-mono font-bold">{masterRollLedgerData.length} Rolls</span>
+                    Directory Registry • Matching: <span className="text-amber-300 font-mono font-bold">{masterExportPreviewRollsCount} Rolls</span> across <span className="text-amber-300 font-mono font-bold">{selectedMasterExportOrderIds.length} Orders</span>
                   </p>
                 </div>
               </div>
@@ -6374,130 +6431,220 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
             </div>
 
             {/* Modal Body */}
-            <div className="p-5 sm:p-6 space-y-4">
-              <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">
-                Choose data report option to download:
-              </p>
+            <div className="p-4 sm:p-6 space-y-5 overflow-y-auto">
+              
+              {/* Section 1: Dispatch Status Filter */}
+              <div className="space-y-2">
+                <p className="text-xs font-extrabold text-zinc-700 uppercase tracking-wide flex items-center gap-1.5">
+                  <Filter size={13} className="text-amber-600" />
+                  <span>1. Select Dispatch Status Filter:</span>
+                </p>
 
-              <div className="space-y-3">
-                {/* Option 1: Dispatched Rolls Only */}
-                <label
-                  onClick={() => setMasterLedgerExportOption('dispatched')}
-                  className={`p-4 rounded-2xl border-2 flex items-start gap-3.5 cursor-pointer transition-all ${
-                    masterLedgerExportOption === 'dispatched'
-                      ? 'bg-emerald-50/70 border-emerald-500 shadow-sm'
-                      : 'bg-white border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="masterLedgerExportOption"
-                    value="dispatched"
-                    checked={masterLedgerExportOption === 'dispatched'}
-                    onChange={() => setMasterLedgerExportOption('dispatched')}
-                    className="mt-1 text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer"
-                  />
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Truck size={16} className="text-emerald-600" />
-                      <span className="text-xs font-black text-zinc-900 uppercase">
-                        For Dispatched Rolls Only
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {/* Option 1: Dispatched */}
+                  <button
+                    type="button"
+                    onClick={() => setMasterLedgerExportOption('dispatched')}
+                    className={`p-3 rounded-xl border-2 text-left flex flex-col justify-between transition-all cursor-pointer ${
+                      masterLedgerExportOption === 'dispatched'
+                        ? 'bg-emerald-50/90 border-emerald-500 shadow-sm'
+                        : 'bg-zinc-50/50 border-zinc-200 hover:border-zinc-300 hover:bg-zinc-100/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full mb-1">
+                      <span className="text-[11px] font-black uppercase text-zinc-900 flex items-center gap-1">
+                        <Truck size={13} className="text-emerald-600" />
+                        Dispatched
                       </span>
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ml-auto">
-                        {masterRollLedgerData.filter(i => i.dispatchStatus === 'Dispatched').length} rolls
-                      </span>
+                      <input
+                        type="radio"
+                        checked={masterLedgerExportOption === 'dispatched'}
+                        readOnly
+                        className="text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
+                      />
                     </div>
-                    <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
-                      Exports only roll numbers marked as <strong>Dispatched</strong> across all orders with specs, order reference numbers & dates.
-                    </p>
-                  </div>
-                </label>
+                    <span className="text-[10px] text-emerald-800 font-mono font-bold">
+                      Dispatched rolls only
+                    </span>
+                  </button>
 
-                {/* Option 2: Not Dispatched Rolls Only */}
-                <label
-                  onClick={() => setMasterLedgerExportOption('not_dispatched')}
-                  className={`p-4 rounded-2xl border-2 flex items-start gap-3.5 cursor-pointer transition-all ${
-                    masterLedgerExportOption === 'not_dispatched'
-                      ? 'bg-amber-50/70 border-amber-500 shadow-sm'
-                      : 'bg-white border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="masterLedgerExportOption"
-                    value="not_dispatched"
-                    checked={masterLedgerExportOption === 'not_dispatched'}
-                    onChange={() => setMasterLedgerExportOption('not_dispatched')}
-                    className="mt-1 text-amber-600 focus:ring-amber-500 h-4 w-4 cursor-pointer"
-                  />
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <PackageX size={16} className="text-amber-600" />
-                      <span className="text-xs font-black text-zinc-900 uppercase">
-                        Not Dispatched Rolls Only
+                  {/* Option 2: Not Dispatched */}
+                  <button
+                    type="button"
+                    onClick={() => setMasterLedgerExportOption('not_dispatched')}
+                    className={`p-3 rounded-xl border-2 text-left flex flex-col justify-between transition-all cursor-pointer ${
+                      masterLedgerExportOption === 'not_dispatched'
+                        ? 'bg-amber-50/90 border-amber-500 shadow-sm'
+                        : 'bg-zinc-50/50 border-zinc-200 hover:border-zinc-300 hover:bg-zinc-100/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full mb-1">
+                      <span className="text-[11px] font-black uppercase text-zinc-900 flex items-center gap-1">
+                        <PackageX size={13} className="text-amber-600" />
+                        Non-Dispatched
                       </span>
-                      <span className="bg-amber-100 text-amber-800 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ml-auto">
-                        {masterRollLedgerData.filter(i => i.dispatchStatus === 'Not Dispatched').length} rolls
-                      </span>
+                      <input
+                        type="radio"
+                        checked={masterLedgerExportOption === 'not_dispatched'}
+                        readOnly
+                        className="text-amber-600 focus:ring-amber-500 h-3.5 w-3.5"
+                      />
                     </div>
-                    <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
-                      Exports only roll numbers marked as <strong>Not Dispatched</strong> across all orders with specs, order reference numbers & dates.
-                    </p>
-                  </div>
-                </label>
+                    <span className="text-[10px] text-amber-800 font-mono font-bold">
+                      Non-dispatched only
+                    </span>
+                  </button>
 
-                {/* Option 3: Both (Complete Order Report) */}
-                <label
-                  onClick={() => setMasterLedgerExportOption('both')}
-                  className={`p-4 rounded-2xl border-2 flex items-start gap-3.5 cursor-pointer transition-all ${
-                    masterLedgerExportOption === 'both'
-                      ? 'bg-sky-50/70 border-sky-500 shadow-sm'
-                      : 'bg-white border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="masterLedgerExportOption"
-                    value="both"
-                    checked={masterLedgerExportOption === 'both'}
-                    onChange={() => setMasterLedgerExportOption('both')}
-                    className="mt-1 text-sky-600 focus:ring-sky-500 h-4 w-4 cursor-pointer"
-                  />
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Layers size={16} className="text-sky-600" />
-                      <span className="text-xs font-black text-zinc-900 uppercase">
-                        Both (Complete Roll Ledger Report)
+                  {/* Option 3: Both */}
+                  <button
+                    type="button"
+                    onClick={() => setMasterLedgerExportOption('both')}
+                    className={`p-3 rounded-xl border-2 text-left flex flex-col justify-between transition-all cursor-pointer ${
+                      masterLedgerExportOption === 'both'
+                        ? 'bg-sky-50/90 border-sky-500 shadow-sm'
+                        : 'bg-zinc-50/50 border-zinc-200 hover:border-zinc-300 hover:bg-zinc-100/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full mb-1">
+                      <span className="text-[11px] font-black uppercase text-zinc-900 flex items-center gap-1">
+                        <Layers size={13} className="text-sky-600" />
+                        All Statuses
                       </span>
-                      <span className="bg-sky-100 text-sky-800 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ml-auto">
-                        {masterRollLedgerData.length} rolls
-                      </span>
+                      <input
+                        type="radio"
+                        checked={masterLedgerExportOption === 'both'}
+                        readOnly
+                        className="text-sky-600 focus:ring-sky-500 h-3.5 w-3.5"
+                      />
                     </div>
-                    <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
-                      Exports complete master ledger containing both Dispatched and Not Dispatched rolls across all orders.
-                    </p>
-                  </div>
-                </label>
+                    <span className="text-[10px] text-sky-800 font-mono font-bold">
+                      Complete roll ledger
+                    </span>
+                  </button>
+                </div>
               </div>
+
+              {/* Section 2: Order Multi-Selection */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-extrabold text-zinc-700 uppercase tracking-wide flex items-center gap-1.5">
+                    <CheckSquare size={13} className="text-amber-600" />
+                    <span>2. Select Orders to Include:</span>
+                    <span className="text-[10px] font-mono text-zinc-500 font-normal">
+                      ({selectedMasterExportOrderIds.length}/{availableMasterOrders.length} selected)
+                    </span>
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={handleToggleSelectAllMasterExportOrders}
+                    className="text-[11px] font-bold text-amber-800 hover:text-amber-900 bg-amber-100/80 hover:bg-amber-200 px-2.5 py-1 rounded-lg border border-amber-300 transition-all cursor-pointer flex items-center gap-1"
+                  >
+                    <CheckSquare size={12} />
+                    <span>{isAllMasterExportOrdersSelected ? 'Deselect All' : `Select All (${availableMasterOrders.length})`}</span>
+                  </button>
+                </div>
+
+                {/* Search orders if list > 3 */}
+                {availableMasterOrders.length > 3 && (
+                  <div className="relative">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      type="text"
+                      placeholder="Search order ref..."
+                      value={masterExportOrderSearch}
+                      onChange={(e) => setMasterExportOrderSearch(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 text-xs bg-zinc-50 border border-zinc-200 rounded-xl text-zinc-800 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                    />
+                  </div>
+                )}
+
+                {/* Scrollable Order List */}
+                <div className="max-h-52 overflow-y-auto rounded-2xl border border-zinc-200 bg-zinc-50/60 p-2 space-y-1.5">
+                  {filteredMasterExportOrders.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-zinc-500 font-medium">
+                      No orders matching "{masterExportOrderSearch}"
+                    </div>
+                  ) : (
+                    filteredMasterExportOrders.map(o => {
+                      const isSelected = selectedMasterExportOrderIds.includes(o.id);
+                      return (
+                        <div
+                          key={o.id}
+                          onClick={() => handleToggleMasterExportOrder(o.id)}
+                          className={`px-3 py-2 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                            isSelected
+                              ? 'bg-amber-50/90 border-amber-400 text-amber-950 font-bold shadow-3xs'
+                              : 'bg-white border-zinc-200/80 text-zinc-600 hover:bg-zinc-100/70'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}} // handled by parent div click
+                              className="w-4 h-4 text-amber-600 rounded border-zinc-300 focus:ring-amber-500 cursor-pointer shrink-0"
+                            />
+                            <span className="text-xs font-mono font-bold truncate">
+                              Order #{o.orderNo}
+                            </span>
+                          </div>
+                          <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                            isSelected ? 'bg-amber-200/80 text-amber-900 font-bold' : 'bg-zinc-100 text-zinc-500'
+                          }`}>
+                            {o.count} rolls
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Match Summary Indicator */}
+                <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                  <span className="text-emerald-900 font-medium text-[11px]">
+                    Excel report match preview:
+                  </span>
+                  <span className="font-mono font-black text-emerald-950 text-xs">
+                    {masterExportPreviewRollsCount} rolls ({selectedMasterExportOrderIds.length} orders)
+                  </span>
+                </div>
+              </div>
+
             </div>
 
             {/* Modal Footer */}
-            <div className="bg-zinc-50 px-5 py-3.5 border-t border-zinc-200 flex justify-end gap-2.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => setIsMasterLedgerExportModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-200 hover:bg-zinc-300 text-zinc-700 transition-all cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => handleExportMasterRollLedgerToExcel(masterLedgerExportOption)}
-                className="px-5 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
-              >
-                <Download size={14} className="stroke-[2.5]" />
-                <span>Download Excel</span>
-              </button>
+            <div className="bg-zinc-50 px-5 py-3.5 border-t border-zinc-200 flex justify-between items-center shrink-0">
+              <span className="text-[11px] font-medium text-zinc-500">
+                {selectedMasterExportOrderIds.length === 0 ? (
+                  <span className="text-rose-600 font-bold">Select at least 1 order</span>
+                ) : (
+                  <span>Ready for download</span>
+                )}
+              </span>
+
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsMasterLedgerExportModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-200 hover:bg-zinc-300 text-zinc-700 transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedMasterExportOrderIds.length === 0}
+                  onClick={() => handleExportMasterRollLedgerToExcel(masterLedgerExportOption)}
+                  className={`px-5 py-2 rounded-xl text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md active:scale-95 ${
+                    selectedMasterExportOrderIds.length === 0
+                      ? 'bg-zinc-400 cursor-not-allowed opacity-60'
+                      : 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer'
+                  }`}
+                >
+                  <Download size={14} className="stroke-[2.5]" />
+                  <span>Download Excel</span>
+                </button>
+              </div>
             </div>
 
           </div>
