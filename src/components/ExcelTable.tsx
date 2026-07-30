@@ -30,6 +30,7 @@ import {
   XCircle
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 interface CellInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onBlur'> {
   value: string | number;
@@ -753,95 +754,283 @@ export default function ExcelTable({
   };
 
   // Convert files: Export to real Excel
-  const triggerExportExcel = () => {
-    // Generate clean flat array for SheetJS to parse
-    const dataToExport: any[] = employees.map((emp, index) => ({
-      'S.No': index + 1,
-      'Employee ID': emp.id,
-      'Employee Name': emp.name,
-      'Contractor Name': emp.contractor || '',
-      'Active Status': emp.activeStatus || 'ACTIVE',
-      'Department': emp.department || '',
-      'Designation': emp.designation || emp.role || '',
-      'Shift': String(emp.shift || 'DAY'),
-      'Salary Type': String(emp.salaryType || 'fixed'),
-      'Sunday Paid Status': String(emp.sundayPaid || 'Not Paid'),
-      'Shift Time': emp.shiftTime || '',
-      'Contact Number': emp.phone || '',
-      'Address': emp.address || '',
-      'Monthly/Daily Rate Indicator': emp.salaryType === 'daily' ? 'Per-Day' : 'Monthly Fixed',
-      'Monthly Salary (INR)': emp.monthlySalary,
-      'Working Days in Month': emp.workingDays,
-      'Daily Salary Rate (INR)': emp.dailyRate,
-      'Working Hours per Day': emp.workingHours,
-      'Hourly Salary Rate (INR)': emp.hourlyRate,
-      'Full Days Absent': emp.fullDaysAbsent,
-      'Absent Hours': emp.absentHours,
-      'Absent Minutes': emp.absentMinutes,
-      'Sunday OT Days Worked': emp.sundayOTDays || 0,
-      'Sunday OT Amount (INR)': emp.sundayOTAmount || 0,
-      'Deduction: Full Day (INR)': emp.deductionFullDay,
-      'Deduction: Hourly (INR)': emp.deductionHourly,
-      'Deduction: Partial Day (INR)': emp.deductionPartialDay || 0,
-      'Advance Payment (INR)': emp.advancePayment || 0,
-      'Food Balance (INR)': emp.foodBalance || 0,
-      'Total Deduction (INR)': emp.totalDeduction,
-      'Final Payable Salary (INR)': emp.finalPayable
-    }));
+  const triggerExportExcel = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Payroll Salary Ledger');
 
-    // Add calculations total row at the end
-    const totalGross = employees.reduce((acc, current) => acc + current.grossSalary, 0);
-    const totalDeds = employees.reduce((acc, current) => acc + current.totalDeduction, 0);
-    const totalPays = employees.reduce((acc, current) => acc + current.finalPayable, 0);
-    const totalAdvance = employees.reduce((acc, current) => acc + (current.advancePayment || 0), 0);
-    const totalFood = employees.reduce((acc, current) => acc + (current.foodBalance || 0), 0);
-    const totalPartialDeds = employees.reduce((acc, current) => acc + (current.deductionPartialDay || 0), 0);
-    const totalSundayOTDays = employees.reduce((acc, current) => acc + (current.sundayOTDays || 0), 0);
-    const totalSundayOTAmount = employees.reduce((acc, current) => acc + (current.sundayOTAmount || 0), 0);
+    // Make grid lines visible
+    worksheet.views = [{ showGridLines: true }];
 
-    dataToExport.push({
-      'S.No': '',
-      'Employee ID': 'TOTAL ROWS: ' + employees.length,
-      'Employee Name': 'Summary Ledger Sums',
-      'Contractor Name': '',
-      'Active Status': '',
-      'Department': '',
-      'Designation': '',
-      'Shift': '',
-      'Salary Type': '',
-      'Sunday Paid Status': '',
-      'Shift Time': '',
-      'Contact Number': '',
-      'Address': '',
-      'Monthly/Daily Rate Indicator': '',
-      'Monthly Salary (INR)': totalGross,
-      'Working Days in Month': 0,
-      'Daily Salary Rate (INR)': 0,
-      'Working Hours per Day': 0,
-      'Hourly Salary Rate (INR)': 0,
-      'Full Days Absent': 0,
-      'Absent Hours': 0,
-      'Absent Minutes': 0,
-      'Sunday OT Days Worked': totalSundayOTDays,
-      'Sunday OT Amount (INR)': totalSundayOTAmount,
-      'Deduction: Full Day (INR)': 0,
-      'Deduction: Hourly (INR)': 0,
-      'Deduction: Partial Day (INR)': totalPartialDeds,
-      'Advance Payment (INR)': totalAdvance,
-      'Food Balance (INR)': totalFood,
-      'Total Deduction (INR)': totalDeds,
-      'Final Payable Salary (INR)': totalPays
+    const thickBlackBorder: Partial<ExcelJS.Borders> = {
+      top: { style: 'medium', color: { argb: 'FF000000' } },
+      bottom: { style: 'medium', color: { argb: 'FF000000' } },
+      left: { style: 'medium', color: { argb: 'FF000000' } },
+      right: { style: 'medium', color: { argb: 'FF000000' } }
+    };
+
+    const monthNames = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+    const currentMonthLabel = monthNames[(ledgerMonth || 5) - 1] || 'MAY';
+    const currentYearLabel = ledgerYear || 2026;
+    const sundayRuleLabel = sundayPaidRule === '26Days' ? '26 Days Rule' : 'Total Month Days';
+
+    // 1. TOP TITLE HEADER ROW (Row 2)
+    worksheet.getRow(1).height = 10; // Spacer
+    worksheet.mergeCells('A2:AE2');
+    const titleCell = worksheet.getCell('A2');
+    titleCell.value = `PAYROLL SALARY LEDGER REPORT • MONTH: ${currentMonthLabel} ${currentYearLabel} • SUNDAY RULE: ${sundayRuleLabel}`;
+    titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    worksheet.getRow(2).height = 28;
+    for (let col = 1; col <= 31; col++) {
+      const c = worksheet.getRow(2).getCell(col);
+      c.border = thickBlackBorder;
+      c.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
+      c.alignment = { horizontal: 'center', vertical: 'middle' };
+      c.fill = { type: 'pattern', pattern: 'none' };
+    }
+
+    worksheet.getRow(3).height = 10; // Spacer
+
+    // Calculate all metrics from employees array
+    const targetStaff = employees;
+    const totalStaffCount = targetStaff.length;
+    const activeStaffCount = targetStaff.filter(e => (e.activeStatus || 'ACTIVE') !== 'INACTIVE').length;
+    const inactiveStaffCount = targetStaff.filter(e => (e.activeStatus || 'ACTIVE') === 'INACTIVE').length;
+
+    let totalMonthlyBase = 0;
+    let totalGross = 0;
+    let totalAdvance = 0;
+    let totalFood = 0;
+    let totalFullDeds = 0;
+    let totalHourlyDeds = 0;
+    let totalPartialDeds = 0;
+    let totalDeductions = 0;
+    let totalPayable = 0;
+    let totalSundayOTDays = 0;
+    let totalSundayOTAmount = 0;
+    let totalAbsentDays = 0;
+    let totalAbsentHours = 0;
+    let totalAbsentMins = 0;
+
+    targetStaff.forEach(emp => {
+      totalMonthlyBase += emp.monthlySalary || 0;
+      totalGross += emp.grossSalary || 0;
+      totalAdvance += emp.advancePayment || 0;
+      totalFood += emp.foodBalance || 0;
+      totalFullDeds += emp.deductionFullDay || 0;
+      totalHourlyDeds += emp.deductionHourly || 0;
+      totalPartialDeds += emp.deductionPartialDay || 0;
+      totalDeductions += emp.totalDeduction || 0;
+      totalPayable += emp.finalPayable || 0;
+      totalSundayOTDays += emp.sundayOTDays || 0;
+      totalSundayOTAmount += emp.sundayOTAmount || 0;
+      totalAbsentDays += emp.fullDaysAbsent || 0;
+      totalAbsentHours += emp.absentHours || 0;
+      totalAbsentMins += emp.absentMinutes || 0;
     });
 
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Salary Calculator');
-    
-    // Auto columns sizing
-    const maxKeys = Object.keys(dataToExport[0]);
-    worksheet['!cols'] = maxKeys.map(() => ({ wch: 18 }));
-    
-    XLSX.writeFile(workbook, `HR_Salary_Ledger_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    // 2. METRICS HEADER BANNER (Row 4)
+    worksheet.mergeCells('A4:AE4');
+    const mHeaderCell = worksheet.getCell('A4');
+    mHeaderCell.value = 'PAYROLL LEDGER ALL METRICS & SUMMARY STATS';
+    mHeaderCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+    mHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    worksheet.getRow(4).height = 22;
+    for (let col = 1; col <= 31; col++) {
+      const c = worksheet.getRow(4).getCell(col);
+      c.border = thickBlackBorder;
+      c.fill = { type: 'pattern', pattern: 'none' };
+      c.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+      c.alignment = { horizontal: 'center', vertical: 'middle' };
+    }
+
+    // Row 5 & 6 (KPI Row 1)
+    worksheet.mergeCells('A5:F5'); worksheet.mergeCells('A6:F6');
+    worksheet.mergeCells('G5:L5'); worksheet.mergeCells('G6:L6');
+    worksheet.mergeCells('M5:R5'); worksheet.mergeCells('M6:R6');
+    worksheet.mergeCells('S5:X5'); worksheet.mergeCells('S6:X6');
+    worksheet.mergeCells('Y5:AE5'); worksheet.mergeCells('Y6:AE6');
+
+    worksheet.getCell('A5').value = 'TOTAL STAFF / EMPLOYEES';
+    worksheet.getCell('A6').value = `${totalStaffCount} Staff (${activeStaffCount} Active / ${inactiveStaffCount} Inactive)`;
+
+    worksheet.getCell('G5').value = 'TOTAL GROSS SALARY';
+    worksheet.getCell('G6').value = `INR ${totalGross.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    worksheet.getCell('M5').value = 'TOTAL ADVANCES & FOOD BALANCE';
+    worksheet.getCell('M6').value = `Advance: INR ${totalAdvance.toLocaleString('en-IN')} | Food: INR ${totalFood.toLocaleString('en-IN')}`;
+
+    worksheet.getCell('S5').value = 'TOTAL DEDUCTIONS';
+    worksheet.getCell('S6').value = `INR ${totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    worksheet.getCell('Y5').value = 'TOTAL FINAL NET PAYABLE SALARY';
+    worksheet.getCell('Y6').value = `INR ${totalPayable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    // Row 7 & 8 (KPI Row 2)
+    worksheet.mergeCells('A7:F7'); worksheet.mergeCells('A8:F8');
+    worksheet.mergeCells('G7:L7'); worksheet.mergeCells('G8:L8');
+    worksheet.mergeCells('M7:R7'); worksheet.mergeCells('M8:R8');
+    worksheet.mergeCells('S7:X7'); worksheet.mergeCells('S8:X8');
+    worksheet.mergeCells('Y7:AE7'); worksheet.mergeCells('Y8:AE8');
+
+    worksheet.getCell('A7').value = 'SUNDAY OT STATS';
+    worksheet.getCell('A8').value = `${totalSundayOTDays} OT Days | INR ${totalSundayOTAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
+    worksheet.getCell('G7').value = 'ABSENTEEISM SUMMARY';
+    worksheet.getCell('G8').value = `${totalAbsentDays} Days | ${totalAbsentHours} Hrs ${totalAbsentMins} Mins`;
+
+    worksheet.getCell('M7').value = 'DEDUCTION BREAKDOWN';
+    worksheet.getCell('M8').value = `Full: ${totalFullDeds.toLocaleString()} | Hourly: ${totalHourlyDeds.toLocaleString()} | Partial: ${totalPartialDeds.toLocaleString()}`;
+
+    worksheet.getCell('S7').value = 'BASE MONTHLY SALARY POOL';
+    worksheet.getCell('S8').value = `INR ${totalMonthlyBase.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
+    worksheet.getCell('Y7').value = 'SUNDAY PAID RULE CONFIG';
+    worksheet.getCell('Y8').value = `${sundayRuleLabel}`;
+
+    [5, 7].forEach(r => {
+      worksheet.getRow(r).height = 18;
+      for (let col = 1; col <= 31; col++) {
+        const c = worksheet.getRow(r).getCell(col);
+        c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = thickBlackBorder;
+        c.fill = { type: 'pattern', pattern: 'none' };
+      }
+    });
+
+    [6, 8].forEach(r => {
+      worksheet.getRow(r).height = 24;
+      for (let col = 1; col <= 31; col++) {
+        const c = worksheet.getRow(r).getCell(col);
+        c.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = thickBlackBorder;
+        c.fill = { type: 'pattern', pattern: 'none' };
+      }
+    });
+
+    // 3. DATA TABLE HEADER (Row 10)
+    worksheet.getRow(9).height = 12; // Spacer
+    const headers = [
+      'S.No', 'Employee ID', 'Employee Name', 'Contractor Name', 'Active Status',
+      'Department', 'Designation', 'Shift', 'Salary Type', 'Sunday Paid Status',
+      'Shift Time', 'Contact Number', 'Address', 'Rate Indicator', 'Monthly Salary (INR)',
+      'Working Days in Month', 'Daily Rate (INR)', 'Working Hours', 'Hourly Rate (INR)',
+      'Full Days Absent', 'Absent Hours', 'Absent Minutes', 'Sunday OT Days', 'Sunday OT Amount (INR)',
+      'Deduction: Full Day (INR)', 'Deduction: Hourly (INR)', 'Deduction: Partial Day (INR)',
+      'Advance Payment (INR)', 'Food Balance (INR)', 'Total Deduction (INR)', 'Final Payable Salary (INR)'
+    ];
+
+    const headerRow = worksheet.getRow(10);
+    headerRow.height = 28;
+    headers.forEach((h, idx) => {
+      const cell = headerRow.getCell(idx + 1);
+      cell.value = h;
+      cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = thickBlackBorder;
+      cell.fill = { type: 'pattern', pattern: 'none' };
+    });
+
+    // 4. DATA ROWS (Starting Row 11)
+    let currentR = 11;
+    targetStaff.forEach((emp, index) => {
+      const row = worksheet.getRow(currentR);
+      row.height = 22;
+
+      const rowValues = [
+        index + 1,
+        emp.id || '',
+        emp.name || '',
+        emp.contractor || '',
+        emp.activeStatus || 'ACTIVE',
+        emp.department || '',
+        emp.designation || emp.role || '',
+        String(emp.shift || 'DAY'),
+        String(emp.salaryType || 'fixed'),
+        String(emp.sundayPaid || 'Not Paid'),
+        emp.shiftTime || '',
+        emp.phone || '',
+        emp.address || '',
+        emp.salaryType === 'daily' ? 'Per-Day' : 'Monthly Fixed',
+        emp.monthlySalary || 0,
+        emp.workingDays || 0,
+        emp.dailyRate || 0,
+        emp.workingHours || 0,
+        emp.hourlyRate || 0,
+        emp.fullDaysAbsent || 0,
+        emp.absentHours || 0,
+        emp.absentMinutes || 0,
+        emp.sundayOTDays || 0,
+        emp.sundayOTAmount || 0,
+        emp.deductionFullDay || 0,
+        emp.deductionHourly || 0,
+        emp.deductionPartialDay || 0,
+        emp.advancePayment || 0,
+        emp.foodBalance || 0,
+        emp.totalDeduction || 0,
+        emp.finalPayable || 0
+      ];
+
+      rowValues.forEach((val, cIdx) => {
+        const cell = row.getCell(cIdx + 1);
+        cell.value = val;
+        cell.font = { name: 'Calibri', size: 11, bold: false, color: { argb: 'FF000000' } };
+        // Keep all columns in data table as left aligned by default
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+        cell.fill = { type: 'pattern', pattern: 'none' };
+      });
+
+      currentR++;
+    });
+
+    // 5. SUMMARY ROW
+    const sumRow = worksheet.getRow(currentR);
+    sumRow.height = 26;
+    const sumValues = [
+      '',
+      `TOTAL ROWS: ${targetStaff.length}`,
+      'Summary Ledger Sums',
+      '', '', '', '', '', '', '', '', '', '', '',
+      totalMonthlyBase,
+      0, 0, 0, 0, 0, 0, 0,
+      totalSundayOTDays,
+      totalSundayOTAmount,
+      totalFullDeds,
+      totalHourlyDeds,
+      totalPartialDeds,
+      totalAdvance,
+      totalFood,
+      totalDeductions,
+      totalPayable
+    ];
+
+    sumValues.forEach((val, cIdx) => {
+      const cell = sumRow.getCell(cIdx + 1);
+      cell.value = val;
+      cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+      cell.alignment = { horizontal: 'left', vertical: 'middle' };
+      cell.border = thickBlackBorder;
+      cell.fill = { type: 'pattern', pattern: 'none' };
+    });
+
+    // Auto Column Widths
+    worksheet.columns.forEach((col, idx) => {
+      let maxLen = headers[idx] ? headers[idx].length : 15;
+      col.width = Math.max(maxLen + 4, 16);
+    });
+
+    // Write buffer & save file
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `Payroll_Salary_Ledger_${currentMonthLabel}_${currentYearLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    anchor.click();
+    window.URL.revokeObjectURL(url);
   };
 
   // File import helper for .XLSX Excel files uploaded by the user

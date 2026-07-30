@@ -37,15 +37,175 @@ import {
   Layers,
   Flame,
   Activity,
-  Copy
+  Copy,
+  Search,
+  ChevronDown,
+  User
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
-import { type LoomRunningReport, LoomRunningRow } from '../types';
+import { type LoomRunningReport, LoomRunningRow, Employee } from '../types';
+import { INITIAL_EMPLOYEES } from '../data';
 
 interface LoomRunningReportProps {
   triggerAlert: (type: 'info' | 'success' | 'warn', msg: string) => void;
   viewOnly?: boolean;
+}
+
+interface OperatorSelectProps {
+  value: string;
+  onChange: (val: string) => void;
+  employees: Employee[];
+}
+
+function OperatorSelect({ value, onChange, employees }: OperatorSelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const filteredEmployees = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) {
+      return employees.filter(e => (e.name || '').trim() !== '');
+    }
+    return employees.filter(e => 
+      (e.name || '').toLowerCase().includes(q) ||
+      (e.id || '').toLowerCase().includes(q) ||
+      (e.department || '').toLowerCase().includes(q) ||
+      (e.designation || '').toLowerCase().includes(q) ||
+      (e.role || '').toLowerCase().includes(q)
+    );
+  }, [employees, searchQuery]);
+
+  const handleSelect = (empName: string) => {
+    onChange(empName);
+    setIsOpen(false);
+    setSearchQuery('');
+  };
+
+  return (
+    <div ref={dropdownRef} className="relative w-full">
+      <div className="relative flex items-center">
+        <input
+          ref={inputRef}
+          type="text"
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            setSearchQuery(e.target.value);
+            if (!isOpen) setIsOpen(true);
+          }}
+          onFocus={() => {
+            setIsOpen(true);
+            setSearchQuery(value);
+          }}
+          placeholder="Operator Name"
+          className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 pl-1 pr-6 py-0.5 text-xs text-slate-850 focus:outline-none focus:bg-white font-semibold truncate"
+        />
+        <button
+          type="button"
+          onClick={() => {
+            const next = !isOpen;
+            setIsOpen(next);
+            if (next) {
+              setSearchQuery('');
+              setTimeout(() => inputRef.current?.focus(), 50);
+            }
+          }}
+          tabIndex={-1}
+          className="absolute right-0.5 text-slate-400 hover:text-indigo-600 p-0.5 rounded cursor-pointer"
+          title="Select / Search Operator from Roster"
+        >
+          <ChevronDown size={13} className={`transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-600' : ''}`} />
+        </button>
+      </div>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full mt-1 z-50 w-64 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden text-slate-800 animate-in fade-in slide-in-from-top-1 duration-150">
+          <div className="p-2 border-b border-slate-100 bg-slate-50/90 flex items-center gap-1.5">
+            <Search size={13} className="text-slate-400 shrink-0 ml-1" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search employee name, ID, role..."
+              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 font-medium"
+              autoFocus
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="text-slate-400 hover:text-slate-600 p-0.5"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          <div className="max-h-52 overflow-y-auto divide-y divide-slate-100">
+            {filteredEmployees.length > 0 ? (
+              filteredEmployees.slice(0, 60).map((emp) => (
+                <button
+                  key={emp.id}
+                  type="button"
+                  onClick={() => handleSelect(emp.name)}
+                  className={`w-full text-left px-3 py-2 hover:bg-indigo-50/80 transition-colors flex items-center justify-between gap-2 text-xs cursor-pointer ${
+                    value === emp.name ? 'bg-indigo-50/60 font-bold text-indigo-900' : 'text-slate-700'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-extrabold text-slate-900 truncate">
+                      {emp.name || 'Unnamed Employee'}
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-medium truncate flex items-center gap-1.5">
+                      <span className="font-mono text-indigo-600 bg-indigo-50 px-1 py-0.2 rounded font-bold">#{emp.id}</span>
+                      {(emp.designation || emp.department || emp.role) && (
+                        <span>• {emp.designation || emp.department || emp.role}</span>
+                      )}
+                    </div>
+                  </div>
+                  {value === emp.name && (
+                    <Check size={14} className="text-indigo-600 shrink-0" />
+                  )}
+                </button>
+              ))
+            ) : (
+              <div className="p-3 text-center text-xs text-slate-500 font-medium">
+                No matching employee found
+              </div>
+            )}
+          </div>
+
+          {searchQuery && (
+            <div className="p-1.5 border-t border-slate-100 bg-slate-50">
+              <button
+                type="button"
+                onClick={() => handleSelect(searchQuery)}
+                className="w-full text-left px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-700 hover:bg-indigo-100/70 transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus size={12} />
+                <span>Use custom name: <strong className="font-bold">"{searchQuery}"</strong></span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function LoomRunningReport({ triggerAlert, viewOnly = false }: LoomRunningReportProps) {
@@ -53,6 +213,37 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
   const [reports, setReports] = useState<LoomRunningReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [loomProductions, setLoomProductions] = useState<any[]>([]);
+
+  // --- STATE FOR EMPLOYEES ROSTER (FOR OPERATOR DROPDOWN / SEARCH) ---
+  const [employees, setEmployees] = useState<Employee[]>(() => {
+    const cache = localStorage.getItem('salarypro_employees_cache');
+    if (cache) {
+      try {
+        const parsed = JSON.parse(cache);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return INITIAL_EMPLOYEES.filter(e => (e.name || '').trim() !== '');
+  });
+
+  useEffect(() => {
+    const q = collection(db, 'employees');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: Employee[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as Employee;
+        if ((data.name || '').trim() !== '') {
+          list.push({ id: docSnap.id, ...data });
+        }
+      });
+      if (list.length > 0) {
+        setEmployees(list);
+      }
+    }, (err) => {
+      console.warn("Failed to stream employees in LoomRunningReport:", err);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // --- STATE FOR DATE FILTER MODE ---
   const [filterMode, setFilterMode] = useState<'single' | 'range'>('single');
@@ -193,16 +384,18 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
   // --- MATCHED PRODUCTION METRICS FROM LOOM PRODUCTION REPORT ---
   const matchedProductionEntries = useMemo(() => {
     return loomProductions.filter(p => {
+      if (!p.date) return false;
       const dateMatch = filterMode === 'single'
         ? p.date === singleDate
         : (p.date >= rangeStartDate && p.date <= rangeEndDate);
 
       if (!dateMatch) return false;
 
+      const pShift = (p.shift || 'day').toLowerCase().trim();
       if (filterShift === 'DAY') {
-        return (p.shift || 'day') === 'day';
+        return pShift === 'day' || pShift.includes('day');
       } else if (filterShift === 'NIGHT') {
-        return (p.shift || 'day') === 'night';
+        return pShift === 'night' || pShift.includes('night');
       }
 
       return true;
@@ -570,34 +763,46 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       const worksheet = workbook.addWorksheet('Loom Running Report');
       worksheet.views = [{ showGridLines: true }];
 
+      const thickBlackBorder = {
+        top: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        left: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        bottom: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        right: { style: 'medium' as const, color: { argb: 'FF000000' } },
+      };
+
       // 1. EXECUTIVE HEADER BANNER (Row 1)
       worksheet.mergeCells('A1:O1');
       const titleCell = worksheet.getCell('A1');
       titleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • LOOM RUNNING REPORT LEDGER SUMMARY';
-      titleCell.font = { name: 'Calibri', size: 15, bold: true, color: { argb: 'FFFFFFFF' } };
-      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; // Dark Slate Navy
+      titleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(1).height = 42;
 
       for (let col = 1; col <= 15; col++) {
-        worksheet.getRow(1).getCell(col).fill = titleCell.fill;
+        worksheet.getRow(1).getCell(col).border = thickBlackBorder;
       }
 
       // 2. SUB-BANNER DATE RANGE (Row 2)
       worksheet.mergeCells('A2:O2');
       const dateCell = worksheet.getCell('A2');
       const periodLabel = filterMode === 'single' ? formatDateLabel(singleDate) : `${formatDateLabel(rangeStartDate)} TO ${formatDateLabel(rangeEndDate)}`;
-      dateCell.value = `EXPORT PERIOD: ${periodLabel}`;
-      dateCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFF59E0B' } }; // Gold accent
-      dateCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
+      const shiftLabel = filterShift === 'ALL' ? 'ALL SHIFTS' : `${filterShift} SHIFT`;
+      dateCell.value = `EXPORT PERIOD: ${periodLabel} • SHIFT: ${shiftLabel}`;
+      dateCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
       dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      worksheet.getRow(2).height = 22;
+      worksheet.getRow(2).height = 24;
 
-      // 3. METRICS CARDS (Rows 4 & 5)
+      for (let col = 1; col <= 15; col++) {
+        worksheet.getRow(2).getCell(col).border = thickBlackBorder;
+      }
+
+      // 3. COMPLETE METRICS CARDS (Rows 4 to 8)
       let totalRowsCount = 0;
       let runningCount = 0;
       let stoppedCount = 0;
       let sumAvgGrams = 0;
+      let sumGsm = 0;
+      let sumDenier = 0;
       let sumTotalMeters = 0;
       let sumGrossWt = 0;
       let sumCoreWt = 0;
@@ -612,6 +817,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
             stoppedCount++;
           }
           sumAvgGrams += row.average || 0;
+          sumGsm += row.gsm || 0;
+          sumDenier += row.denier || 0;
           sumTotalMeters += row.totalMeters || 0;
           sumGrossWt += row.grossWt || 0;
           sumCoreWt += row.coreWt || 0;
@@ -620,107 +827,80 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       });
 
       const overallAvg = totalRowsCount > 0 ? (sumAvgGrams / totalRowsCount).toFixed(2) : '0';
+      const avgGsmVal = totalRowsCount > 0 ? (sumGsm / totalRowsCount).toFixed(2) : '0';
+      const avgDenierVal = totalRowsCount > 0 ? Math.round(sumDenier / totalRowsCount) : 0;
+      const utilizationVal = totalRowsCount > 0 ? Math.round((runningCount / totalRowsCount) * 100) : 0;
+      const calcAvgWtVal = sumTotalMeters > 0 ? (sumNetWt / sumTotalMeters).toFixed(4) : '0';
 
       worksheet.getRow(3).height = 10; // Spacer
 
-      worksheet.mergeCells('A4:D4');
-      worksheet.mergeCells('E4:H4');
-      worksheet.mergeCells('I4:L4');
-      worksheet.mergeCells('M4:O4');
+      // Metrics Grid Header Banner
+      worksheet.mergeCells('A4:O4');
+      const mHeaderCell = worksheet.getCell('A4');
+      mHeaderCell.value = 'APP PAGE METRICS SUMMARY & REAL-TIME LOOM PRODUCTION INTEGRATION';
+      mHeaderCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+      mHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(4).height = 22;
+      for (let col = 1; col <= 15; col++) worksheet.getRow(4).getCell(col).border = thickBlackBorder;
 
-      worksheet.mergeCells('A5:D5');
-      worksheet.mergeCells('E5:H5');
-      worksheet.mergeCells('I5:L5');
-      worksheet.mergeCells('M5:O5');
+      // Single KPI Row (Row 5 & 6) containing remaining metrics
+      worksheet.mergeCells('A5:C5'); worksheet.mergeCells('A6:C6');
+      worksheet.mergeCells('D5:F5'); worksheet.mergeCells('D6:F6');
+      worksheet.mergeCells('G5:I5'); worksheet.mergeCells('G6:I6');
+      worksheet.mergeCells('J5:L5'); worksheet.mergeCells('J6:L6');
+      worksheet.mergeCells('M5:O5'); worksheet.mergeCells('M6:O6');
 
-      worksheet.getRow(4).height = 18;
-      worksheet.getRow(5).height = 22;
+      worksheet.getCell('A5').value = 'LOOMS TRACKED';
+      worksheet.getCell('A6').value = `${totalRowsCount} Looms (${runningCount} Running / ${stoppedCount} Stopped)`;
 
-      worksheet.getCell('A4').value = 'Total Looms Tracked:';
-      worksheet.getCell('E4').value = 'Total Meters Woven:';
-      worksheet.getCell('I4').value = 'Total Net Weight (kg):';
-      worksheet.getCell('M4').value = 'Avg Fabric Weight:';
+      worksheet.getCell('D5').value = 'AVG FABRIC WEIGHT & QUALITY';
+      worksheet.getCell('D6').value = `${overallAvg} g (GSM: ${avgGsmVal} | Denier: ${avgDenierVal} D)`;
 
-      worksheet.getCell('A5').value = `${totalRowsCount} Looms`;
-      worksheet.getCell('E5').value = `${sumTotalMeters.toLocaleString()} m`;
-      worksheet.getCell('I5').value = `${sumNetWt.toFixed(2)} kg`;
-      worksheet.getCell('M5').value = `${overallAvg} grams`;
+      worksheet.getCell('G5').value = 'TOTAL PRODUCTION (REAL-TIME)';
+      worksheet.getCell('G6').value = `${prodMetrics.totalProduction.toLocaleString()} Meters (${prodMetrics.hasData ? 'Synced' : 'No Data'})`;
 
-      const thinCardBorder = {
-        top: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
-        left: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
-        bottom: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
-        right: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
-      };
+      worksheet.getCell('J5').value = 'AVG PRODUCTION RATE';
+      worksheet.getCell('J6').value = `${prodMetrics.avgProduction.toLocaleString()} M/Loom (${prodMetrics.hasData ? 'Synced' : 'No Data'})`;
 
-      for (let col = 1; col <= 4; col++) {
-        [4, 5].forEach(r => {
-          const c = worksheet.getRow(r).getCell(col);
-          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
-          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF1E40AF' } };
-          c.alignment = { horizontal: 'center', vertical: 'middle' };
-          c.border = thinCardBorder;
-        });
+      worksheet.getCell('M5').value = 'TOTAL WASTAGE (REAL-TIME)';
+      worksheet.getCell('M6').value = `${prodMetrics.totalWastage.toLocaleString()} KG (${prodMetrics.hasData ? 'Synced from Loom Prod' : 'No Data'})`;
+
+      worksheet.getRow(5).height = 18;
+      for (let col = 1; col <= 15; col++) {
+        const c = worksheet.getRow(5).getCell(col);
+        c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = thickBlackBorder;
       }
 
-      for (let col = 5; col <= 8; col++) {
-        [4, 5].forEach(r => {
-          const c = worksheet.getRow(r).getCell(col);
-          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
-          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF15803D' } };
-          c.alignment = { horizontal: 'center', vertical: 'middle' };
-          c.border = thinCardBorder;
-        });
+      worksheet.getRow(6).height = 24;
+      for (let col = 1; col <= 15; col++) {
+        const c = worksheet.getRow(6).getCell(col);
+        c.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = thickBlackBorder;
       }
 
-      for (let col = 9; col <= 12; col++) {
-        [4, 5].forEach(r => {
-          const c = worksheet.getRow(r).getCell(col);
-          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEDD5' } };
-          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFC2410C' } };
-          c.alignment = { horizontal: 'center', vertical: 'middle' };
-          c.border = thinCardBorder;
-        });
-      }
-
-      for (let col = 13; col <= 15; col++) {
-        [4, 5].forEach(r => {
-          const c = worksheet.getRow(r).getCell(col);
-          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
-          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFB45309' } };
-          c.alignment = { horizontal: 'center', vertical: 'middle' };
-          c.border = thinCardBorder;
-        });
-      }
-
-      // 4. DATA TABLE HEADER (Row 7)
-      worksheet.getRow(6).height = 12; // Spacer
+      // 4. DATA TABLE HEADER (Row 8)
+      worksheet.getRow(7).height = 12; // Spacer
       const headers = ['Report Date', 'Loom Number', 'Loom Operator Name', 'Total Meters', 'Weave Quality', 'Size', 'GSM', 'Denier', 'Average Weight (g)', 'Gross Wt (kg)', 'Core Wt (kg)', 'Net Wt (kg)', 'Avg Wt [calc] (kg)', 'Running Status', 'Remarks'];
-      const headerRow = worksheet.getRow(7);
+      const headerRow = worksheet.getRow(8);
       headerRow.height = 28;
       headers.forEach((h, idx) => {
         const cell = headerRow.getCell(idx + 1);
         cell.value = h;
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
-        cell.alignment = { horizontal: 'left', vertical: 'middle' };
-        cell.border = {
-          top: { style: 'medium', color: { argb: 'FF0F172A' } },
-          left: { style: 'thin', color: { argb: 'FF334155' } },
-          bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
-          right: { style: 'thin', color: { argb: 'FF334155' } }
-        };
+        cell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = thickBlackBorder;
       });
 
       // 5. DATA ROWS
-      let currentR = 8;
+      let currentR = 9;
       filteredReports.forEach((report) => {
         const readableDate = formatDateLabel(report.date);
         report.rows.forEach((row) => {
           const r = worksheet.getRow(currentR);
           r.height = 22;
-          const isEven = currentR % 2 === 0;
-          const defaultBg = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
 
           const rowValues = [
             readableDate,
@@ -743,43 +923,18 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
           rowValues.forEach((val, colIdx) => {
             const cell = r.getCell(colIdx + 1);
             cell.value = val;
-            cell.font = { name: 'Calibri', size: 10.5, color: { argb: 'FF1E293B' } };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultBg } };
+            cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
             cell.alignment = { horizontal: 'left', vertical: 'middle' };
-            cell.border = {
-              top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-              left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-              bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-              right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
-            };
+            cell.border = thickBlackBorder;
 
-            if (colIdx === 0) { // Date
-              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
-            } else if (colIdx === 1) { // Loom No
-              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF1E40AF' } };
-            } else if (colIdx === 3) { // Total Meters
+            if (colIdx === 3) { // Total Meters
               cell.numFmt = '#,##0';
-              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF15803D' } };
-            } else if (colIdx === 4) { // Quality
-              cell.font = { name: 'Calibri', size: 10.5, bold: true };
             } else if (colIdx === 8) { // Average Weight
               cell.numFmt = '#,##0.00';
             } else if (colIdx === 9 || colIdx === 10 || colIdx === 11) { // Gross Wt, Core Wt, Net Wt
               cell.numFmt = '#,##0.00';
-              if (colIdx === 11) {
-                cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF4338CA' } };
-              }
             } else if (colIdx === 12) { // Avg Wt [calc]
               cell.numFmt = '#,##0.0000';
-              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF15803D' } };
-            } else if (colIdx === 13) { // Running Status
-              if (val === 'Running') {
-                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
-                cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF15803D' } };
-              } else {
-                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF2F2' } };
-                cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFB91C1C' } };
-              }
             }
           });
 
@@ -792,15 +947,9 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       totalsRow.height = 26;
       for (let c = 1; c <= 15; c++) {
         const cell = totalsRow.getCell(c);
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F172A' } };
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
         cell.alignment = { horizontal: 'left', vertical: 'middle' };
-        cell.border = {
-          top: { style: 'medium', color: { argb: 'FF334155' } },
-          bottom: { style: 'double', color: { argb: 'FF0F172A' } },
-          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
-        };
+        cell.border = thickBlackBorder;
       }
 
       totalsRow.getCell(1).value = 'TOTALS';
@@ -849,23 +998,25 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       worksheet2.mergeCells('A1:I1');
       const sumTitleCell = worksheet2.getCell('A1');
       sumTitleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • LEDGER SUMMARY REPORT (BY QUALITY, SIZE & GSM)';
-      sumTitleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
-      sumTitleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
-      sumTitleCell.alignment = { horizontal: 'left', vertical: 'middle' };
+      sumTitleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      sumTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet2.getRow(1).height = 40;
 
       for (let col = 1; col <= 9; col++) {
-        worksheet2.getRow(1).getCell(col).fill = sumTitleCell.fill;
+        worksheet2.getRow(1).getCell(col).border = thickBlackBorder;
       }
 
       // 2. SUB-BANNER (Row 2)
       worksheet2.mergeCells('A2:I2');
       const sumDateCell = worksheet2.getCell('A2');
       sumDateCell.value = `EXPORT PERIOD: ${periodLabel}`;
-      sumDateCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFF59E0B' } };
-      sumDateCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
-      sumDateCell.alignment = { horizontal: 'left', vertical: 'middle' };
-      worksheet2.getRow(2).height = 22;
+      sumDateCell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
+      sumDateCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet2.getRow(2).height = 24;
+
+      for (let col = 1; col <= 9; col++) {
+        worksheet2.getRow(2).getCell(col).border = thickBlackBorder;
+      }
 
       // 3. TABLE HEADERS (Row 4)
       worksheet2.getRow(3).height = 12; // Spacer
@@ -875,15 +1026,9 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       sumHeaders.forEach((h, idx) => {
         const cell = sumHeaderRow.getCell(idx + 1);
         cell.value = h;
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
-        cell.alignment = { horizontal: 'left', vertical: 'middle' };
-        cell.border = {
-          top: { style: 'medium', color: { argb: 'FF0F172A' } },
-          left: { style: 'thin', color: { argb: 'FF334155' } },
-          bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
-          right: { style: 'thin', color: { argb: 'FF334155' } }
-        };
+        cell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = thickBlackBorder;
       });
 
       // 4. DATA ROWS FOR SUMMARY WORKSHEET
@@ -891,8 +1036,6 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       summaryData.forEach((item) => {
         const r = worksheet2.getRow(sumCurrentR);
         r.height = 22;
-        const isEven = sumCurrentR % 2 === 0;
-        const defaultBg = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
 
         const rowValues = [
           item.quality || '-',
@@ -909,37 +1052,18 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
         rowValues.forEach((val, colIdx) => {
           const cell = r.getCell(colIdx + 1);
           cell.value = val;
-          cell.font = { name: 'Calibri', size: 10.5, color: { argb: 'FF1E293B' } };
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultBg } };
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
           cell.alignment = { horizontal: 'left', vertical: 'middle' };
-          cell.border = {
-            top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-            left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-            bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-            right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
-          };
+          cell.border = thickBlackBorder;
 
-          if (colIdx === 0) { // Quality
-            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
-          } else if (colIdx === 3) { // Total Meters
+          if (colIdx === 3) { // Total Meters
             cell.numFmt = '#,##0';
-            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF15803D' } };
           } else if (colIdx === 4 || colIdx === 5) { // Gross Wt, Net Wt
             cell.numFmt = '#,##0.00';
-            if (colIdx === 5) {
-              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF4338CA' } };
-            }
           } else if (colIdx === 6) { // Avg Wt [calc]
             cell.numFmt = '#,##0.0000';
-            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF15803D' } };
-          } else if (colIdx === 7) { // Looms Running
+          } else if (colIdx === 7 || colIdx === 8) { // Looms Running / Stopped
             cell.numFmt = '#,##0';
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
-            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF15803D' } };
-          } else if (colIdx === 8) { // Looms Stopped
-            cell.numFmt = '#,##0';
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF2F2' } };
-            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFB91C1C' } };
           }
         });
 
@@ -951,15 +1075,9 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       sumTotalsRow.height = 26;
       for (let c = 1; c <= 9; c++) {
         const cell = sumTotalsRow.getCell(c);
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F172A' } };
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
         cell.alignment = { horizontal: 'left', vertical: 'middle' };
-        cell.border = {
-          top: { style: 'medium', color: { argb: 'FF334155' } },
-          bottom: { style: 'double', color: { argb: 'FF0F172A' } },
-          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
-        };
+        cell.border = thickBlackBorder;
       }
 
       const sumSummaryMeters = summaryData.reduce((acc, i) => acc + (i.totalMeters || 0), 0);
@@ -1452,8 +1570,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
           <div className="overflow-x-auto">
             {filteredReports.map((report) => (
               <div key={report.id} className="border-b last:border-b-0 border-slate-150 p-6 bg-white">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 pb-2 border-b border-dashed border-slate-150">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 pb-2 border-b border-dashed border-slate-150 gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <CalendarIcon className="text-indigo-500" size={16} />
                     <span className="text-sm font-extrabold text-slate-900">{formatDateLabel(report.date)} Report Ledger</span>
                     {report.shift && (
@@ -1463,6 +1581,34 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                         {report.shift === 'NIGHT' ? '🌙 Night Shift' : '☀️ Day Shift'}
                       </span>
                     )}
+
+                    {/* REAL-TIME MATCHED WASTAGE & PRODUCTION METRICS FROM LOOM PRODUCTION REPORT */}
+                    {(() => {
+                      const repShift = (report.shift || 'day').toLowerCase().trim();
+                      const matchedProd = loomProductions.find(p => 
+                        p.date === report.date && 
+                        (p.shift || 'day').toLowerCase().trim().includes(repShift)
+                      );
+                      if (matchedProd) {
+                        return (
+                          <div className="flex items-center gap-2 text-xs flex-wrap ml-1">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                              <Flame size={12} className="text-rose-500" />
+                              Wastage: {matchedProd.wastage != null ? matchedProd.wastage : 0} KG
+                            </span>
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                              <Sparkles size={12} className="text-emerald-500" />
+                              Production: {matchedProd.production != null ? matchedProd.production.toLocaleString() : 0} M
+                            </span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-slate-400 bg-slate-100 border border-slate-200">
+                          No Prod Logged
+                        </span>
+                      );
+                    })()}
                   </div>
                   {!viewOnly && (
                     <div className="flex gap-2 mt-2 sm:mt-0">
@@ -1514,24 +1660,24 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                 ) : (
                   <>
                     {/* Desktop View Table */}
-                    <div className="hidden md:block overflow-x-auto">
-                      <table className="w-full text-left border-collapse border border-slate-150 rounded-2xl overflow-hidden shadow-xs">
-                        <thead>
-                          <tr className="bg-slate-900 text-slate-100 text-[11px] md:text-[12px] font-black uppercase tracking-wider select-none border-b border-slate-800">
-                            <th className="py-3 px-4 border-r border-slate-800">Loom Number</th>
-                            <th className="py-3 px-4 border-r border-slate-800">Operator Name</th>
-                            <th className="py-3 px-4 border-r border-slate-800 text-right">Total Meters</th>
-                            <th className="py-3 px-4 border-r border-slate-800">Quality</th>
-                            <th className="py-3 px-4 border-r border-slate-800 text-center">Size</th>
-                            <th className="py-3 px-4 border-r border-slate-800 text-center">GSM</th>
-                            <th className="py-3 px-4 border-r border-slate-800 text-center">Denier</th>
-                            <th className="py-3 px-4 border-r border-slate-800 text-center">Average Weight</th>
-                            <th className="py-3 px-4 border-r border-slate-800 text-right">Gross Wt (kg)</th>
-                            <th className="py-3 px-4 border-r border-slate-800 text-right">Core Wt (kg)</th>
-                            <th className="py-3 px-4 border-r border-slate-800 text-right">Net Wt (kg)</th>
-                            <th className="py-3 px-4 border-r border-slate-800 text-right">Avg Wt [calc] (kg)</th>
-                            <th className="py-3 px-4 border-r border-slate-800 text-center">Running Status</th>
-                            <th className="py-3 px-4 text-center">Remarks</th>
+                    <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[600px] border border-slate-150 rounded-2xl shadow-xs relative">
+                      <table className="w-full text-left border-collapse">
+                        <thead className="sticky top-0 z-20 bg-slate-900 text-slate-100 text-[11px] md:text-[12px] font-black uppercase tracking-wider select-none shadow-xs">
+                          <tr className="bg-slate-900 border-b border-slate-800">
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0">Loom Number</th>
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0">Operator Name</th>
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0 text-right">Total Meters</th>
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0">Quality</th>
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0 text-center">Size</th>
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0 text-center">GSM</th>
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0 text-center">Denier</th>
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0 text-center">Average Weight</th>
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0 text-right">Gross Wt (kg)</th>
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0 text-right">Core Wt (kg)</th>
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0 text-right">Net Wt (kg)</th>
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0 text-right">Avg Wt [calc] (kg)</th>
+                            <th className="py-3 px-4 border-r border-slate-800 bg-slate-900 sticky top-0 text-center">Running Status</th>
+                            <th className="py-3 px-4 bg-slate-900 sticky top-0 text-center">Remarks</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-150 text-[12px] md:text-[13px] font-bold text-slate-800">
@@ -1932,22 +2078,22 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                       <div className="flex-1 overflow-x-auto overflow-y-auto border border-slate-150 rounded-2xl shadow-inner max-h-[calc(88vh-190px)] min-h-[350px] relative">
                         <table className="w-full text-left border-collapse min-w-[1650px]">
                           <thead className="sticky top-0 z-10 bg-slate-900 text-slate-100 shadow-xs">
-                            <tr className="text-[10px] font-black uppercase tracking-wider border-b border-slate-800">
-                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[70px]">Loom #</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 min-w-[140px]">Loom Operator Name</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[100px]">Total Meters</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 min-w-[125px]">Quality</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[85px]">Size</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[75px]">GSM</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[80px]">Denier</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[95px]">Average Weight</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[95px]">Gross Wt (kg)</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[90px]">Core Wt (kg)</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[95px]">Net Wt (kg)</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[110px]">Avg Wt [calc] (kg)</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[115px]">Status</th>
-                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[160px]">Remarks</th>
-                              <th className="py-2.5 px-3 text-center min-w-[50px]">Delete</th>
+                            <tr className="text-[10px] font-black uppercase tracking-wider border-b border-slate-800 bg-slate-900">
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[70px] bg-slate-900 sticky top-0">Loom #</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 min-w-[170px] bg-slate-900 sticky top-0">Loom Operator Name</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[100px] bg-slate-900 sticky top-0">Total Meters</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 min-w-[125px] bg-slate-900 sticky top-0">Quality</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[85px] bg-slate-900 sticky top-0">Size</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[75px] bg-slate-900 sticky top-0">GSM</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[80px] bg-slate-900 sticky top-0">Denier</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[95px] bg-slate-900 sticky top-0">Average Weight</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[95px] bg-slate-900 sticky top-0">Gross Wt (kg)</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[90px] bg-slate-900 sticky top-0">Core Wt (kg)</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[95px] bg-slate-900 sticky top-0">Net Wt (kg)</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[110px] bg-slate-900 sticky top-0">Avg Wt [calc] (kg)</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[115px] bg-slate-900 sticky top-0">Status</th>
+                              <th className="py-2.5 px-3 border-r border-slate-800 text-center min-w-[160px] bg-slate-900 sticky top-0">Remarks</th>
+                              <th className="py-2.5 px-3 text-center min-w-[50px] bg-slate-900 sticky top-0">Delete</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-150 text-xs font-bold text-slate-700">
@@ -1961,13 +2107,11 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                                     className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-850 font-black focus:outline-none focus:bg-white text-center"
                                   />
                                 </td>
-                                <td className="py-1.5 px-2.5 border-r border-slate-150 w-32">
-                                  <input
-                                    type="text"
+                                <td className="py-1.5 px-2.5 border-r border-slate-150 w-44">
+                                  <OperatorSelect
                                     value={row.operatorName || ''}
-                                    onChange={(e) => handleUpdatePreviewCell(idx, 'operatorName', e.target.value)}
-                                    placeholder="Operator"
-                                    className="w-full bg-transparent border-b border-transparent focus:border-indigo-400 px-1 py-0.5 text-xs text-slate-850 focus:outline-none focus:bg-white font-semibold"
+                                    onChange={(val) => handleUpdatePreviewCell(idx, 'operatorName', val)}
+                                    employees={employees}
                                   />
                                 </td>
                                 <td className="py-1.5 px-2.5 border-r border-slate-150 w-24 text-center">
@@ -2169,19 +2313,19 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
               ) : (
                 <>
                   {/* Desktop View Table */}
-                  <div className="hidden sm:block border border-slate-150 rounded-2xl overflow-x-auto shadow-xs">
+                  <div className="hidden sm:block border border-slate-150 rounded-2xl overflow-x-auto overflow-y-auto max-h-[500px] shadow-xs relative">
                     <table className="w-full text-left border-collapse min-w-[920px]">
-                      <thead>
+                      <thead className="sticky top-0 z-10 bg-slate-50 shadow-2xs">
                         <tr className="bg-slate-50 border-b border-slate-150 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                          <th className="px-3.5 py-3.5 whitespace-nowrap">Quality</th>
-                          <th className="px-3.5 py-3.5 whitespace-nowrap">Size</th>
-                          <th className="px-3.5 py-3.5 whitespace-nowrap">GSM</th>
-                          <th className="px-3.5 py-3.5 text-right whitespace-nowrap">Total Meters</th>
-                          <th className="px-3.5 py-3.5 text-right whitespace-nowrap">Gross Wt (kg)</th>
-                          <th className="px-3.5 py-3.5 text-right whitespace-nowrap">Net Wt (kg)</th>
-                          <th className="px-3.5 py-3.5 text-right whitespace-nowrap">Avg Wt [calc] (kg)</th>
-                          <th className="px-3.5 py-3.5 text-center whitespace-nowrap">Looms Running</th>
-                          <th className="px-3.5 py-3.5 text-center whitespace-nowrap">Looms Stopped</th>
+                          <th className="px-3.5 py-3.5 whitespace-nowrap bg-slate-50 sticky top-0">Quality</th>
+                          <th className="px-3.5 py-3.5 whitespace-nowrap bg-slate-50 sticky top-0">Size</th>
+                          <th className="px-3.5 py-3.5 whitespace-nowrap bg-slate-50 sticky top-0">GSM</th>
+                          <th className="px-3.5 py-3.5 text-right whitespace-nowrap bg-slate-50 sticky top-0">Total Meters</th>
+                          <th className="px-3.5 py-3.5 text-right whitespace-nowrap bg-slate-50 sticky top-0">Gross Wt (kg)</th>
+                          <th className="px-3.5 py-3.5 text-right whitespace-nowrap bg-slate-50 sticky top-0">Net Wt (kg)</th>
+                          <th className="px-3.5 py-3.5 text-right whitespace-nowrap bg-slate-50 sticky top-0">Avg Wt [calc] (kg)</th>
+                          <th className="px-3.5 py-3.5 text-center whitespace-nowrap bg-slate-50 sticky top-0">Looms Running</th>
+                          <th className="px-3.5 py-3.5 text-center whitespace-nowrap bg-slate-50 sticky top-0">Looms Stopped</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">

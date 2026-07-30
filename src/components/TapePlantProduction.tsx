@@ -703,6 +703,13 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Tape Plant Summary');
 
+      const thickBlackBorder = {
+        top: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        left: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        bottom: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        right: { style: 'medium' as const, color: { argb: 'FF000000' } },
+      };
+
       // 1. TOP BANNER (Rows 1 & 2 merged)
       const startDateFormatted = formatDateLabel(exportStartDate);
       const endDateFormatted = formatDateLabel(exportEndDate);
@@ -711,8 +718,7 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       worksheet.mergeCells(`A1:${endColLetter}2`);
       const titleCell = worksheet.getCell('A1');
       titleCell.value = bannerText;
-      titleCell.font = { name: 'Aptos Display', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
-      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF79646' } };
+      titleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
       titleCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
       worksheet.getRow(1).height = 24;
@@ -720,7 +726,7 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
 
       for (let r = 1; r <= 2; r++) {
         for (let c = 1; c <= numCols; c++) {
-          worksheet.getRow(r).getCell(c).fill = titleCell.fill;
+          worksheet.getRow(r).getCell(c).border = thickBlackBorder;
         }
       }
 
@@ -729,27 +735,22 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       worksheet.mergeCells(`C3:${endColLetter}3`);
 
       const leftHeaderCell = worksheet.getCell('A3');
-      leftHeaderCell.value = '--- REPORT SUMMARY METRICS ---';
-      leftHeaderCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
-      leftHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB8CCE4' } };
+      leftHeaderCell.value = 'REPORT SUMMARY METRICS';
+      leftHeaderCell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
       leftHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      worksheet.getCell('B3').fill = leftHeaderCell.fill;
 
       const rightHeaderCell = worksheet.getCell('C3');
-      rightHeaderCell.value = '--- RAW MATERIALS CONSUMPTION SUMMARY ---';
-      rightHeaderCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
-      rightHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+      rightHeaderCell.value = 'RAW MATERIALS CONSUMPTION SUMMARY';
+      rightHeaderCell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
       rightHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      for (let c = 3; c <= numCols; c++) {
-        worksheet.getRow(3).getCell(c).fill = rightHeaderCell.fill;
+
+      worksheet.getRow(3).height = 24;
+
+      for (let c = 1; c <= numCols; c++) {
+        worksheet.getRow(3).getCell(c).border = thickBlackBorder;
       }
 
-      worksheet.getRow(3).height = 20;
-
       // 3. METRICS CARDS (Rows 4 - 8+)
-      const leftFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFD9E1F2' } };
-      const rightFill = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFE2EFDA' } };
-
       const leftMetrics: [string, string][] = [
         ['Total Active Shifts', `${activeShifts} shifts`],
         ['Total Stopped Shifts', `${stoppedShifts} shifts`],
@@ -771,7 +772,7 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       for (let i = 0; i < maxMetricRows; i++) {
         const rowIdx = 4 + i;
         const row = worksheet.getRow(rowIdx);
-        row.height = 18;
+        row.height = 22;
 
         // Left side (A & B)
         if (i < leftMetrics.length) {
@@ -779,17 +780,17 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
           const cellA = row.getCell(1);
           const cellB = row.getCell(2);
           cellA.value = lbl;
-          cellA.fill = leftFill;
-          cellA.font = { name: 'Calibri', size: 12, bold: false };
-          cellA.alignment = { vertical: 'middle', horizontal: 'left' };
+          cellA.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
+          cellA.alignment = { vertical: 'middle', horizontal: 'center' };
+          cellA.border = thickBlackBorder;
 
           cellB.value = val;
-          cellB.fill = leftFill;
-          cellB.font = { name: 'Calibri', size: 12, bold: true };
-          cellB.alignment = { vertical: 'middle', horizontal: 'left' };
+          cellB.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
+          cellB.alignment = { vertical: 'middle', horizontal: 'center' };
+          cellB.border = thickBlackBorder;
         } else {
-          row.getCell(1).fill = leftFill;
-          row.getCell(2).fill = leftFill;
+          row.getCell(1).border = thickBlackBorder;
+          row.getCell(2).border = thickBlackBorder;
         }
 
         // Right side (C & D / E)
@@ -798,101 +799,92 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
           const cellC = row.getCell(3);
           const cellD = row.getCell(4);
           cellC.value = lbl;
-          cellC.fill = rightFill;
-          cellC.font = { name: 'Calibri', size: 12, bold: false };
-          cellC.alignment = { vertical: 'middle', horizontal: 'left' };
+          cellC.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
+          cellC.alignment = { vertical: 'middle', horizontal: 'center' };
+          cellC.border = thickBlackBorder;
 
           cellD.value = val;
-          cellD.fill = rightFill;
-          cellD.font = { name: 'Calibri', size: 12, bold: true };
-          cellD.alignment = { vertical: 'middle', horizontal: 'left' };
+          cellD.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
+          cellD.alignment = { vertical: 'middle', horizontal: 'center' };
+          cellD.border = thickBlackBorder;
 
-          if (hasRemarks) {
-            row.getCell(5).fill = rightFill;
+          for (let c = 5; c <= numCols; c++) {
+            row.getCell(c).border = thickBlackBorder;
           }
         } else {
-          row.getCell(3).fill = rightFill;
-          row.getCell(4).fill = rightFill;
-          if (hasRemarks) row.getCell(5).fill = rightFill;
+          for (let c = 3; c <= numCols; c++) {
+            row.getCell(c).border = thickBlackBorder;
+          }
         }
       }
 
       const tableHeaderRowIdx = 4 + maxMetricRows + 1; // row 10
       worksheet.getRow(tableHeaderRowIdx - 1).height = 12; // spacer row height
 
-      // 4. DATA TABLE (Row 10+)
-      const tableRows = exportData.map(r => {
+      // 4. DATA TABLE HEADER
+      const headerRow = worksheet.getRow(tableHeaderRowIdx);
+      headerRow.height = 26;
+      const headers = ['Date', 'Shift', 'Raw Material Usage', 'Wastage', 'Manpower Present'];
+      if (hasRemarks) headers.push('Remarks');
+
+      headers.forEach((h, idx) => {
+        const cell = headerRow.getCell(idx + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+      });
+
+      // 5. DATA ROWS
+      const tableDataStartRow = tableHeaderRowIdx + 1;
+      exportData.forEach((r, rIdx) => {
+        const rowNum = tableDataStartRow + rIdx;
+        const row = worksheet.getRow(rowNum);
+        row.height = 22;
+
         const parts = r.date.split('-');
         const displayDate = `${parts[2]}/${parts[1]}/${parts[0]}`; // DD/MM/YYYY
         const shiftLabel = r.shift ? r.shift.toUpperCase() : 'DAY';
         const manpowerStr = formatManpower(r);
 
+        let rowVals: string[] = [];
         if (r.isStopped) {
-          const rowVals = [displayDate, shiftLabel, 'Plant Stopped / Not Running', '0 KG', manpowerStr];
+          rowVals = [displayDate, shiftLabel, 'Plant Stopped / Not Running', '0 KG', manpowerStr];
           if (hasRemarks) rowVals.push(r.remarks || '');
-          return rowVals;
+        } else {
+          rowVals = [
+            displayDate,
+            shiftLabel,
+            r.usage || '',
+            `${r.wastage || 0} KG`,
+            manpowerStr
+          ];
+          if (hasRemarks) rowVals.push(r.remarks || '');
         }
 
-        const rowVals = [
-          displayDate,
-          shiftLabel,
-          r.usage || '',
-          `${r.wastage || 0} KG`,
-          manpowerStr
-        ];
-        if (hasRemarks) rowVals.push(r.remarks || '');
-        return rowVals;
-      });
-
-      const tableColumns = [
-        { name: 'Date', filterButton: true },
-        { name: 'Shift', filterButton: true },
-        { name: 'Raw Material Usage', filterButton: true },
-        { name: 'Wastage', filterButton: true },
-        { name: 'Manpower Present', filterButton: true }
-      ];
-      if (hasRemarks) {
-        tableColumns.push({ name: 'Remarks', filterButton: true });
-      }
-
-      worksheet.addTable({
-        name: 'Table2',
-        ref: `A${tableHeaderRowIdx}`,
-        headerRow: true,
-        totalsRow: false,
-        style: {
-          theme: 'TableStyleMedium9',
-          showRowStripes: true,
-        },
-        columns: tableColumns,
-        rows: tableRows
+        rowVals.forEach((val, colIdx) => {
+          const cell = row.getCell(colIdx + 1);
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          cell.border = thickBlackBorder;
+        });
       });
 
       const cols = [
-        { width: 38 },
         { width: 22 },
+        { width: 18 },
         { width: 55 },
-        { width: 20 }
+        { width: 20 },
+        { width: 35 }
       ];
       if (hasRemarks) cols.push({ width: 35 });
       worksheet.columns = cols;
 
-      // Align table rows
-      const tableDataStartRow = tableHeaderRowIdx + 1;
-      const tableDataEndRow = tableDataStartRow + tableRows.length - 1;
-      for (let r = tableDataStartRow; r <= tableDataEndRow; r++) {
-        const row = worksheet.getRow(r);
-        row.height = 18;
-        row.eachCell({ includeEmpty: true }, (cell) => {
-          cell.alignment = { vertical: 'middle', horizontal: 'left' };
-          cell.font = { name: 'Calibri', size: 12 };
-        });
-      }
-
-      // 5. TOTALS ROW AT BOTTOM
-      const totalsRowIdx = tableDataEndRow + 1;
+      // 6. TOTALS ROW AT BOTTOM
+      const totalsRowIdx = tableDataStartRow + exportData.length;
       const totRow = worksheet.getRow(totalsRowIdx);
-      totRow.height = 20;
+      totRow.height = 26;
       totRow.getCell(1).value = 'TOTALS';
       totRow.getCell(2).value = `${exportData.length} shifts`;
       totRow.getCell(3).value = `Raw Materials Sum: ${totalAllMaterials.toFixed(2)} KG`;
@@ -901,9 +893,9 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
 
       for (let c = 1; c <= numCols; c++) {
         const cell = totRow.getCell(c);
-        cell.font = { name: 'Calibri', size: 12, bold: true };
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
         cell.alignment = { vertical: 'middle', horizontal: 'left' };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+        cell.border = thickBlackBorder;
       }
 
       const fileName = `Tape_Plant_Production_Report_${exportStartDate}_to_${exportEndDate}.xlsx`;

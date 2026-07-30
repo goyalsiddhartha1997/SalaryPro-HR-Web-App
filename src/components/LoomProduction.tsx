@@ -353,96 +353,66 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
       const worksheet = workbook.addWorksheet('Loom Production Report');
       worksheet.views = [{ showGridLines: true }];
 
+      const thickBlackBorder = {
+        top: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        left: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        bottom: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        right: { style: 'medium' as const, color: { argb: 'FF000000' } },
+      };
+
       // 1. EXECUTIVE HEADER BANNER (Row 1)
       worksheet.mergeCells('A1:G1');
       const titleCell = worksheet.getCell('A1');
       titleCell.value = 'FORTUNE FLEXIPACK PVT LTD • LOOM PROD REPORT DETAILS';
-      titleCell.font = { name: 'Calibri', size: 15, bold: true, color: { argb: 'FFFFFFFF' } };
-      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; // Dark Slate Navy
+      titleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(1).height = 42;
 
       for (let col = 1; col <= 7; col++) {
-        worksheet.getRow(1).getCell(col).fill = titleCell.fill;
+        worksheet.getRow(1).getCell(col).border = thickBlackBorder;
       }
 
       // 2. SUB-BANNER DATE RANGE (Row 2)
       worksheet.mergeCells('A2:G2');
       const dateCell = worksheet.getCell('A2');
       dateCell.value = `REPORT DATE RANGE: ${formatDateLabel(exportStartDate)} TO ${formatDateLabel(exportEndDate)}`;
-      dateCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFF59E0B' } }; // Gold accent
-      dateCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
+      dateCell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
       dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      worksheet.getRow(2).height = 22;
+      worksheet.getRow(2).height = 24;
+
+      for (let col = 1; col <= 7; col++) {
+        worksheet.getRow(2).getCell(col).border = thickBlackBorder;
+      }
 
       // 3. METRICS CARDS (Rows 4 & 5)
       worksheet.getRow(3).height = 10; // Spacer
 
-      worksheet.mergeCells('A4:B4');
-      worksheet.mergeCells('C4:D4');
-      worksheet.mergeCells('E4:F4');
+      worksheet.mergeCells('E4:G4');
+      worksheet.mergeCells('E5:G5');
 
-      worksheet.mergeCells('A5:B5');
-      worksheet.mergeCells('C5:D5');
-      worksheet.mergeCells('E5:F5');
-
-      worksheet.getRow(4).height = 18;
-      worksheet.getRow(5).height = 22;
+      worksheet.getRow(4).height = 20;
+      worksheet.getRow(5).height = 24;
 
       worksheet.getCell('A4').value = 'Total Active Shifts Recorded:';
-      worksheet.getCell('C4').value = 'Total Active Looms Operational:';
-      worksheet.getCell('E4').value = 'Total Fabric Production:';
-      worksheet.getCell('G4').value = 'Total Material Wastage:';
+      worksheet.getCell('B4').value = 'Total Active Looms:';
+      worksheet.getCell('C4').value = 'Total Fabric Production:';
+      worksheet.getCell('D4').value = 'Average per Loom:';
+      worksheet.getCell('E4').value = 'Total Material Wastage:';
 
       worksheet.getCell('A5').value = `${activeShifts} Shifts (${stoppedShifts} Stopped)`;
-      worksheet.getCell('C5').value = `${sumLooms.toLocaleString()} Looms`;
-      worksheet.getCell('E5').value = `${sumProduction.toLocaleString()} Meters`;
-      worksheet.getCell('G5').value = `${sumWastage.toFixed(1)} KG`;
+      worksheet.getCell('B5').value = `${sumLooms.toLocaleString()} Looms`;
+      worksheet.getCell('C5').value = `${sumProduction.toLocaleString()} Meters`;
+      worksheet.getCell('D5').value = `${avgPerLoom.toLocaleString()} Meters`;
+      worksheet.getCell('E5').value = `${sumWastage.toFixed(1)} KG`;
 
-      const thinCardBorder = {
-        top: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
-        left: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
-        bottom: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
-        right: { style: 'thin' as const, color: { argb: 'FFCBD5E1' } },
-      };
-
-      for (let col = 1; col <= 2; col++) {
+      for (let col = 1; col <= 7; col++) {
         [4, 5].forEach(r => {
           const c = worksheet.getRow(r).getCell(col);
-          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
-          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF15803D' } };
+          c.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
           c.alignment = { horizontal: 'center', vertical: 'middle' };
-          c.border = thinCardBorder;
+          c.border = thickBlackBorder;
         });
       }
-
-      for (let col = 3; col <= 4; col++) {
-        [4, 5].forEach(r => {
-          const c = worksheet.getRow(r).getCell(col);
-          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
-          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF1E40AF' } };
-          c.alignment = { horizontal: 'center', vertical: 'middle' };
-          c.border = thinCardBorder;
-        });
-      }
-
-      for (let col = 5; col <= 6; col++) {
-        [4, 5].forEach(r => {
-          const c = worksheet.getRow(r).getCell(col);
-          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
-          c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFB45309' } };
-          c.alignment = { horizontal: 'center', vertical: 'middle' };
-          c.border = thinCardBorder;
-        });
-      }
-
-      [4, 5].forEach(r => {
-        const c = worksheet.getRow(r).getCell(7);
-        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE4E6' } };
-        c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF9F1239' } };
-        c.alignment = { horizontal: 'center', vertical: 'middle' };
-        c.border = thinCardBorder;
-      });
 
       // 4. DATA TABLE HEADER (Row 7)
       worksheet.getRow(6).height = 12; // Spacer
@@ -452,15 +422,9 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
       headers.forEach((h, idx) => {
         const cell = headerRow.getCell(idx + 1);
         cell.value = h;
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+        cell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
-        cell.border = {
-          top: { style: 'medium', color: { argb: 'FF0F172A' } },
-          left: { style: 'thin', color: { argb: 'FF334155' } },
-          bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
-          right: { style: 'thin', color: { argb: 'FF334155' } }
-        };
+        cell.border = thickBlackBorder;
       });
 
       // 5. DATA ROWS
@@ -472,30 +436,15 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
 
         const excelRow = worksheet.getRow(currentR);
         excelRow.height = 24;
-        const isEven = currentR % 2 === 0;
-        const defaultBg = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
 
         if (r.isStopped) {
           const rowValues = [displayDate, shiftLabel, 'STOPPED', 0, 0, 0, r.remarks || 'Plant Stopped'];
           rowValues.forEach((val, colIdx) => {
             const cell = excelRow.getCell(colIdx + 1);
             cell.value = val;
-            cell.font = { name: 'Calibri', size: 10.5, bold: colIdx === 2, color: { argb: 'FFB91C1C' } };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF2F2' } };
-            cell.border = {
-              top: { style: 'thin', color: { argb: 'FFFECACA' } },
-              left: { style: 'thin', color: { argb: 'FFFECACA' } },
-              bottom: { style: 'thin', color: { argb: 'FFFECACA' } },
-              right: { style: 'thin', color: { argb: 'FFFECACA' } }
-            };
-
-            if (colIdx === 0 || colIdx === 1 || colIdx === 2) {
-              cell.alignment = { horizontal: 'center', vertical: 'middle' };
-            } else if (colIdx >= 3 && colIdx <= 5) {
-              cell.alignment = { horizontal: 'right', vertical: 'middle' };
-            } else {
-              cell.alignment = { horizontal: 'left', vertical: 'middle' };
-            }
+            cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+            cell.border = thickBlackBorder;
           });
         } else {
           const rowValues = [
@@ -511,32 +460,14 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
           rowValues.forEach((val, colIdx) => {
             const cell = excelRow.getCell(colIdx + 1);
             cell.value = val;
-            cell.font = { name: 'Calibri', size: 10.5, color: { argb: 'FF1E293B' } };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultBg } };
-            cell.border = {
-              top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-              left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-              bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-              right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
-            };
+            cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+            cell.border = thickBlackBorder;
 
-            if (colIdx === 0) { // Date
-              cell.alignment = { horizontal: 'center', vertical: 'middle' };
-              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
-            } else if (colIdx === 1) { // Shift
-              cell.alignment = { horizontal: 'center', vertical: 'middle' };
-            } else if (colIdx === 2) { // Active Looms
-              cell.alignment = { horizontal: 'center', vertical: 'middle' };
-              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF1E40AF' } };
-            } else if (colIdx === 3 || colIdx === 4) { // Production, Avg
-              cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            if (colIdx === 3 || colIdx === 4) { // Production, Avg
               cell.numFmt = '#,##0';
-              if (colIdx === 3) cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
             } else if (colIdx === 5) { // Wastage
-              cell.alignment = { horizontal: 'right', vertical: 'middle' };
               cell.numFmt = '#,##0.0';
-            } else { // Remarks
-              cell.alignment = { horizontal: 'left', vertical: 'middle' };
             }
           });
         }
@@ -549,30 +480,19 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
       totalsRow.height = 26;
       for (let c = 1; c <= 7; c++) {
         const cell = totalsRow.getCell(c);
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F172A' } };
-        cell.border = {
-          top: { style: 'medium', color: { argb: 'FF334155' } },
-          bottom: { style: 'double', color: { argb: 'FF0F172A' } },
-          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
-        };
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = thickBlackBorder;
       }
 
       totalsRow.getCell(1).value = 'TOTALS';
-      totalsRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
       totalsRow.getCell(2).value = `${exportData.length} Shifts`;
-      totalsRow.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
       totalsRow.getCell(3).value = sumLooms;
-      totalsRow.getCell(3).alignment = { horizontal: 'center', vertical: 'middle' };
       totalsRow.getCell(4).value = sumProduction;
-      totalsRow.getCell(4).alignment = { horizontal: 'right', vertical: 'middle' };
       totalsRow.getCell(4).numFmt = '#,##0';
       totalsRow.getCell(5).value = avgPerLoom;
-      totalsRow.getCell(5).alignment = { horizontal: 'right', vertical: 'middle' };
       totalsRow.getCell(5).numFmt = '#,##0';
       totalsRow.getCell(6).value = sumWastage;
-      totalsRow.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' };
       totalsRow.getCell(6).numFmt = '#,##0.0';
 
       // 7. COLUMN WIDTHS
