@@ -40,7 +40,8 @@ import {
   Copy,
   Search,
   ChevronDown,
-  User
+  User,
+  Users
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
@@ -272,7 +273,29 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
   const [isExtracting, setIsExtracting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
-  const [showSummaryPopup, setShowSummaryPopup] = useState(false);
+  // --- SUMMARY WINDOW MODAL STATES ---
+  const [showSummaryMenuModal, setShowSummaryMenuModal] = useState(false);
+  const [selectedSummaryType, setSelectedSummaryType] = useState<string | null>(null);
+
+  // Summary window filters
+  const [sumFilterMode, setSumFilterMode] = useState<'single' | 'range'>('single');
+  const [sumSingleDate, setSumSingleDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [sumRangeStartDate, setSumRangeStartDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [sumRangeEndDate, setSumRangeEndDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [sumFilterShift, setSumFilterShift] = useState<'ALL' | 'DAY' | 'NIGHT'>('ALL');
+  const [sumSelectedOperator, setSumSelectedOperator] = useState<string>('ALL');
+
+  // Handler to open summary menu window initialized with main page filters
+  const handleOpenSummaryMenu = () => {
+    setSumFilterMode(filterMode);
+    setSumSingleDate(singleDate);
+    setSumRangeStartDate(rangeStartDate);
+    setSumRangeEndDate(rangeEndDate);
+    setSumFilterShift(filterShift);
+    setSumSelectedOperator('ALL');
+    setSelectedSummaryType(null);
+    setShowSummaryMenuModal(true);
+  };
 
   // Shutdown and remarks states
   const [isAllStopped, setIsAllStopped] = useState(false);
@@ -490,6 +513,593 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       return a.gsm - b.gsm;
     });
   }, [filteredReports]);
+
+  // --- SUMMARY MODAL FILTERED REPORTS ---
+  const modalFilteredReports = useMemo(() => {
+    return reports.filter((report) => {
+      if (!report.date) return false;
+      
+      const dateMatch = sumFilterMode === 'single'
+        ? report.date === sumSingleDate
+        : (report.date >= sumRangeStartDate && report.date <= sumRangeEndDate);
+
+      if (!dateMatch) return false;
+
+      const repShift = (report.shift || 'DAY').toUpperCase().trim();
+      if (sumFilterShift === 'DAY') {
+        return repShift === 'DAY';
+      } else if (sumFilterShift === 'NIGHT') {
+        return repShift === 'NIGHT';
+      }
+      return true;
+    });
+  }, [reports, sumFilterMode, sumSingleDate, sumRangeStartDate, sumRangeEndDate, sumFilterShift]);
+
+  // --- SUMMARY MODAL DATA FOR "NUMBER OF LOOMS RUNNING" ---
+  const modalSummaryData = useMemo(() => {
+    const grouped: { [key: string]: { quality: string; size: string; gsm: number; runningCount: number; stoppedCount: number; totalMeters: number; totalGrossWt: number; totalNetWt: number; avgWtCalculated: number } } = {};
+    
+    modalFilteredReports.forEach((report) => {
+      report.rows.forEach((row) => {
+        const q = (row.quality || '').trim();
+        const s = (row.size || '').trim();
+        const g = typeof row.gsm === 'number' ? row.gsm : parseFloat(row.gsm as any) || 0;
+        const m = row.totalMeters || 0;
+        const gw = row.grossWt || 0;
+        const nw = row.netWt || 0;
+        const isRunning = row.runningStatus === 'Running';
+        
+        const key = `${q}||${s}||${g}`;
+        
+        if (!grouped[key]) {
+          grouped[key] = {
+            quality: q,
+            size: s,
+            gsm: g,
+            runningCount: 0,
+            stoppedCount: 0,
+            totalMeters: 0,
+            totalGrossWt: 0,
+            totalNetWt: 0,
+            avgWtCalculated: 0
+          };
+        }
+        
+        if (isRunning) {
+          grouped[key].runningCount += 1;
+        } else {
+          grouped[key].stoppedCount += 1;
+        }
+        grouped[key].totalMeters += m;
+        grouped[key].totalGrossWt += gw;
+        grouped[key].totalNetWt += nw;
+      });
+    });
+
+    return Object.values(grouped).map(item => ({
+      ...item,
+      totalGrossWt: parseFloat(item.totalGrossWt.toFixed(2)),
+      totalNetWt: parseFloat(item.totalNetWt.toFixed(2)),
+      avgWtCalculated: item.totalMeters > 0 ? parseFloat((item.totalNetWt / item.totalMeters).toFixed(4)) : 0
+    })).sort((a, b) => {
+      const qComp = a.quality.localeCompare(b.quality);
+      if (qComp !== 0) return qComp;
+      const sComp = a.size.localeCompare(b.size);
+      if (sComp !== 0) return sComp;
+      return a.gsm - b.gsm;
+    });
+  }, [modalFilteredReports]);
+
+  // --- SUMMARY MODAL TOTALS ---
+  const modalTotals = useMemo(() => {
+    let meters = 0;
+    let gross = 0;
+    let net = 0;
+    let running = 0;
+    let stopped = 0;
+
+    modalSummaryData.forEach(item => {
+      meters += item.totalMeters || 0;
+      gross += item.totalGrossWt || 0;
+      net += item.totalNetWt || 0;
+      running += item.runningCount || 0;
+      stopped += item.stoppedCount || 0;
+    });
+
+    const avgCalc = meters > 0 ? parseFloat((net / meters).toFixed(4)) : 0;
+
+    return {
+      totalMeters: meters,
+      totalGrossWt: parseFloat(gross.toFixed(2)),
+      totalNetWt: parseFloat(net.toFixed(2)),
+      runningCount: running,
+      stoppedCount: stopped,
+      totalLooms: running + stopped,
+      avgCalc
+    };
+  }, [modalSummaryData]);
+
+  // --- EXPORT SUMMARY EXCEL REPORT ---
+  const handleExportSummaryExcel = async () => {
+    if (modalSummaryData.length === 0) {
+      triggerAlert('info', 'No summary data available to export for the selected period.');
+      return;
+    }
+
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Number of Looms Running');
+      worksheet.views = [{ showGridLines: true }];
+
+      const thickBlackBorder = {
+        top: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        left: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        bottom: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        right: { style: 'medium' as const, color: { argb: 'FF000000' } },
+      };
+
+      // 1. BANNER HEADER (Row 1)
+      worksheet.mergeCells('A1:I1');
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • NUMBER OF LOOMS RUNNING SUMMARY REPORT';
+      titleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(1).height = 40;
+      for (let col = 1; col <= 9; col++) {
+        worksheet.getRow(1).getCell(col).border = thickBlackBorder;
+      }
+
+      // 2. SUB-BANNER DATE RANGE & SHIFT (Row 2)
+      worksheet.mergeCells('A2:I2');
+      const dateCell = worksheet.getCell('A2');
+      const periodLabel = sumFilterMode === 'single'
+        ? formatDateLabel(sumSingleDate)
+        : `${formatDateLabel(sumRangeStartDate)} TO ${formatDateLabel(sumRangeEndDate)}`;
+      const shiftLabel = sumFilterShift === 'ALL' ? 'ALL SHIFTS' : `${sumFilterShift} SHIFT`;
+      dateCell.value = `EXPORT PERIOD: ${periodLabel} • SHIFT: ${shiftLabel}`;
+      dateCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+      dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(2).height = 24;
+      for (let col = 1; col <= 9; col++) {
+        worksheet.getRow(2).getCell(col).border = thickBlackBorder;
+      }
+
+      // 3. KPI METRICS SUMMARY BANNER (Row 4 to 6)
+      worksheet.getRow(3).height = 10; // Spacer
+
+      worksheet.mergeCells('A4:I4');
+      const mHeaderCell = worksheet.getCell('A4');
+      mHeaderCell.value = 'NUMBER OF LOOMS RUNNING - SUMMARY METRICS';
+      mHeaderCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+      mHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(4).height = 22;
+      for (let col = 1; col <= 9; col++) worksheet.getRow(4).getCell(col).border = thickBlackBorder;
+
+      // Row 5 & 6 (KPI Row)
+      worksheet.mergeCells('A5:C5'); worksheet.mergeCells('A6:C6');
+      worksheet.mergeCells('D5:F5'); worksheet.mergeCells('D6:F6');
+      worksheet.mergeCells('G5:I5'); worksheet.mergeCells('G6:I6');
+
+      worksheet.getCell('A5').value = 'TOTAL LOOMS TRACKED';
+      worksheet.getCell('A6').value = `${modalTotals.totalLooms} Looms (${modalTotals.runningCount} Running / ${modalTotals.stoppedCount} Stopped)`;
+
+      worksheet.getCell('D5').value = 'TOTAL METERS WOVEN';
+      worksheet.getCell('D6').value = `${modalTotals.totalMeters.toLocaleString()} Meters`;
+
+      worksheet.getCell('G5').value = 'GROSS & NET WEIGHT';
+      worksheet.getCell('G6').value = `Gross: ${modalTotals.totalGrossWt.toFixed(2)} KG | Net: ${modalTotals.totalNetWt.toFixed(2)} KG`;
+
+      worksheet.getRow(5).height = 18;
+      for (let col = 1; col <= 9; col++) {
+        const c = worksheet.getRow(5).getCell(col);
+        c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = thickBlackBorder;
+      }
+
+      worksheet.getRow(6).height = 24;
+      for (let col = 1; col <= 9; col++) {
+        const c = worksheet.getRow(6).getCell(col);
+        c.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = thickBlackBorder;
+      }
+
+      // 4. DATA TABLE HEADERS (Row 8)
+      worksheet.getRow(7).height = 12; // Spacer
+      const headers = ['Quality', 'Size', 'GSM', 'Total Meters (m)', 'Gross Wt (kg)', 'Net Wt (kg)', 'Avg Wt [calc] (kg)', 'Looms Running', 'Looms Stopped'];
+      const headerRow = worksheet.getRow(8);
+      headerRow.height = 28;
+      headers.forEach((h, idx) => {
+        const cell = headerRow.getCell(idx + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+      });
+
+      // 5. DATA ROWS
+      let currentR = 9;
+      modalSummaryData.forEach((item) => {
+        const r = worksheet.getRow(currentR);
+        r.height = 22;
+
+        const rowValues = [
+          item.quality || '-',
+          item.size || '-',
+          item.gsm || 0,
+          item.totalMeters || 0,
+          item.totalGrossWt || 0,
+          item.totalNetWt || 0,
+          item.avgWtCalculated || 0,
+          item.runningCount || 0,
+          item.stoppedCount || 0
+        ];
+
+        rowValues.forEach((val, colIdx) => {
+          const cell = r.getCell(colIdx + 1);
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          cell.border = thickBlackBorder;
+
+          if (colIdx === 3) {
+            cell.numFmt = '#,##0';
+          } else if (colIdx === 4 || colIdx === 5) {
+            cell.numFmt = '#,##0.00';
+          } else if (colIdx === 6) {
+            cell.numFmt = '#,##0.0000';
+          } else if (colIdx === 7 || colIdx === 8) {
+            cell.numFmt = '#,##0';
+          }
+        });
+
+        currentR++;
+      });
+
+      // 6. TOTALS ROW
+      const totalsRow = worksheet.getRow(currentR);
+      totalsRow.height = 26;
+      for (let c = 1; c <= 9; c++) {
+        const cell = totalsRow.getCell(c);
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+      }
+
+      totalsRow.getCell(1).value = 'TOTALS';
+      totalsRow.getCell(2).value = '-';
+      totalsRow.getCell(3).value = '-';
+      totalsRow.getCell(4).value = modalTotals.totalMeters;
+      totalsRow.getCell(4).numFmt = '#,##0';
+      totalsRow.getCell(5).value = modalTotals.totalGrossWt;
+      totalsRow.getCell(5).numFmt = '#,##0.00';
+      totalsRow.getCell(6).value = modalTotals.totalNetWt;
+      totalsRow.getCell(6).numFmt = '#,##0.00';
+      totalsRow.getCell(7).value = modalTotals.avgCalc;
+      totalsRow.getCell(7).numFmt = '#,##0.0000';
+      totalsRow.getCell(8).value = modalTotals.runningCount;
+      totalsRow.getCell(8).numFmt = '#,##0';
+      totalsRow.getCell(9).value = modalTotals.stoppedCount;
+      totalsRow.getCell(9).numFmt = '#,##0';
+
+      // 7. COLUMN WIDTHS
+      worksheet.columns = [
+        { width: 25 },
+        { width: 14 },
+        { width: 12 },
+        { width: 18 },
+        { width: 16 },
+        { width: 16 },
+        { width: 20 },
+        { width: 16 },
+        { width: 16 }
+      ];
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `Number_of_Looms_Running_Summary_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+      triggerAlert('success', 'Summary report exported successfully!');
+    } catch (err) {
+      console.error('Error exporting summary Excel:', err);
+      triggerAlert('error', 'Failed to export summary Excel report.');
+    }
+  };
+
+  // --- AVAILABLE OPERATORS FOR SUMMARY DROPDOWN ---
+  const availableOperatorNames = useMemo(() => {
+    const set = new Set<string>();
+
+    reports.forEach((rep) => {
+      (rep.rows || []).forEach((row) => {
+        const name = (row.operatorName || '').trim();
+        if (name) set.add(name);
+      });
+    });
+
+    employees.forEach((emp) => {
+      const name = (emp.name || '').trim();
+      if (name) set.add(name);
+    });
+
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [reports, employees]);
+
+  // --- SUMMARY MODAL DATA FOR "LOOM OPERATOR SUMMARY" ---
+  const modalOperatorLedger = useMemo(() => {
+    const groups: {
+      [key: string]: {
+        date: string;
+        shift: string;
+        operatorName: string;
+        metersList: number[];
+        loomNumbers: (string | number)[];
+      };
+    } = {};
+
+    modalFilteredReports.forEach((report) => {
+      const repDate = report.date || '';
+      const repShift = (report.shift || 'DAY').toUpperCase().trim();
+
+      (report.rows || []).forEach((row) => {
+        const opName = (row.operatorName || '').trim();
+        if (!opName) return;
+
+        if (sumSelectedOperator !== 'ALL' && opName.toLowerCase() !== sumSelectedOperator.toLowerCase()) {
+          return;
+        }
+
+        const meters = typeof row.totalMeters === 'number' ? row.totalMeters : parseFloat(row.totalMeters as any) || 0;
+        if (meters <= 0) return;
+
+        const key = `${repDate}||${repShift}||${opName.toLowerCase()}`;
+
+        if (!groups[key]) {
+          groups[key] = {
+            date: repDate,
+            shift: repShift,
+            operatorName: opName,
+            metersList: [],
+            loomNumbers: []
+          };
+        }
+
+        groups[key].metersList.push(meters);
+        if (row.loomNo !== undefined && row.loomNo !== '') {
+          groups[key].loomNumbers.push(row.loomNo);
+        }
+      });
+    });
+
+    return Object.values(groups)
+      .map((g) => {
+        const total = g.metersList.reduce((acc, v) => acc + v, 0);
+        const count = g.metersList.length;
+        const avg = count > 0 ? parseFloat((total / count).toFixed(2)) : 0;
+        const individualFormula = g.metersList.join(' + ');
+
+        return {
+          date: g.date,
+          shift: g.shift,
+          operatorName: g.operatorName,
+          metersList: g.metersList,
+          loomNumbers: g.loomNumbers,
+          individualFormula,
+          totalMeters: total,
+          averageMeters: avg,
+          loomCount: count
+        };
+      })
+      .filter((item) => item.loomCount > 0 && item.totalMeters > 0)
+      .sort((a, b) => {
+        const dComp = b.date.localeCompare(a.date);
+        if (dComp !== 0) return dComp;
+        const sComp = a.shift.localeCompare(b.shift);
+        if (sComp !== 0) return sComp;
+        return a.operatorName.localeCompare(b.operatorName);
+      });
+  }, [modalFilteredReports, sumSelectedOperator]);
+
+  // Overall totals for operator summary
+  const modalOperatorTotals = useMemo(() => {
+    let totalMetersAll = 0;
+    let totalLoomsAll = 0;
+
+    modalOperatorLedger.forEach((item) => {
+      totalMetersAll += item.totalMeters;
+      totalLoomsAll += item.loomCount;
+    });
+
+    const overallAvg = totalLoomsAll > 0 ? parseFloat((totalMetersAll / totalLoomsAll).toFixed(2)) : 0;
+
+    return {
+      totalMeters: totalMetersAll,
+      totalLooms: totalLoomsAll,
+      overallAvg,
+      totalEntries: modalOperatorLedger.length
+    };
+  }, [modalOperatorLedger]);
+
+  // --- EXPORT LOOM OPERATOR SUMMARY EXCEL REPORT ---
+  const handleExportOperatorSummaryExcel = async () => {
+    if (modalOperatorLedger.length === 0) {
+      triggerAlert('info', 'No operator summary data available to export for the selected period.');
+      return;
+    }
+
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Loom Operator Summary');
+      worksheet.views = [{ showGridLines: true }];
+
+      const thickBlackBorder = {
+        top: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        left: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        bottom: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        right: { style: 'medium' as const, color: { argb: 'FF000000' } },
+      };
+
+      // 1. BANNER HEADER (Row 1)
+      worksheet.mergeCells('A1:G1');
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • LOOM OPERATOR SUMMARY REPORT';
+      titleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(1).height = 40;
+      for (let col = 1; col <= 7; col++) worksheet.getRow(1).getCell(col).border = thickBlackBorder;
+
+      // 2. SUB-BANNER DATE RANGE & SHIFT & OPERATOR (Row 2)
+      worksheet.mergeCells('A2:G2');
+      const subCell = worksheet.getCell('A2');
+      const periodLabel = sumFilterMode === 'single'
+        ? formatDateLabel(sumSingleDate)
+        : `${formatDateLabel(sumRangeStartDate)} TO ${formatDateLabel(sumRangeEndDate)}`;
+      const shiftLabel = sumFilterShift === 'ALL' ? 'ALL SHIFTS' : `${sumFilterShift} SHIFT`;
+      const opLabel = sumSelectedOperator === 'ALL' ? 'ALL OPERATORS' : sumSelectedOperator.toUpperCase();
+      subCell.value = `OPERATOR: ${opLabel} • EXPORT PERIOD: ${periodLabel} • SHIFT: ${shiftLabel}`;
+      subCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+      subCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(2).height = 24;
+      for (let col = 1; col <= 7; col++) worksheet.getRow(2).getCell(col).border = thickBlackBorder;
+
+      // 3. KPI METRICS SUMMARY BANNER (Row 4 to 6)
+      worksheet.getRow(3).height = 10; // Spacer
+
+      worksheet.mergeCells('A4:G4');
+      const mHeaderCell = worksheet.getCell('A4');
+      mHeaderCell.value = 'LOOM OPERATOR PERFORMANCE METRICS';
+      mHeaderCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+      mHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(4).height = 22;
+      for (let col = 1; col <= 7; col++) worksheet.getRow(4).getCell(col).border = thickBlackBorder;
+
+      // KPI row (Row 5 & 6)
+      worksheet.mergeCells('A5:C5'); worksheet.mergeCells('A6:C6');
+      worksheet.mergeCells('D5:E5'); worksheet.mergeCells('D6:E6');
+      worksheet.mergeCells('F5:G5'); worksheet.mergeCells('F6:G6');
+
+      worksheet.getCell('A5').value = 'SELECTED OPERATOR(S)';
+      worksheet.getCell('A6').value = opLabel;
+
+      worksheet.getCell('D5').value = 'TOTAL METERS WOVEN';
+      worksheet.getCell('D6').value = `${modalOperatorTotals.totalMeters.toLocaleString()} m`;
+
+      worksheet.getCell('F5').value = 'TOTAL LOOMS RUN & AVERAGE';
+      worksheet.getCell('F6').value = `${modalOperatorTotals.totalLooms} Looms | Avg: ${modalOperatorTotals.overallAvg.toLocaleString()} m/loom`;
+
+      worksheet.getRow(5).height = 18;
+      for (let col = 1; col <= 7; col++) {
+        const c = worksheet.getRow(5).getCell(col);
+        c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = thickBlackBorder;
+      }
+
+      worksheet.getRow(6).height = 24;
+      for (let col = 1; col <= 7; col++) {
+        const c = worksheet.getRow(6).getCell(col);
+        c.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = thickBlackBorder;
+      }
+
+      // 4. DATA TABLE HEADERS (Row 8)
+      worksheet.getRow(7).height = 12; // Spacer
+      const headers = ['Date', 'Shift', 'Operator Name', 'Individual Loom Meters (m)', 'Total Meters (m)', 'Average Meters (m)', 'Looms Count'];
+      const headerRow = worksheet.getRow(8);
+      headerRow.height = 28;
+      headers.forEach((h, idx) => {
+        const cell = headerRow.getCell(idx + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+      });
+
+      // 5. DATA ROWS
+      let currentR = 9;
+      modalOperatorLedger.forEach((item) => {
+        const r = worksheet.getRow(currentR);
+        r.height = 22;
+
+        const rowValues = [
+          formatDateLabel(item.date),
+          item.shift,
+          item.operatorName,
+          item.individualFormula,
+          item.totalMeters,
+          item.averageMeters,
+          item.loomCount
+        ];
+
+        rowValues.forEach((val, colIdx) => {
+          const cell = r.getCell(colIdx + 1);
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          cell.border = thickBlackBorder;
+
+          if (colIdx === 4 || colIdx === 5) {
+            cell.numFmt = '#,##0.00';
+          } else if (colIdx === 6) {
+            cell.numFmt = '#,##0';
+          }
+        });
+
+        currentR++;
+      });
+
+      // 6. TOTALS ROW
+      const totalsRow = worksheet.getRow(currentR);
+      totalsRow.height = 26;
+      for (let c = 1; c <= 7; c++) {
+        const cell = totalsRow.getCell(c);
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+      }
+
+      totalsRow.getCell(1).value = 'TOTALS';
+      totalsRow.getCell(2).value = '-';
+      totalsRow.getCell(3).value = '-';
+      totalsRow.getCell(4).value = '-';
+      totalsRow.getCell(5).value = modalOperatorTotals.totalMeters;
+      totalsRow.getCell(5).numFmt = '#,##0.00';
+      totalsRow.getCell(6).value = modalOperatorTotals.overallAvg;
+      totalsRow.getCell(6).numFmt = '#,##0.00';
+      totalsRow.getCell(7).value = modalOperatorTotals.totalLooms;
+      totalsRow.getCell(7).numFmt = '#,##0';
+
+      // 7. COLUMN WIDTHS
+      worksheet.columns = [
+        { width: 16 }, // Date
+        { width: 12 }, // Shift
+        { width: 22 }, // Operator Name
+        { width: 32 }, // Individual Loom Meters
+        { width: 18 }, // Total Meters
+        { width: 20 }, // Average Meters
+        { width: 16 }  // Looms Count
+      ];
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `Loom_Operator_Summary_${opLabel.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+      triggerAlert('success', 'Loom Operator Summary exported successfully!');
+    } catch (err) {
+      console.error('Error exporting operator summary Excel:', err);
+      triggerAlert('error', 'Failed to export operator summary Excel report.');
+    }
+  };
 
   // --- RECONSTRUCT REPORT FROM PRE-EXISTING DATA FOR EDITING ---
   const handleEditClick = (report: LoomRunningReport) => {
@@ -1305,7 +1915,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
           <div className="flex flex-wrap sm:flex-nowrap items-end gap-2 shrink-0 w-full lg:w-auto justify-end">
             <button
               type="button"
-              onClick={() => setShowSummaryPopup(true)}
+              onClick={handleOpenSummaryMenu}
               className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-2xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-indigo-600/5 border border-indigo-100 w-full sm:w-auto"
               id="view-summary-btn"
             >
@@ -2276,44 +2886,304 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
         </div>
       )}
 
-      {/* 📊 SUMMARY POPUP MODAL */}
-      {showSummaryPopup && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-5 z-50 animate-fade-in" id="summary-popup-overlay">
-          <div className="bg-white rounded-3xl w-full max-w-5xl 2xl:max-w-6xl shadow-2xl overflow-hidden border border-slate-200 animate-slide-up flex flex-col max-h-[90vh]">
+      {/* 📊 WINDOW 1: SUMMARY SELECTION MENU MODAL */}
+      {showSummaryMenuModal && !selectedSummaryType && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 z-50 animate-fade-in" id="summary-menu-modal-overlay">
+          <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden border border-slate-200 animate-slide-up flex flex-col">
             {/* Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-150 bg-slate-50 flex items-center justify-between">
-              <div className="flex items-center gap-2.5 sm:gap-3">
-                <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0 border border-indigo-100 shadow-2xs">
-                  <BarChart3 size={18} />
+            <div className="p-5 border-b border-slate-150 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0 border border-indigo-100 shadow-2xs">
+                  <BarChart3 size={20} />
                 </div>
                 <div>
-                  <h3 className="text-sm sm:text-base font-black text-slate-800 uppercase tracking-wide">
-                    Ledger Summary Report
+                  <h3 className="text-base sm:text-lg font-black text-slate-900 uppercase tracking-wide">
+                    View Summary Reports
                   </h3>
-                  <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
-                    Summarized by Quality, Size &amp; GSM for {filterMode === 'single' ? formatDateLabel(singleDate) : 'Selected Period'}
+                  <p className="text-xs text-slate-500 font-medium">
+                    Select a summary category below to inspect aggregated loom statistics
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setShowSummaryPopup(false)}
+                onClick={() => setShowSummaryMenuModal(false)}
                 className="h-8 w-8 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
               >
                 <X size={16} />
               </button>
             </div>
 
+            {/* Body: Summary Category Buttons */}
+            <div className="p-5 sm:p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              <div className="grid grid-cols-1 gap-3.5">
+                {/* Button 1: Number of looms running */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedSummaryType('looms_running')}
+                  className="w-full text-left p-4 sm:p-5 rounded-2xl border-2 border-indigo-200 hover:border-indigo-600 bg-indigo-50/40 hover:bg-indigo-50 transition-all cursor-pointer shadow-xs hover:shadow-md group flex items-center justify-between gap-4"
+                  id="btn-summary-looms-running"
+                >
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                      <Activity size={20} />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm sm:text-base font-extrabold text-slate-900 group-hover:text-indigo-900">
+                          Number of looms running
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider">
+                          Available Report
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                        View aggregated metrics of running vs. stopped looms grouped by Quality, Size, and GSM with totals.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-indigo-600 group-hover:translate-x-1 transition-transform">
+                    <ChevronRight size={20} />
+                  </div>
+                </button>
+
+                {/* Button 2: Loom Operator Summary */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedSummaryType('operator_summary')}
+                  className="w-full text-left p-4 sm:p-5 rounded-2xl border-2 border-indigo-200 hover:border-indigo-600 bg-indigo-50/40 hover:bg-indigo-50 transition-all cursor-pointer shadow-xs hover:shadow-md group flex items-center justify-between gap-4"
+                  id="btn-summary-loom-operator"
+                >
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                      <Users size={20} />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm sm:text-base font-extrabold text-slate-900 group-hover:text-indigo-900">
+                          Loom Operator Summary
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider">
+                          Available Report
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                        View operator ledger with individual meters (e.g. 1200 + 1350 + 1100), total meters sum, and shift averages.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-indigo-600 group-hover:translate-x-1 transition-transform">
+                    <ChevronRight size={20} />
+                  </div>
+                </button>
+
+                {/* Additional Summary Modules placeholder cards */}
+                <div className="p-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 opacity-60 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-slate-200 text-slate-500 flex items-center justify-center shrink-0">
+                      <Cpu size={18} />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-700 block">Production Efficiency Summary</span>
+                      <span className="text-[10px] text-slate-400 font-semibold">Future module • Coming soon</span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[9px] font-bold uppercase">Locked</span>
+                </div>
+
+                <div className="p-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 opacity-60 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-slate-200 text-slate-500 flex items-center justify-center shrink-0">
+                      <Flame size={18} />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-700 block">Quality &amp; Wastage Analysis</span>
+                      <span className="text-[10px] text-slate-400 font-semibold">Future module • Coming soon</span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[9px] font-bold uppercase">Locked</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-150 bg-slate-50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowSummaryMenuModal(false)}
+                className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold text-xs tracking-wider uppercase rounded-xl transition-all cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📊 WINDOW 2: SUMMARY DETAIL MODAL ("NUMBER OF LOOMS RUNNING") */}
+      {showSummaryMenuModal && selectedSummaryType === 'looms_running' && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-5 z-50 animate-fade-in" id="summary-detail-modal-overlay">
+          <div className="bg-white rounded-3xl w-full max-w-5xl 2xl:max-w-6xl shadow-2xl overflow-hidden border border-slate-200 animate-slide-up flex flex-col max-h-[92vh]">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-150 bg-slate-50 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedSummaryType(null)}
+                  className="p-2 bg-white hover:bg-slate-100 text-slate-700 rounded-xl border border-slate-200 flex items-center gap-1 transition-all cursor-pointer text-xs font-extrabold shrink-0 active:scale-95 shadow-2xs"
+                  title="Back to summary categories"
+                >
+                  <ChevronLeft size={16} />
+                  <span className="hidden sm:inline">Back</span>
+                </button>
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0 border border-indigo-100 shadow-2xs">
+                  <Activity size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 uppercase tracking-wide">
+                    Number of Looms Running Summary
+                  </h3>
+                  <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
+                    Summarized by Quality, Size &amp; GSM
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSummaryType(null);
+                  setShowSummaryMenuModal(false);
+                }}
+                className="h-8 w-8 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Control Toolbar (Date Filter Range/Single, Shift Selector, Export Excel) */}
+            <div className="p-4 bg-indigo-50/40 border-b border-indigo-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+                {/* Filter Mode Selector */}
+                <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setSumFilterMode('single')}
+                    className={`px-3 py-1 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                      sumFilterMode === 'single'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Single Date
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSumFilterMode('range')}
+                    className={`px-3 py-1 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                      sumFilterMode === 'range'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Date Range
+                  </button>
+                </div>
+
+                {/* Date Picker Inputs */}
+                {sumFilterMode === 'single' ? (
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1 shadow-2xs">
+                    <CalendarIcon size={14} className="text-indigo-500 shrink-0" />
+                    <input
+                      type="date"
+                      value={sumSingleDate}
+                      onChange={(e) => setSumSingleDate(e.target.value)}
+                      className="text-xs font-black text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1 shadow-2xs">
+                    <CalendarIcon size={14} className="text-indigo-500 shrink-0" />
+                    <input
+                      type="date"
+                      value={sumRangeStartDate}
+                      onChange={(e) => setSumRangeStartDate(e.target.value)}
+                      className="text-xs font-black text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+                    />
+                    <span className="text-slate-400 font-bold text-xs">to</span>
+                    <input
+                      type="date"
+                      value={sumRangeEndDate}
+                      onChange={(e) => setSumRangeEndDate(e.target.value)}
+                      className="text-xs font-black text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+                    />
+                  </div>
+                )}
+
+                {/* Shift Filter Dropdown */}
+                <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1 shadow-2xs">
+                  <span className="text-[10px] font-black uppercase text-slate-400">Shift:</span>
+                  <select
+                    value={sumFilterShift}
+                    onChange={(e) => setSumFilterShift(e.target.value as 'ALL' | 'DAY' | 'NIGHT')}
+                    className="text-xs font-black text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+                  >
+                    <option value="ALL">✨ All Shifts</option>
+                    <option value="DAY">☀️ Day Shift</option>
+                    <option value="NIGHT">🌙 Night Shift</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Export Excel Button */}
+              <button
+                type="button"
+                onClick={handleExportSummaryExcel}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-600/20 active:scale-95 shrink-0"
+                id="btn-export-summary-excel"
+              >
+                <FileSpreadsheet size={15} />
+                Export Excel
+              </button>
+            </div>
+
+            {/* KPI Stats Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-50 border-b border-slate-200 text-xs">
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Looms Tracked</span>
+                <span className="font-black text-slate-900 text-sm">{modalTotals.totalLooms} Looms</span>
+                <span className="text-[10px] text-slate-500 block font-semibold mt-0.5">
+                  {modalTotals.runningCount} Running / {modalTotals.stoppedCount} Stopped
+                </span>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Total Meters Woven</span>
+                <span className="font-black text-emerald-700 text-sm font-mono">{modalTotals.totalMeters.toLocaleString()} m</span>
+                <span className="text-[10px] text-slate-500 block font-semibold mt-0.5">
+                  Filtered Period Total
+                </span>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Total Gross Weight</span>
+                <span className="font-black text-slate-800 text-sm font-mono">{modalTotals.totalGrossWt.toFixed(2)} kg</span>
+                <span className="text-[10px] text-slate-500 block font-semibold mt-0.5">Combined Fabric + Core</span>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Total Net Weight</span>
+                <span className="font-black text-indigo-700 text-sm font-mono">{modalTotals.totalNetWt.toFixed(2)} kg</span>
+                <span className="text-[10px] text-slate-500 block font-semibold mt-0.5">Avg Calc: {modalTotals.avgCalc} kg/m</span>
+              </div>
+            </div>
+
             {/* Content / Scrollable area */}
             <div className="p-4 sm:p-6 overflow-y-auto flex-1">
-              {summaryData.length === 0 ? (
+              {modalSummaryData.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 font-bold uppercase tracking-wider text-xs">
-                  No active running loom entries found for this period.
+                  No active running loom entries found for this period and shift filter.
                 </div>
               ) : (
                 <>
                   {/* Desktop View Table */}
-                  <div className="hidden sm:block border border-slate-150 rounded-2xl overflow-x-auto overflow-y-auto max-h-[500px] shadow-xs relative">
+                  <div className="hidden sm:block border border-slate-150 rounded-2xl overflow-x-auto overflow-y-auto max-h-[480px] shadow-xs relative">
                     <table className="w-full text-left border-collapse min-w-[920px]">
                       <thead className="sticky top-0 z-10 bg-slate-50 shadow-2xs">
                         <tr className="bg-slate-50 border-b border-slate-150 text-[10px] font-black text-slate-400 uppercase tracking-wider">
@@ -2329,7 +3199,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {summaryData.map((item, idx) => (
+                        {modalSummaryData.map((item, idx) => (
                           <tr key={idx} className="hover:bg-slate-50/50 transition-colors text-xs font-bold text-slate-700">
                             <td className="px-3.5 py-3.5 font-extrabold text-slate-800 whitespace-nowrap">{item.quality || '-'}</td>
                             <td className="px-3.5 py-3.5 whitespace-nowrap">{item.size || '-'}</td>
@@ -2361,12 +3231,37 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                           </tr>
                         ))}
                       </tbody>
+                      <tfoot className="sticky bottom-0 z-10 bg-slate-100 border-t-2 border-slate-300 font-extrabold text-xs text-slate-900">
+                        <tr>
+                          <td className="px-3.5 py-3 whitespace-nowrap">TOTALS</td>
+                          <td className="px-3.5 py-3 whitespace-nowrap">-</td>
+                          <td className="px-3.5 py-3 whitespace-nowrap">-</td>
+                          <td className="px-3.5 py-3 text-right font-mono font-black text-emerald-800 whitespace-nowrap">
+                            {modalTotals.totalMeters.toLocaleString()} m
+                          </td>
+                          <td className="px-3.5 py-3 text-right font-mono font-black text-slate-900 whitespace-nowrap">
+                            {modalTotals.totalGrossWt.toFixed(2)}
+                          </td>
+                          <td className="px-3.5 py-3 text-right font-mono font-black text-indigo-900 whitespace-nowrap">
+                            {modalTotals.totalNetWt.toFixed(2)}
+                          </td>
+                          <td className="px-3.5 py-3 text-right font-mono font-black text-emerald-800 whitespace-nowrap">
+                            {modalTotals.avgCalc}
+                          </td>
+                          <td className="px-3.5 py-3 text-center whitespace-nowrap text-emerald-700">
+                            {modalTotals.runningCount} Running
+                          </td>
+                          <td className="px-3.5 py-3 text-center whitespace-nowrap text-rose-700">
+                            {modalTotals.stoppedCount} Stopped
+                          </td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
 
                   {/* Mobile View Card List */}
                   <div className="block sm:hidden space-y-3">
-                    {summaryData.map((item, idx) => (
+                    {modalSummaryData.map((item, idx) => (
                       <div key={idx} className="bg-slate-50/50 border border-slate-150 rounded-2xl p-4 space-y-3 shadow-2xs">
                         <div className="flex justify-between items-start gap-2 border-b border-slate-150 pb-2.5">
                           <div className="space-y-1">
@@ -2405,11 +3300,351 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
             </div>
 
             {/* Footer */}
-            <div className="p-4 sm:p-5 border-t border-slate-150 bg-slate-50 flex justify-end gap-3">
+            <div className="p-4 sm:p-5 border-t border-slate-150 bg-slate-50 flex justify-between items-center">
               <button
                 type="button"
-                onClick={() => setShowSummaryPopup(false)}
-                className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold text-xs tracking-wider uppercase rounded-xl transition-all cursor-pointer active:scale-95"
+                onClick={() => setSelectedSummaryType(null)}
+                className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 font-extrabold text-xs tracking-wider uppercase rounded-xl transition-all cursor-pointer border border-slate-200 flex items-center gap-1"
+              >
+                <ChevronLeft size={16} />
+                Back to Summaries
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSummaryType(null);
+                  setShowSummaryMenuModal(false);
+                }}
+                className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold text-xs tracking-wider uppercase rounded-xl transition-all cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📊 WINDOW 3: SUMMARY DETAIL MODAL ("LOOM OPERATOR SUMMARY") */}
+      {showSummaryMenuModal && selectedSummaryType === 'operator_summary' && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-5 z-50 animate-fade-in" id="summary-operator-modal-overlay">
+          <div className="bg-white rounded-3xl w-full max-w-5xl 2xl:max-w-6xl shadow-2xl overflow-hidden border border-slate-200 animate-slide-up flex flex-col max-h-[92vh]">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-150 bg-slate-50 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedSummaryType(null)}
+                  className="p-2 bg-white hover:bg-slate-100 text-slate-700 rounded-xl border border-slate-200 flex items-center gap-1 transition-all cursor-pointer text-xs font-extrabold shrink-0 active:scale-95 shadow-2xs"
+                  title="Back to summary categories"
+                >
+                  <ChevronLeft size={16} />
+                  <span className="hidden sm:inline">Back</span>
+                </button>
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0 border border-indigo-100 shadow-2xs">
+                  <Users size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 uppercase tracking-wide">
+                    Loom Operator Summary
+                  </h3>
+                  <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
+                    Operator-wise Loom Meter Breakdown, Totals &amp; Averages
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSummaryType(null);
+                  setShowSummaryMenuModal(false);
+                }}
+                className="h-8 w-8 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Control Toolbar (Filter Mode, Dates, Shift Selector, Operator Dropdown, Export Excel) */}
+            <div className="p-4 bg-indigo-50/40 border-b border-indigo-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+                {/* Filter Mode Selector */}
+                <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setSumFilterMode('single')}
+                    className={`px-3 py-1 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                      sumFilterMode === 'single'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Single Date
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSumFilterMode('range')}
+                    className={`px-3 py-1 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                      sumFilterMode === 'range'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Date Range
+                  </button>
+                </div>
+
+                {/* Date Picker Inputs */}
+                {sumFilterMode === 'single' ? (
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1 shadow-2xs">
+                    <CalendarIcon size={14} className="text-indigo-500 shrink-0" />
+                    <input
+                      type="date"
+                      value={sumSingleDate}
+                      onChange={(e) => setSumSingleDate(e.target.value)}
+                      className="text-xs font-black text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1 shadow-2xs">
+                    <CalendarIcon size={14} className="text-indigo-500 shrink-0" />
+                    <input
+                      type="date"
+                      value={sumRangeStartDate}
+                      onChange={(e) => setSumRangeStartDate(e.target.value)}
+                      className="text-xs font-black text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+                    />
+                    <span className="text-slate-400 font-bold text-xs">to</span>
+                    <input
+                      type="date"
+                      value={sumRangeEndDate}
+                      onChange={(e) => setSumRangeEndDate(e.target.value)}
+                      className="text-xs font-black text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+                    />
+                  </div>
+                )}
+
+                {/* Shift Filter Dropdown */}
+                <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1 shadow-2xs">
+                  <span className="text-[10px] font-black uppercase text-slate-400">Shift:</span>
+                  <select
+                    value={sumFilterShift}
+                    onChange={(e) => setSumFilterShift(e.target.value as 'ALL' | 'DAY' | 'NIGHT')}
+                    className="text-xs font-black text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+                  >
+                    <option value="ALL">✨ All Shifts</option>
+                    <option value="DAY">☀️ Day Shift</option>
+                    <option value="NIGHT">🌙 Night Shift</option>
+                  </select>
+                </div>
+
+                {/* Operator Dropdown Selector */}
+                <div className="flex items-center gap-1.5 bg-white border border-indigo-200 rounded-xl px-2.5 py-1 shadow-2xs ring-2 ring-indigo-500/10">
+                  <Users size={14} className="text-indigo-600 shrink-0" />
+                  <span className="text-[10px] font-black uppercase text-indigo-500">Operator:</span>
+                  <select
+                    value={sumSelectedOperator}
+                    onChange={(e) => setSumSelectedOperator(e.target.value)}
+                    className="text-xs font-black text-slate-900 bg-transparent focus:outline-none cursor-pointer max-w-[180px] truncate"
+                    id="select-summary-operator"
+                  >
+                    <option value="ALL">✨ All Operators</option>
+                    {availableOperatorNames.map((opName) => (
+                      <option key={opName} value={opName}>
+                        👤 {opName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Export Excel Button */}
+              <button
+                type="button"
+                onClick={handleExportOperatorSummaryExcel}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs tracking-wider uppercase transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-600/20 active:scale-95 shrink-0"
+                id="btn-export-operator-summary-excel"
+              >
+                <FileSpreadsheet size={15} />
+                Export Excel
+              </button>
+            </div>
+
+            {/* KPI Stats Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-50 border-b border-slate-200 text-xs">
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Selected Operator</span>
+                <span className="font-black text-indigo-900 text-sm truncate block">
+                  {sumSelectedOperator === 'ALL' ? '✨ All Operators' : sumSelectedOperator}
+                </span>
+                <span className="text-[10px] text-slate-500 block font-semibold mt-0.5">
+                  {modalOperatorTotals.totalEntries} Ledger Record(s)
+                </span>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Total Meters Woven</span>
+                <span className="font-black text-emerald-700 text-sm font-mono">{modalOperatorTotals.totalMeters.toLocaleString()} m</span>
+                <span className="text-[10px] text-slate-500 block font-semibold mt-0.5">
+                  Combined Sum
+                </span>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Total Looms Run</span>
+                <span className="font-black text-slate-900 text-sm font-mono">{modalOperatorTotals.totalLooms} Looms</span>
+                <span className="text-[10px] text-slate-500 block font-semibold mt-0.5">Logged Loom Operations</span>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Overall Avg Meters</span>
+                <span className="font-black text-indigo-700 text-sm font-mono">{modalOperatorTotals.overallAvg.toLocaleString()} m/loom</span>
+                <span className="text-[10px] text-slate-500 block font-semibold mt-0.5">Average per Loom</span>
+              </div>
+            </div>
+
+            {/* Content / Scrollable Ledger Area */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
+              {modalOperatorLedger.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 font-bold uppercase tracking-wider text-xs">
+                  No loom running records found for the selected operator and filter criteria.
+                </div>
+              ) : (
+                <>
+                  {/* Desktop View Ledger Table */}
+                  <div className="hidden sm:block border border-slate-150 rounded-2xl overflow-x-auto overflow-y-auto max-h-[480px] shadow-xs relative">
+                    <table className="w-full text-left border-collapse min-w-[900px]">
+                      <thead className="sticky top-0 z-10 bg-slate-50 shadow-2xs">
+                        <tr className="bg-slate-50 border-b border-slate-150 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                          <th className="px-4 py-3.5 whitespace-nowrap bg-slate-50 sticky top-0">Date</th>
+                          <th className="px-3.5 py-3.5 text-center whitespace-nowrap bg-slate-50 sticky top-0">Shift</th>
+                          <th className="px-4 py-3.5 whitespace-nowrap bg-slate-50 sticky top-0">Operator Name</th>
+                          <th className="px-4 py-3.5 whitespace-nowrap bg-slate-50 sticky top-0">Loom Operation Meters (Individual)</th>
+                          <th className="px-4 py-3.5 text-right whitespace-nowrap bg-slate-50 sticky top-0">Total Sum (m)</th>
+                          <th className="px-4 py-3.5 text-right whitespace-nowrap bg-slate-50 sticky top-0">Average Meters (m)</th>
+                          <th className="px-3.5 py-3.5 text-center whitespace-nowrap bg-slate-50 sticky top-0">Looms Count</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {modalOperatorLedger.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/50 transition-colors text-xs font-bold text-slate-700">
+                            <td className="px-4 py-3.5 font-extrabold text-slate-800 whitespace-nowrap">
+                              {formatDateLabel(item.date)}
+                            </td>
+                            <td className="px-3.5 py-3.5 text-center whitespace-nowrap">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                item.shift === 'DAY'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                              }`}>
+                                {item.shift === 'DAY' ? '☀️ DAY' : '🌙 NIGHT'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3.5 font-extrabold text-slate-900 whitespace-nowrap">
+                              {item.operatorName}
+                            </td>
+                            <td className="px-4 py-3.5 font-mono text-slate-800 whitespace-nowrap">
+                              <span className="inline-block bg-indigo-50/70 text-indigo-900 border border-indigo-150 rounded-lg px-2.5 py-1 font-mono font-black text-xs tracking-tight shadow-2xs">
+                                {item.individualFormula}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3.5 text-right font-mono font-black text-emerald-700 whitespace-nowrap text-sm">
+                              {item.totalMeters.toLocaleString()} m
+                            </td>
+                            <td className="px-4 py-3.5 text-right font-mono font-black text-indigo-700 whitespace-nowrap text-sm">
+                              {item.averageMeters.toLocaleString()} m
+                            </td>
+                            <td className="px-3.5 py-3.5 text-center whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-full font-black text-xs">
+                                {item.loomCount} {item.loomCount === 1 ? 'Loom' : 'Looms'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="sticky bottom-0 z-10 bg-slate-100 border-t-2 border-slate-300 font-extrabold text-xs text-slate-900">
+                        <tr>
+                          <td className="px-4 py-3.5 whitespace-nowrap font-black">TOTALS</td>
+                          <td className="px-3.5 py-3.5 text-center whitespace-nowrap">-</td>
+                          <td className="px-4 py-3.5 whitespace-nowrap">-</td>
+                          <td className="px-4 py-3.5 whitespace-nowrap text-slate-500 font-semibold text-[11px]">
+                            {modalOperatorTotals.totalEntries} Shift Group(s)
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono font-black text-emerald-800 text-sm whitespace-nowrap">
+                            {modalOperatorTotals.totalMeters.toLocaleString()} m
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono font-black text-indigo-900 text-sm whitespace-nowrap">
+                            {modalOperatorTotals.overallAvg.toLocaleString()} m
+                          </td>
+                          <td className="px-3.5 py-3.5 text-center whitespace-nowrap text-slate-800 font-black">
+                            {modalOperatorTotals.totalLooms} Looms
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* Mobile View Card List */}
+                  <div className="block sm:hidden space-y-3">
+                    {modalOperatorLedger.map((item, idx) => (
+                      <div key={idx} className="bg-slate-50/50 border border-slate-150 rounded-2xl p-4 space-y-3 shadow-2xs">
+                        <div className="flex justify-between items-center gap-2 border-b border-slate-150 pb-2.5">
+                          <div>
+                            <span className="text-xs font-black text-slate-900 block">{item.operatorName}</span>
+                            <span className="text-[10px] text-slate-500 font-bold block">{formatDateLabel(item.date)}</span>
+                          </div>
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                            item.shift === 'DAY'
+                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                              : 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                          }`}>
+                            {item.shift === 'DAY' ? '☀️ DAY' : '🌙 NIGHT'}
+                          </span>
+                        </div>
+
+                        <div className="space-y-2 text-xs">
+                          <div>
+                            <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block mb-0.5">Individual Meter Readings</span>
+                            <span className="inline-block bg-indigo-50/80 text-indigo-900 border border-indigo-200 rounded-lg px-2.5 py-1 font-mono font-black text-xs">
+                              {item.individualFormula}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-150">
+                            <div>
+                              <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none mb-1">Total Sum</span>
+                              <span className="text-xs font-black text-emerald-700 font-mono">{item.totalMeters.toLocaleString()} m</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none mb-1">Average</span>
+                              <span className="text-xs font-black text-indigo-700 font-mono">{item.averageMeters.toLocaleString()} m</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none mb-1">Looms</span>
+                              <span className="text-xs font-bold text-slate-800 font-mono">{item.loomCount} Run</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 sm:p-5 border-t border-slate-150 bg-slate-50 flex justify-between items-center">
+              <button
+                type="button"
+                onClick={() => setSelectedSummaryType(null)}
+                className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 font-extrabold text-xs tracking-wider uppercase rounded-xl transition-all cursor-pointer border border-slate-200 flex items-center gap-1"
+              >
+                <ChevronLeft size={16} />
+                Back to Summaries
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSummaryType(null);
+                  setShowSummaryMenuModal(false);
+                }}
+                className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold text-xs tracking-wider uppercase rounded-xl transition-all cursor-pointer"
               >
                 Close
               </button>
