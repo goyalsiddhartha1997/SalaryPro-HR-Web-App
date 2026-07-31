@@ -587,9 +587,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         const rolls = row.rollNumbers || [];
         const dispList = row.dispatchedRolls || [];
         const dispMap = row.rollDispatchStatus || {};
+        const rollNetWtMap = row.rollNetWt || {};
+        const rollDispDetailsMap = row.rollDispatchDetails || {};
 
         let rollCount = row.noOfRolls || 0;
         let rollListStr = rolls.join(', ');
+        let completedWeight = row.productionCompleted || 0;
 
         if (selectedOption === 'dispatched') {
           const dispatchedRolls = rolls.filter(r => {
@@ -598,6 +601,35 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           });
           rollCount = dispatchedRolls.length;
           rollListStr = dispatchedRolls.length > 0 ? dispatchedRolls.join(', ') : '0 dispatched rolls';
+
+          if (dispatchedRolls.length === 0) {
+            completedWeight = 0;
+          } else {
+            let sumDispatchedWt = 0;
+            let hasRecordedWeights = false;
+
+            dispatchedRolls.forEach(rNo => {
+              const trimmed = (rNo || '').trim();
+              const details = rollDispDetailsMap[trimmed] || rollDispDetailsMap[rNo];
+              if (details && typeof details.dispatchedWeight === 'number' && details.dispatchedWeight > 0) {
+                sumDispatchedWt += details.dispatchedWeight;
+                hasRecordedWeights = true;
+              } else if (trimmed in rollNetWtMap && typeof rollNetWtMap[trimmed] === 'number') {
+                sumDispatchedWt += rollNetWtMap[trimmed];
+                hasRecordedWeights = true;
+              } else if (rNo in rollNetWtMap && typeof rollNetWtMap[rNo] === 'number') {
+                sumDispatchedWt += rollNetWtMap[rNo];
+                hasRecordedWeights = true;
+              }
+            });
+
+            if (hasRecordedWeights) {
+              completedWeight = parseFloat(sumDispatchedWt.toFixed(2));
+            } else {
+              const totalRollsCount = rolls.length || 1;
+              completedWeight = parseFloat(((row.productionCompleted || 0) * (dispatchedRolls.length / totalRollsCount)).toFixed(2));
+            }
+          }
         } else if (selectedOption === 'not_dispatched') {
           const notDispatchedRolls = rolls.filter(r => {
             const trimmed = (r || '').trim();
@@ -605,6 +637,31 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           });
           rollCount = notDispatchedRolls.length;
           rollListStr = notDispatchedRolls.length > 0 ? notDispatchedRolls.join(', ') : '0 non-dispatched rolls';
+
+          if (notDispatchedRolls.length === 0) {
+            completedWeight = 0;
+          } else {
+            let sumNotDispatchedWt = 0;
+            let hasRecordedWeights = false;
+
+            notDispatchedRolls.forEach(rNo => {
+              const trimmed = (rNo || '').trim();
+              if (trimmed in rollNetWtMap && typeof rollNetWtMap[trimmed] === 'number') {
+                sumNotDispatchedWt += rollNetWtMap[trimmed];
+                hasRecordedWeights = true;
+              } else if (rNo in rollNetWtMap && typeof rollNetWtMap[rNo] === 'number') {
+                sumNotDispatchedWt += rollNetWtMap[rNo];
+                hasRecordedWeights = true;
+              }
+            });
+
+            if (hasRecordedWeights) {
+              completedWeight = parseFloat(sumNotDispatchedWt.toFixed(2));
+            } else {
+              const totalRollsCount = rolls.length || 1;
+              completedWeight = parseFloat(((row.productionCompleted || 0) * (notDispatchedRolls.length / totalRollsCount)).toFixed(2));
+            }
+          }
         }
 
         return [
@@ -618,7 +675,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           rollCount,
           rollListStr,
           row.totalQuantity || 0,
-          row.productionCompleted || 0
+          completedWeight
         ];
       });
 
