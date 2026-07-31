@@ -582,11 +582,17 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       totalNetWt: parseFloat(item.totalNetWt.toFixed(2)),
       avgWtCalculated: item.totalMeters > 0 ? parseFloat((item.totalNetWt / item.totalMeters).toFixed(4)) : 0
     })).sort((a, b) => {
-      const qComp = a.quality.localeCompare(b.quality);
-      if (qComp !== 0) return qComp;
-      const sComp = a.size.localeCompare(b.size);
+      const isNoLoadA = a.quality.toUpperCase().includes('NO LOAD') || a.size.toUpperCase().includes('NO LOAD');
+      const isNoLoadB = b.quality.toUpperCase().includes('NO LOAD') || b.size.toUpperCase().includes('NO LOAD');
+      if (isNoLoadA && !isNoLoadB) return 1;
+      if (!isNoLoadA && isNoLoadB) return -1;
+
+      const sComp = a.size.localeCompare(b.size, undefined, { numeric: true, sensitivity: 'base' });
       if (sComp !== 0) return sComp;
-      return a.gsm - b.gsm;
+
+      if (a.gsm !== b.gsm) return a.gsm - b.gsm;
+
+      return a.quality.localeCompare(b.quality, undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [modalFilteredReports]);
 
@@ -897,7 +903,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       })
       .filter((item) => item.loomCount > 0 && item.totalMeters > 0)
       .sort((a, b) => {
-        const dComp = b.date.localeCompare(a.date);
+        const dComp = a.date.localeCompare(b.date);
         if (dComp !== 0) return dComp;
         const sComp = a.shift.localeCompare(b.shift);
         if (sComp !== 0) return sComp;

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 import { 
@@ -46,7 +46,8 @@ import {
   PackageCheck,
   PackageX,
   Filter,
-  CheckSquare
+  CheckSquare,
+  Upload
 } from 'lucide-react';
 import { LoomOrder, LoomOrderRow, RollDispatchDetails } from '../types';
 import * as XLSX from 'xlsx';
@@ -156,6 +157,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [masterLedgerSearchQuery, setMasterLedgerSearchQuery] = useState<string>('');
   const [masterLedgerDispatchFilter, setMasterLedgerDispatchFilter] = useState<'all' | 'not_dispatched' | 'dispatched'>('all');
   const [editingMasterRollId, setEditingMasterRollId] = useState<string | null>(null);
+  const masterLedgerFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // --- DISPATCH ENTRY MODAL STATES ---
   const [showDispatchEntryModal, setShowDispatchEntryModal] = useState<boolean>(false);
@@ -191,6 +193,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [dispatchLedgerSearchQuery, setDispatchLedgerSearchQuery] = useState<string>('');
   const [dispatchLedgerSelectedCustomer, setDispatchLedgerSelectedCustomer] = useState<string>('ALL');
   const [dispatchLedgerSelectedVehicle, setDispatchLedgerSelectedVehicle] = useState<string>('ALL');
+  const [dispatchLedgerViewMode, setDispatchLedgerViewMode] = useState<'detailed' | 'summary'>('detailed');
 
   // Master Ledger Sorting States (Default ascending by Roll Number)
   const [masterLedgerSortKey, setMasterLedgerSortKey] = useState<MasterLedgerSortKey>('rollNo');
@@ -2007,6 +2010,59 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     };
   }, [dispatchLedgerData]);
 
+  // Grouped Summary calculation: Date -> Quality -> Size -> GSM
+  const dispatchLedgerSummary = useMemo(() => {
+    const map = new Map<string, {
+      date: string;
+      quality: string;
+      size: string;
+      gsm: string | number;
+      totalRolls: number;
+      totalWeight: number;
+      totalMeters: number;
+    }>();
+
+    dispatchLedgerData.forEach((item) => {
+      const details = item.dispatchDetails || {};
+      const date = details.dispatchDate || item.orderDate || 'Unspecified';
+      const quality = item.quality?.trim() || 'Unspecified';
+      const size = item.size?.trim() || 'Unspecified';
+      const gsm = item.gsm !== undefined && item.gsm !== null && item.gsm !== '' ? item.gsm : 'N/A';
+
+      const key = `${date}|||${quality.toLowerCase()}|||${size.toLowerCase()}|||${gsm}`;
+
+      const wt = details.dispatchedWeight !== undefined ? details.dispatchedWeight : (item.netWt || 0);
+      const m = details.dispatchedMeters !== undefined ? details.dispatchedMeters : (item.meters || 0);
+
+      if (!map.has(key)) {
+        map.set(key, {
+          date,
+          quality,
+          size,
+          gsm,
+          totalRolls: 0,
+          totalWeight: 0,
+          totalMeters: 0,
+        });
+      }
+
+      const curr = map.get(key)!;
+      curr.totalRolls += 1;
+      curr.totalWeight += (Number(wt) || 0);
+      curr.totalMeters += (Number(m) || 0);
+    });
+
+    const list = Array.from(map.values());
+    list.sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      if (a.quality !== b.quality) return a.quality.localeCompare(b.quality);
+      if (a.size !== b.size) return a.size.localeCompare(b.size);
+      return String(a.gsm).localeCompare(String(b.gsm), undefined, { numeric: true });
+    });
+
+    return list;
+  }, [dispatchLedgerData]);
+
   const handleExportDispatchLedgerExcel = async () => {
     if (dispatchLedgerData.length === 0) {
       triggerAlert('info', 'No dispatched rolls available to export.');
@@ -2015,40 +2071,183 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
     try {
       const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet('Dispatch Ledger');
 
-      // Title Banner
-      worksheet.mergeCells('A1:N1');
-      const titleCell = worksheet.getCell('A1');
-      titleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • DISPATCH LEDGER REPORT';
-      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
-      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF065F46' } };
-      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-
-      // Subtitle / Filters Info
-      worksheet.mergeCells('A2:N2');
-      const subCell = worksheet.getCell('A2');
       let periodInfo = 'All Time Dispatches';
       if (dispatchLedgerFilterMode === 'single') {
         periodInfo = `Date: ${dispatchLedgerSingleDate || 'All'}`;
       } else if (dispatchLedgerFilterMode === 'range') {
         periodInfo = `Date Range: ${dispatchLedgerStartDate} to ${dispatchLedgerEndDate}`;
       }
-      subCell.value = `FILTER: ${periodInfo} | CUSTOMER: ${dispatchLedgerSelectedCustomer} | VEHICLE: ${dispatchLedgerSelectedVehicle} | TOTAL ROLLS: ${dispatchLedgerTotals.totalRolls}`;
-      subCell.font = { name: 'Calibri', size: 10, bold: true, italic: true, color: { argb: 'FF1E293B' } };
-      subCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } };
+
+      const thickBlackBorder = {
+        top: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        left: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        bottom: { style: 'medium' as const, color: { argb: 'FF000000' } },
+        right: { style: 'medium' as const, color: { argb: 'FF000000' } },
+      };
+
+      // --- SHEET 1: DISPATCH SUMMARY ---
+      const summarySheet = workbook.addWorksheet('Dispatch Summary');
+      summarySheet.views = [{ showGridLines: true }];
+
+      // Title Banner
+      summarySheet.mergeCells('A1:H1');
+      const sumTitle = summarySheet.getCell('A1');
+      sumTitle.value = 'FORTUNE FLEXIPACK PVT LIMITED • DISPATCH GROUPED SUMMARY REPORT';
+      sumTitle.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
+      sumTitle.alignment = { horizontal: 'center', vertical: 'middle' };
+      for (let col = 1; col <= 8; col++) {
+        summarySheet.getCell(1, col).border = thickBlackBorder;
+      }
+
+      // Metrics Summary Block (Rows 2 & 3)
+      summarySheet.mergeCells('A2:H2');
+      const sumSub = summarySheet.getCell('A2');
+      sumSub.value = `FILTER PERIOD: ${periodInfo} | CUSTOMER FILTER: ${dispatchLedgerSelectedCustomer} | VEHICLE FILTER: ${dispatchLedgerSelectedVehicle}`;
+      sumSub.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+      sumSub.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      summarySheet.mergeCells('A3:B3');
+      summarySheet.mergeCells('C3:D3');
+      summarySheet.mergeCells('E3:F3');
+      summarySheet.mergeCells('G3:H3');
+
+      summarySheet.getCell('A3').value = `Total Rolls: ${dispatchLedgerTotals.totalRolls}`;
+      summarySheet.getCell('C3').value = `Total Weight: ${dispatchLedgerTotals.totalWeight.toLocaleString('en-IN', { maximumFractionDigits: 2 })} kg (${dispatchLedgerTotals.totalWeightTons} MT)`;
+      summarySheet.getCell('E3').value = `Total Meters: ${dispatchLedgerTotals.totalMeters.toLocaleString('en-IN', { maximumFractionDigits: 1 })} m`;
+      summarySheet.getCell('G3').value = `Vehicles: ${dispatchLedgerTotals.uniqueVehiclesCount} | Customers: ${dispatchLedgerTotals.uniqueCustomersCount}`;
+
+      for (let r = 2; r <= 3; r++) {
+        for (let col = 1; col <= 8; col++) {
+          const cell = summarySheet.getCell(r, col);
+          cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          cell.border = thickBlackBorder;
+        }
+      }
+
+      summarySheet.addRow([]); // Blank row (Row 4)
+
+      // Table Headers (Row 5)
+      const sumHeaders = [
+        'Dispatch Date',
+        'Quality',
+        'Size',
+        'GSM',
+        'Total No. of Rolls',
+        'Total Dispatched Weight (kg)',
+        'Total Dispatched Weight (MT)',
+        'Total Dispatched Meters (m)'
+      ];
+
+      const sumHeaderRow = summarySheet.addRow(sumHeaders);
+      sumHeaderRow.eachCell((cell) => {
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+      });
+
+      // Data Rows - Left aligned by default
+      dispatchLedgerSummary.forEach((row) => {
+        const r = summarySheet.addRow([
+          row.date,
+          row.quality,
+          row.size,
+          row.gsm,
+          row.totalRolls,
+          row.totalWeight,
+          parseFloat((row.totalWeight / 1000).toFixed(3)),
+          row.totalMeters
+        ]);
+
+        r.eachCell((cell, colNumber) => {
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          cell.border = thickBlackBorder;
+          if (colNumber >= 6) {
+            cell.numFmt = '#,##0.00';
+          }
+        });
+      });
+
+      // Total Row for Summary
+      const sumTotalRow = summarySheet.addRow([
+        'GRAND TOTAL',
+        '',
+        '',
+        '',
+        dispatchLedgerTotals.totalRolls,
+        dispatchLedgerTotals.totalWeight,
+        dispatchLedgerTotals.totalWeightTons,
+        dispatchLedgerTotals.totalMeters
+      ]);
+
+      sumTotalRow.eachCell((cell, colNumber) => {
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+        if (colNumber >= 6) {
+          cell.numFmt = '#,##0.00';
+        }
+      });
+
+      summarySheet.columns.forEach((col) => {
+        let maxLen = 16;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          if (val.length > maxLen) maxLen = Math.min(val.length + 4, 40);
+        });
+        col.width = maxLen;
+      });
+
+      // --- SHEET 2: DETAILED DISPATCH LEDGER ---
+      const worksheet = workbook.addWorksheet('Detailed Ledger');
+      worksheet.views = [{ showGridLines: true }];
+
+      // Title Banner
+      worksheet.mergeCells('A1:L1');
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • DISPATCH LEDGER REPORT';
+      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      for (let col = 1; col <= 12; col++) {
+        worksheet.getCell(1, col).border = thickBlackBorder;
+      }
+
+      // Metrics Summary Block (Rows 2 & 3)
+      worksheet.mergeCells('A2:L2');
+      const subCell = worksheet.getCell('A2');
+      subCell.value = `FILTER PERIOD: ${periodInfo} | CUSTOMER FILTER: ${dispatchLedgerSelectedCustomer} | VEHICLE FILTER: ${dispatchLedgerSelectedVehicle}`;
+      subCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
       subCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
-      worksheet.addRow([]); // Blank row
+      worksheet.mergeCells('A3:C3');
+      worksheet.mergeCells('D3:F3');
+      worksheet.mergeCells('G3:I3');
+      worksheet.mergeCells('J3:L3');
+
+      worksheet.getCell('A3').value = `Total Dispatched Rolls: ${dispatchLedgerTotals.totalRolls} Rolls`;
+      worksheet.getCell('D3').value = `Total Weight: ${dispatchLedgerTotals.totalWeight.toLocaleString('en-IN', { maximumFractionDigits: 2 })} kg (${dispatchLedgerTotals.totalWeightTons} MT)`;
+      worksheet.getCell('G3').value = `Total Meters: ${dispatchLedgerTotals.totalMeters.toLocaleString('en-IN', { maximumFractionDigits: 1 })} m`;
+      worksheet.getCell('J3').value = `Vehicles: ${dispatchLedgerTotals.uniqueVehiclesCount} | Customers: ${dispatchLedgerTotals.uniqueCustomersCount}`;
+
+      for (let r = 2; r <= 3; r++) {
+        for (let col = 1; col <= 12; col++) {
+          const cell = worksheet.getCell(r, col);
+          cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          cell.border = thickBlackBorder;
+        }
+      }
+
+      worksheet.addRow([]); // Blank row (Row 4)
 
       // Headers
       const headers = [
         'Dispatch Date',
         'Roll No',
-        'Order No',
         'Customer Name',
         'Destination',
-        'Challan / Invoice No',
         'Vehicle No',
         'Driver Name & Phone',
         'Size',
@@ -2061,18 +2260,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
       const headerRow = worksheet.addRow(headers);
       headerRow.eachCell((cell) => {
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF047857' } };
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
-        cell.border = {
-          top: { style: 'thin' },
-          bottom: { style: 'medium' },
-          left: { style: 'thin' },
-          right: { style: 'thin' }
-        };
+        cell.border = thickBlackBorder;
       });
 
-      // Data Rows
+      // Data Rows - Left aligned by default
       dispatchLedgerData.forEach((item) => {
         const d = item.dispatchDetails || {};
         const dDate = d.dispatchDate || item.orderDate || '';
@@ -2083,10 +2276,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         const r = worksheet.addRow([
           dDate,
           item.rollNo,
-          item.orderNo,
           d.customerName || '—',
           d.destination || '—',
-          d.challanNo || '—',
           d.vehicleNo || '—',
           driverInfo,
           item.size || '—',
@@ -2098,20 +2289,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         ]);
 
         r.eachCell((cell, colNumber) => {
-          cell.font = { name: 'Calibri', size: 10 };
-          cell.border = {
-            top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-            bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-            left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-            right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
-          };
-          if (colNumber === 12 || colNumber === 13) {
-            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          cell.border = thickBlackBorder;
+          if (colNumber === 10 || colNumber === 11) {
             cell.numFmt = '#,##0.00';
-          } else if (colNumber === 1 || colNumber === 2 || colNumber === 3 || colNumber === 6 || colNumber === 7) {
-            cell.alignment = { horizontal: 'center', vertical: 'middle' };
-          } else {
-            cell.alignment = { horizontal: 'left', vertical: 'middle' };
           }
         });
       });
@@ -2120,8 +2302,6 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       const totalRow = worksheet.addRow([
         'TOTALS',
         `${dispatchLedgerTotals.totalRolls} Rolls`,
-        '',
-        '',
         '',
         '',
         `${dispatchLedgerTotals.uniqueVehiclesCount} Vehicles`,
@@ -2135,26 +2315,19 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       ]);
 
       totalRow.eachCell((cell, colNumber) => {
-        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF065F46' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
-        cell.border = {
-          top: { style: 'medium' },
-          bottom: { style: 'double' },
-          left: { style: 'thin' },
-          right: { style: 'thin' }
-        };
-        if (colNumber === 12 || colNumber === 13) {
-          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+        if (colNumber === 10 || colNumber === 11) {
           cell.numFmt = '#,##0.00';
         }
       });
 
-      // Auto-fit column widths
       worksheet.columns.forEach((col) => {
-        let maxLen = 12;
+        let maxLen = 14;
         col.eachCell?.({ includeEmpty: false }, (cell) => {
           const val = cell.value ? String(cell.value) : '';
-          if (val.length > maxLen) maxLen = Math.min(val.length + 3, 35);
+          if (val.length > maxLen) maxLen = Math.min(val.length + 4, 40);
         });
         col.width = maxLen;
       });
@@ -2419,6 +2592,207 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     } catch (err) {
       console.error("Failed to add roll from master ledger", err);
       triggerAlert('warn', 'Failed to add roll.');
+    }
+  };
+
+  const handleTriggerMasterLedgerExcelUpload = () => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+    masterLedgerFileInputRef.current?.click();
+  };
+
+  const handleMasterLedgerExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(arrayBuffer);
+
+      const sheet = workbook.getWorksheet('Master Roll Ledger') || workbook.worksheets[0];
+      if (!sheet) {
+        triggerAlert('warn', 'Could not find a valid worksheet in the uploaded file.');
+        return;
+      }
+
+      const getCellValue = (cell: ExcelJS.Cell): any => {
+        if (cell.value === null || cell.value === undefined) return '';
+        if (typeof cell.value === 'object') {
+          if ('result' in cell.value) return cell.value.result ?? '';
+          if ('text' in cell.value) return cell.value.text ?? '';
+          if ('richText' in cell.value && Array.isArray((cell.value as any).richText)) {
+            return (cell.value as any).richText.map((t: any) => t.text).join('');
+          }
+        }
+        return cell.value;
+      };
+
+      let headerRowIndex = -1;
+      const colMap: Record<string, number> = {};
+
+      sheet.eachRow((row, rowNumber) => {
+        if (headerRowIndex !== -1) return;
+
+        const cellTexts: string[] = [];
+        row.eachCell((cell) => {
+          cellTexts.push(String(getCellValue(cell) || '').trim().toLowerCase());
+        });
+
+        if (cellTexts.some(v => v.includes('roll number') || v.includes('roll no') || v === 'roll' || v.includes('roll #'))) {
+          headerRowIndex = rowNumber;
+          row.eachCell((cell, colIndex) => {
+            const txt = String(getCellValue(cell) || '').trim().toLowerCase();
+            if (txt.includes('roll number') || txt.includes('roll no') || txt === 'roll' || txt.includes('roll #')) colMap['rollNo'] = colIndex;
+            else if (txt === 'size') colMap['size'] = colIndex;
+            else if (txt === 'gsm') colMap['gsm'] = colIndex;
+            else if (txt === 'denier') colMap['denier'] = colIndex;
+            else if (txt.includes('avg wt (g)') || txt.includes('fabric weight')) colMap['fabricWeight'] = colIndex;
+            else if (txt.includes('avg wt [calc]') || txt.includes('avg wt calc')) colMap['avgWtCalculated'] = colIndex;
+            else if (txt.includes('gross wt')) colMap['grossWt'] = colIndex;
+            else if (txt.includes('core wt')) colMap['coreWt'] = colIndex;
+            else if (txt.includes('net wt')) colMap['netWt'] = colIndex;
+            else if (txt.includes('meter') || txt === 'mtr') colMap['meters'] = colIndex;
+            else if (txt.includes('strength')) colMap['strength'] = colIndex;
+            else if (txt.includes('elongation')) colMap['elongation'] = colIndex;
+            else if (txt.includes('weave quality') || txt.includes('quality')) colMap['quality'] = colIndex;
+            else if (txt.includes('dispatch status') || txt === 'status') colMap['dispatchStatus'] = colIndex;
+            else if (txt.includes('remark')) colMap['remarks'] = colIndex;
+          });
+        }
+      });
+
+      if (headerRowIndex === -1 || !colMap['rollNo']) {
+        triggerAlert('warn', 'Invalid file structure. Header row with "Roll Number" column was not found.');
+        return;
+      }
+
+      const orderUpdatesMap = new Map<string, LoomOrder>();
+      let updatedCount = 0;
+      const notFoundRolls: string[] = [];
+
+      sheet.eachRow((row, rowNumber) => {
+        if (rowNumber <= headerRowIndex) return;
+
+        const getCol = (key: string) => colMap[key] ? getCellValue(row.getCell(colMap[key])) : undefined;
+
+        const rawRollNo = getCol('rollNo');
+        if (rawRollNo === undefined || rawRollNo === null || rawRollNo === '') return;
+        const rollNo = String(rawRollNo).trim();
+        if (!rollNo) return;
+
+        const item = masterRollLedgerData.find(m => m.rollNo.toLowerCase() === rollNo.toLowerCase());
+        if (!item) {
+          notFoundRolls.push(rollNo);
+          return;
+        }
+
+        let targetOrder = orderUpdatesMap.get(item.orderId);
+        if (!targetOrder) {
+          const existingOrder = orders.find(o => o.id === item.orderId);
+          if (!existingOrder) return;
+          targetOrder = JSON.parse(JSON.stringify(existingOrder));
+          orderUpdatesMap.set(item.orderId, targetOrder!);
+        }
+
+        const rowObj = targetOrder!.rows[item.subOrderIdx];
+        if (!rowObj) return;
+
+        if (!rowObj.rollGrossWt) rowObj.rollGrossWt = {};
+        if (!rowObj.rollCoreWt) rowObj.rollCoreWt = {};
+        if (!rowObj.rollNetWt) rowObj.rollNetWt = {};
+        if (!rowObj.rollAvgWtCalculated) rowObj.rollAvgWtCalculated = {};
+        if (!rowObj.rollMeters) rowObj.rollMeters = {};
+        if (!rowObj.rollStrength) rowObj.rollStrength = {};
+        if (!rowObj.rollElongation) rowObj.rollElongation = {};
+        if (!rowObj.rollRemarks) rowObj.rollRemarks = {};
+        if (!rowObj.rollDispatchStatus) rowObj.rollDispatchStatus = {};
+        if (!rowObj.dispatchedRolls) rowObj.dispatchedRolls = [];
+
+        const sizeVal = getCol('size');
+        if (sizeVal !== undefined && sizeVal !== '') rowObj.size = String(sizeVal).trim();
+
+        const gsmVal = getCol('gsm');
+        if (gsmVal !== undefined && gsmVal !== '') rowObj.gsm = Number(gsmVal) || rowObj.gsm;
+
+        const denierVal = getCol('denier');
+        if (denierVal !== undefined && denierVal !== '') rowObj.denier = Number(denierVal) || rowObj.denier;
+
+        const fabricWtVal = getCol('fabricWeight');
+        if (fabricWtVal !== undefined && fabricWtVal !== '') rowObj.fabricWeight = Number(fabricWtVal) || rowObj.fabricWeight;
+
+        const qualityVal = getCol('quality');
+        if (qualityVal !== undefined && qualityVal !== '') rowObj.quality = String(qualityVal).trim();
+
+        const grossWtVal = getCol('grossWt');
+        if (grossWtVal !== undefined && grossWtVal !== '') rowObj.rollGrossWt[item.rollNo] = Number(grossWtVal) || 0;
+
+        const coreWtVal = getCol('coreWt');
+        if (coreWtVal !== undefined && coreWtVal !== '') rowObj.rollCoreWt[item.rollNo] = Number(coreWtVal) || 0;
+
+        const netWtVal = getCol('netWt');
+        if (netWtVal !== undefined && netWtVal !== '') rowObj.rollNetWt[item.rollNo] = Number(netWtVal) || 0;
+
+        const avgWtCalcVal = getCol('avgWtCalculated');
+        if (avgWtCalcVal !== undefined && avgWtCalcVal !== '') rowObj.rollAvgWtCalculated[item.rollNo] = Number(avgWtCalcVal) || 0;
+
+        const metersVal = getCol('meters');
+        if (metersVal !== undefined && metersVal !== '') rowObj.rollMeters[item.rollNo] = Number(metersVal) || 0;
+
+        const strengthVal = getCol('strength');
+        if (strengthVal !== undefined && strengthVal !== '') rowObj.rollStrength[item.rollNo] = String(strengthVal).trim();
+
+        const elongationVal = getCol('elongation');
+        if (elongationVal !== undefined && elongationVal !== '') rowObj.rollElongation[item.rollNo] = String(elongationVal).trim();
+
+        const remarksVal = getCol('remarks');
+        if (remarksVal !== undefined && remarksVal !== '') rowObj.rollRemarks[item.rollNo] = String(remarksVal).trim();
+
+        const statusVal = getCol('dispatchStatus');
+        if (statusVal !== undefined && statusVal !== '') {
+          const sStr = String(statusVal).trim().toLowerCase();
+          const dispSet = new Set(rowObj.dispatchedRolls);
+          if (sStr.includes('dispatched') && !sStr.includes('not')) {
+            rowObj.rollDispatchStatus[item.rollNo] = 'Dispatched';
+            dispSet.add(item.rollNo);
+          } else {
+            rowObj.rollDispatchStatus[item.rollNo] = 'Not Dispatched';
+            dispSet.delete(item.rollNo);
+          }
+          rowObj.dispatchedRolls = Array.from(dispSet);
+        }
+
+        rowObj.productionCompleted = recalculateRowProductionCompleted(rowObj);
+        updatedCount++;
+      });
+
+      if (updatedCount === 0) {
+        triggerAlert('warn', 'No matching rolls found in the uploaded file to update.');
+        return;
+      }
+
+      for (const updatedOrder of orderUpdatesMap.values()) {
+        const orderRef = doc(db, 'loomOrders', updatedOrder.id);
+        await setDoc(orderRef, updatedOrder);
+      }
+
+      let msg = `Successfully updated ${updatedCount} roll(s) across ${orderUpdatesMap.size} order(s) from Excel!`;
+      if (notFoundRolls.length > 0) {
+        msg += ` (${notFoundRolls.length} roll(s) in Excel were not found in database).`;
+      }
+      triggerAlert('success', msg);
+    } catch (err) {
+      console.error('Failed to import Master Roll Ledger Excel file:', err);
+      triggerAlert('warn', 'Error reading Excel file. Please ensure it is a valid .xlsx file.');
+    } finally {
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -5460,6 +5834,27 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   </button>
                 )}
 
+                {!viewOnly && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleTriggerMasterLedgerExcelUpload}
+                      className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-black uppercase tracking-wider px-3 py-2 rounded-xl border border-sky-700 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
+                      title="Upload Excel to Update Master Roll Ledger"
+                    >
+                      <Upload size={15} />
+                      <span className="hidden sm:inline">Upload Excel</span>
+                    </button>
+                    <input
+                      type="file"
+                      ref={masterLedgerFileInputRef}
+                      accept=".xlsx, .xls"
+                      onChange={handleMasterLedgerExcelUpload}
+                      className="hidden"
+                    />
+                  </>
+                )}
+
                 <button
                   type="button"
                   onClick={handleOpenMasterLedgerExportModal}
@@ -7254,6 +7649,38 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               </div>
 
               <div className="flex items-center gap-2">
+                {/* View Switcher: Detailed vs Summary */}
+                <div className="flex items-center gap-1 bg-emerald-900/80 p-1 rounded-xl border border-emerald-700/80">
+                  <button
+                    type="button"
+                    onClick={() => setDispatchLedgerViewMode('detailed')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer ${
+                      dispatchLedgerViewMode === 'detailed'
+                        ? 'bg-emerald-600 text-white shadow-3xs'
+                        : 'text-emerald-200/80 hover:text-white hover:bg-emerald-800/60'
+                    }`}
+                  >
+                    <Table size={14} />
+                    <span className="hidden sm:inline">Detailed Ledger</span>
+                    <span className="sm:hidden">Detailed</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDispatchLedgerViewMode('summary')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer ${
+                      dispatchLedgerViewMode === 'summary'
+                        ? 'bg-emerald-600 text-white shadow-3xs'
+                        : 'text-emerald-200/80 hover:text-white hover:bg-emerald-800/60'
+                    }`}
+                  >
+                    <BarChart4 size={14} />
+                    <span>Summary</span>
+                    <span className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-1.5 py-0.2 rounded-full font-mono border border-emerald-600/50">
+                      {dispatchLedgerSummary.length}
+                    </span>
+                  </button>
+                </div>
+
                 <button
                   type="button"
                   onClick={handleExportDispatchLedgerExcel}
@@ -7282,7 +7709,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                   <input
                     type="text"
-                    placeholder="Search roll, vehicle, customer, challan..."
+                    placeholder="Search roll, vehicle, customer..."
                     value={dispatchLedgerSearchQuery}
                     onChange={(e) => setDispatchLedgerSearchQuery(e.target.value)}
                     className="w-full pl-8 pr-3 py-1.5 text-xs bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
@@ -7440,7 +7867,77 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   <p className="text-sm font-bold text-zinc-700">No dispatched rolls found matching selected criteria.</p>
                   <p className="text-xs text-zinc-400">Try adjusting your date range, search query, or customer filter.</p>
                 </div>
+              ) : dispatchLedgerViewMode === 'summary' ? (
+                /* Grouped Summary View: Quality -> Size -> GSM */
+                <div className="overflow-x-auto rounded-2xl border border-zinc-200 shadow-sm bg-white">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-emerald-950 text-white font-bold text-[11px] uppercase tracking-wider">
+                        <th className="p-3 border-b border-emerald-900">Dispatch Date</th>
+                        <th className="p-3 border-b border-emerald-900">Quality</th>
+                        <th className="p-3 border-b border-emerald-900">Size</th>
+                        <th className="p-3 border-b border-emerald-900">GSM</th>
+                        <th className="p-3 border-b border-emerald-900 text-center">Total No. of Rolls</th>
+                        <th className="p-3 border-b border-emerald-900 text-right">Total Weight (kg)</th>
+                        <th className="p-3 border-b border-emerald-900 text-right">Total Weight (MT)</th>
+                        <th className="p-3 border-b border-emerald-900 text-right">Total Meters (m)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200">
+                      {dispatchLedgerSummary.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-emerald-50/50 transition-colors">
+                          <td className="p-3 font-mono font-medium text-zinc-900 bg-zinc-50/60 whitespace-nowrap">
+                            {row.date}
+                          </td>
+                          <td className="p-3 font-bold text-zinc-900">
+                            {row.quality}
+                          </td>
+                          <td className="p-3 font-mono font-bold text-emerald-950">
+                            {row.size}
+                          </td>
+                          <td className="p-3 font-mono font-medium text-zinc-700">
+                            {row.gsm}
+                          </td>
+                          <td className="p-3 text-center font-mono font-black">
+                            <span className="bg-emerald-100 text-emerald-900 px-2.5 py-1 rounded-lg border border-emerald-300/80 inline-block">
+                              {row.totalRolls}
+                            </span>
+                          </td>
+                          <td className="p-3 text-right font-mono font-bold text-zinc-900">
+                            {row.totalWeight.toLocaleString('en-IN', { maximumFractionDigits: 2 })} kg
+                          </td>
+                          <td className="p-3 text-right font-mono font-bold text-emerald-900">
+                            {(row.totalWeight / 1000).toFixed(3)} MT
+                          </td>
+                          <td className="p-3 text-right font-mono font-bold text-emerald-950">
+                            {row.totalMeters.toLocaleString('en-IN', { maximumFractionDigits: 1 })} m
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-emerald-900 text-white font-black text-xs uppercase tracking-wider">
+                        <td colSpan={4} className="p-3 text-right">
+                          Grand Total ({dispatchLedgerSummary.length} Summary Groups)
+                        </td>
+                        <td className="p-3 text-center font-mono text-emerald-200 text-sm">
+                          {dispatchLedgerTotals.totalRolls} Rolls
+                        </td>
+                        <td className="p-3 text-right font-mono text-emerald-200 text-sm">
+                          {dispatchLedgerTotals.totalWeight.toLocaleString('en-IN', { maximumFractionDigits: 2 })} kg
+                        </td>
+                        <td className="p-3 text-right font-mono text-emerald-200 text-sm">
+                          {dispatchLedgerTotals.totalWeightTons} MT
+                        </td>
+                        <td className="p-3 text-right font-mono text-emerald-200 text-sm">
+                          {dispatchLedgerTotals.totalMeters.toLocaleString('en-IN', { maximumFractionDigits: 1 })} m
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
               ) : (
+                /* Detailed Ledger View (Order # and Challan/Invoice removed) */
                 <>
                   {/* Desktop Table View */}
                   <div className="hidden lg:block overflow-x-auto rounded-2xl border border-zinc-200 shadow-sm">
@@ -7449,9 +7946,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                         <tr className="bg-emerald-900 text-white font-bold text-[11px] uppercase tracking-wider">
                           <th className="p-2.5 border-b border-emerald-800">Dispatch Date</th>
                           <th className="p-2.5 border-b border-emerald-800">Roll #</th>
-                          <th className="p-2.5 border-b border-emerald-800">Order #</th>
                           <th className="p-2.5 border-b border-emerald-800">Customer & Destination</th>
-                          <th className="p-2.5 border-b border-emerald-800">Challan / Invoice</th>
                           <th className="p-2.5 border-b border-emerald-800">Vehicle & Driver</th>
                           <th className="p-2.5 border-b border-emerald-800">Quality & Size</th>
                           <th className="p-2.5 border-b border-emerald-800 text-right">Dispatched Wt</th>
@@ -7474,17 +7969,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               <td className="p-2.5 font-mono font-black text-emerald-950 whitespace-nowrap">
                                 #{item.rollNo}
                               </td>
-                              <td className="p-2.5 font-mono text-zinc-700 font-semibold whitespace-nowrap">
-                                #{item.orderNo}
-                              </td>
                               <td className="p-2.5 font-medium text-zinc-900">
                                 <div className="font-bold">{details.customerName || '—'}</div>
                                 {details.destination && (
                                   <div className="text-[10px] text-zinc-500 truncate">{details.destination}</div>
                                 )}
-                              </td>
-                              <td className="p-2.5 font-mono font-semibold text-zinc-800">
-                                {details.challanNo || '—'}
                               </td>
                               <td className="p-2.5 text-zinc-800">
                                 <div className="font-mono font-bold text-emerald-900 uppercase">
@@ -7551,7 +8040,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
                             <div>
                               <span className="font-mono font-black text-sm text-emerald-950">Roll #{item.rollNo}</span>
-                              <span className="text-[10px] text-zinc-500 font-mono block">Order #{item.orderNo} • {dDate}</span>
+                              <span className="text-[10px] text-zinc-500 font-mono block">Date: {dDate}</span>
                             </div>
                             <span className="bg-emerald-100 text-emerald-900 font-mono font-black text-xs px-2.5 py-1 rounded-xl border border-emerald-300">
                               {wt} kg
@@ -7564,12 +8053,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               <span className="font-mono font-bold text-zinc-900 uppercase">{details.vehicleNo || '—'}</span>
                             </div>
                             <div>
-                              <span className="text-[9px] font-bold text-zinc-400 uppercase block">Challan / Invoice</span>
-                              <span className="font-mono font-semibold text-zinc-800">{details.challanNo || '—'}</span>
-                            </div>
-                            <div>
                               <span className="text-[9px] font-bold text-zinc-400 uppercase block">Customer</span>
                               <span className="font-medium text-zinc-900">{details.customerName || '—'}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-bold text-zinc-400 uppercase block">Quality & Size</span>
+                              <span className="font-bold text-zinc-800">{item.quality || '—'} ({item.size || '—'})</span>
                             </div>
                             <div>
                               <span className="text-[9px] font-bold text-zinc-400 uppercase block">Length</span>
