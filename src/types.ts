@@ -88,6 +88,7 @@ export interface RollDispatchDetails {
   driverName?: string;
   driverPhone?: string;
   challanNo?: string;
+  invoiceNo?: string;
   customerName?: string;
   destination?: string;
   dispatchedWeight?: number;
