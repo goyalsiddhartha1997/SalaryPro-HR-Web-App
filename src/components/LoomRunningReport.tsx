@@ -807,7 +807,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       triggerAlert('success', 'Summary report exported successfully!');
     } catch (err) {
       console.error('Error exporting summary Excel:', err);
-      triggerAlert('error', 'Failed to export summary Excel report.');
+      triggerAlert('warn', 'Failed to export summary Excel report.');
     }
   };
 
@@ -1097,7 +1097,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       triggerAlert('success', 'Loom Operator Summary exported successfully!');
     } catch (err) {
       console.error('Error exporting operator summary Excel:', err);
-      triggerAlert('error', 'Failed to export operator summary Excel report.');
+      triggerAlert('warn', 'Failed to export operator summary Excel report.');
     }
   };
 

@@ -82,6 +82,20 @@ export interface PunchLog {
   punches: string[]; // Format: "HH:MM IN" or "HH:MM OUT" (e.g., ["08:00 IN", "13:00 OUT"])
 }
 
+export interface RollDispatchDetails {
+  dispatchDate?: string; // YYYY-MM-DD
+  vehicleNo?: string;
+  driverName?: string;
+  driverPhone?: string;
+  challanNo?: string;
+  customerName?: string;
+  destination?: string;
+  dispatchedWeight?: number;
+  dispatchedMeters?: number;
+  remarks?: string;
+  dispatchedAt?: string;
+}
+
 export interface LoomOrderRow {
   size: string;
   quality: string;
@@ -98,6 +112,7 @@ export interface LoomOrderRow {
   rollRemarks?: Record<string, string>; // Map of roll number to individual roll remarks
   dispatchedRolls?: string[]; // Array of roll numbers that have been dispatched
   rollDispatchStatus?: Record<string, 'Dispatched' | 'Not Dispatched'>; // Map of roll number to dispatch status
+  rollDispatchDetails?: Record<string, RollDispatchDetails>; // Detailed dispatch entry per roll
   rollGrossWt?: Record<string, number>;
   rollCoreWt?: Record<string, number>;
   rollNetWt?: Record<string, number>;

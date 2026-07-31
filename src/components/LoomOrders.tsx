@@ -48,7 +48,7 @@ import {
   Filter,
   CheckSquare
 } from 'lucide-react';
-import { LoomOrder, LoomOrderRow } from '../types';
+import { LoomOrder, LoomOrderRow, RollDispatchDetails } from '../types';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 
@@ -156,6 +156,41 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [masterLedgerSearchQuery, setMasterLedgerSearchQuery] = useState<string>('');
   const [masterLedgerDispatchFilter, setMasterLedgerDispatchFilter] = useState<'all' | 'not_dispatched' | 'dispatched'>('all');
   const [editingMasterRollId, setEditingMasterRollId] = useState<string | null>(null);
+
+  // --- DISPATCH ENTRY MODAL STATES ---
+  const [showDispatchEntryModal, setShowDispatchEntryModal] = useState<boolean>(false);
+  const [dispatchModalTargetRoll, setDispatchModalTargetRoll] = useState<{
+    rollNo: string;
+    orderId: string;
+    subOrderIdx: number;
+    orderNo: string;
+    size?: string;
+    quality?: string;
+    netWt?: number;
+    meters?: number;
+    preDispatchDetails?: RollDispatchDetails;
+  } | null>(null);
+
+  const [dispatchDate, setDispatchDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [dispatchVehicleNo, setDispatchVehicleNo] = useState<string>('');
+  const [dispatchDriverName, setDispatchDriverName] = useState<string>('');
+  const [dispatchDriverPhone, setDispatchDriverPhone] = useState<string>('');
+  const [dispatchChallanNo, setDispatchChallanNo] = useState<string>('');
+  const [dispatchCustomerName, setDispatchCustomerName] = useState<string>('');
+  const [dispatchDestination, setDispatchDestination] = useState<string>('');
+  const [dispatchWeight, setDispatchWeight] = useState<string>('');
+  const [dispatchMeters, setDispatchMeters] = useState<string>('');
+  const [dispatchRemarks, setDispatchRemarks] = useState<string>('');
+
+  // --- DISPATCH LEDGER DIRECTORY MODAL STATES ---
+  const [isDispatchLedgerOpen, setIsDispatchLedgerOpen] = useState<boolean>(false);
+  const [dispatchLedgerFilterMode, setDispatchLedgerFilterMode] = useState<'single' | 'range' | 'all'>('all');
+  const [dispatchLedgerSingleDate, setDispatchLedgerSingleDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [dispatchLedgerStartDate, setDispatchLedgerStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [dispatchLedgerEndDate, setDispatchLedgerEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [dispatchLedgerSearchQuery, setDispatchLedgerSearchQuery] = useState<string>('');
+  const [dispatchLedgerSelectedCustomer, setDispatchLedgerSelectedCustomer] = useState<string>('ALL');
+  const [dispatchLedgerSelectedVehicle, setDispatchLedgerSelectedVehicle] = useState<string>('ALL');
 
   // Master Ledger Sorting States (Default ascending by Roll Number)
   const [masterLedgerSortKey, setMasterLedgerSortKey] = useState<MasterLedgerSortKey>('rollNo');
@@ -1477,6 +1512,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       quality: string;
       remarks: string;
       dispatchStatus: 'Dispatched' | 'Not Dispatched';
+      dispatchDetails?: RollDispatchDetails;
     }> = [];
 
     orders.forEach((order) => {
@@ -1484,6 +1520,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         const rolls = row.rollNumbers || [];
         const dispList = row.dispatchedRolls || [];
         const dispMap = row.rollDispatchStatus || {};
+        const detailsMap = row.rollDispatchDetails || {};
 
         rolls.forEach((r, rIdx) => {
           const trimmed = (r || '').trim();
@@ -1512,6 +1549,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               quality: row.quality || '',
               remarks: (row.rollRemarks && row.rollRemarks[trimmed]) || '',
               dispatchStatus: isDispatched ? 'Dispatched' : 'Not Dispatched',
+              dispatchDetails: detailsMap[trimmed] || undefined,
             });
           }
         });
@@ -1680,13 +1718,135 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     setEditingMasterRollId(null);
   };
 
-  const handleUpdateRollDispatchStatus = async (item: typeof masterRollLedgerData[0], newStatus: 'Dispatched' | 'Not Dispatched') => {
+  // --- DISPATCH HANDLERS & HELPERS ---
+  const handleOpenDispatchModal = (item: {
+    rollNo: string;
+    orderId: string;
+    subOrderIdx: number;
+    orderNo: string;
+    size?: string;
+    quality?: string;
+    netWt?: number;
+    meters?: number;
+    dispatchDetails?: RollDispatchDetails;
+  }) => {
     if (viewOnly) {
       triggerAlert('warn', 'Portal is in read-only mode.');
       return;
     }
 
-    const targetOrder = orders.find(o => o.id === item.orderId);
+    const details = item.dispatchDetails || {};
+    setDispatchModalTargetRoll({
+      rollNo: item.rollNo,
+      orderId: item.orderId,
+      subOrderIdx: item.subOrderIdx,
+      orderNo: item.orderNo,
+      size: item.size || '',
+      quality: item.quality || '',
+      netWt: item.netWt || 0,
+      meters: item.meters || 0,
+      preDispatchDetails: details,
+    });
+
+    setDispatchDate(details.dispatchDate || new Date().toISOString().split('T')[0]);
+    setDispatchVehicleNo(details.vehicleNo || '');
+    setDispatchDriverName(details.driverName || '');
+    setDispatchDriverPhone(details.driverPhone || '');
+    setDispatchChallanNo(details.challanNo || '');
+    setDispatchCustomerName(details.customerName || '');
+    setDispatchDestination(details.destination || '');
+    setDispatchWeight(
+      details.dispatchedWeight !== undefined
+        ? String(details.dispatchedWeight)
+        : item.netWt ? String(item.netWt) : ''
+    );
+    setDispatchMeters(
+      details.dispatchedMeters !== undefined
+        ? String(details.dispatchedMeters)
+        : item.meters ? String(item.meters) : ''
+    );
+    setDispatchRemarks(details.remarks || '');
+
+    setShowDispatchEntryModal(true);
+  };
+
+  const handleSaveRollDispatchDetails = async () => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+    if (!dispatchModalTargetRoll) return;
+
+    if (!dispatchDate.trim()) {
+      triggerAlert('warn', 'Dispatch Date is compulsory. Please select a valid date.');
+      return;
+    }
+
+    const { rollNo, orderId, subOrderIdx } = dispatchModalTargetRoll;
+    const targetOrder = orders.find((o) => o.id === orderId);
+    if (!targetOrder) {
+      triggerAlert('warn', 'Order not found.');
+      return;
+    }
+
+    const updatedRows = [...(targetOrder.rows || [])];
+    if (!updatedRows[subOrderIdx]) {
+      triggerAlert('warn', 'Sub-order row not found.');
+      return;
+    }
+
+    const targetRow = { ...updatedRows[subOrderIdx] };
+    const currentDispatchedSet = new Set(targetRow.dispatchedRolls || []);
+    const currentDispatchStatusMap = { ...(targetRow.rollDispatchStatus || {}) };
+    const currentDispatchDetailsMap = { ...(targetRow.rollDispatchDetails || {}) };
+
+    currentDispatchedSet.add(rollNo);
+    currentDispatchStatusMap[rollNo] = 'Dispatched';
+
+    const newDetails: RollDispatchDetails = {
+      dispatchDate: dispatchDate.trim() || new Date().toISOString().split('T')[0],
+      vehicleNo: dispatchVehicleNo.trim().toUpperCase(),
+      driverName: dispatchDriverName.trim(),
+      driverPhone: dispatchDriverPhone.trim(),
+      challanNo: dispatchChallanNo.trim(),
+      customerName: dispatchCustomerName.trim(),
+      destination: dispatchDestination.trim(),
+      dispatchedWeight: dispatchWeight !== '' ? parseFloat(dispatchWeight) || 0 : (dispatchModalTargetRoll.netWt || 0),
+      dispatchedMeters: dispatchMeters !== '' ? parseFloat(dispatchMeters) || 0 : (dispatchModalTargetRoll.meters || 0),
+      remarks: dispatchRemarks.trim(),
+      dispatchedAt: new Date().toISOString(),
+    };
+
+    currentDispatchDetailsMap[rollNo] = newDetails;
+
+    targetRow.dispatchedRolls = Array.from(currentDispatchedSet);
+    targetRow.rollDispatchStatus = currentDispatchStatusMap;
+    targetRow.rollDispatchDetails = currentDispatchDetailsMap;
+
+    updatedRows[subOrderIdx] = targetRow;
+
+    try {
+      const orderRef = doc(db, 'loomOrders', targetOrder.id);
+      await setDoc(orderRef, {
+        ...targetOrder,
+        rows: updatedRows,
+      });
+      triggerAlert('success', `Dispatch data recorded for Roll #${rollNo}!`);
+      setShowDispatchEntryModal(false);
+      setDispatchModalTargetRoll(null);
+    } catch (err) {
+      console.error("Failed to save dispatch details", err);
+      triggerAlert('warn', 'Failed to save dispatch details in database.');
+    }
+  };
+
+  const handleUndispatchRoll = async (item: { rollNo: string; orderId: string; subOrderIdx: number }) => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+
+    const targetOrder = orders.find((o) => o.id === item.orderId);
     if (!targetOrder) {
       triggerAlert('warn', 'Order not found.');
       return;
@@ -1702,13 +1862,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     const currentDispatchedSet = new Set(targetRow.dispatchedRolls || []);
     const currentDispatchStatusMap = { ...(targetRow.rollDispatchStatus || {}) };
 
-    if (newStatus === 'Dispatched') {
-      currentDispatchedSet.add(item.rollNo);
-      currentDispatchStatusMap[item.rollNo] = 'Dispatched';
-    } else {
-      currentDispatchedSet.delete(item.rollNo);
-      currentDispatchStatusMap[item.rollNo] = 'Not Dispatched';
-    }
+    currentDispatchedSet.delete(item.rollNo);
+    currentDispatchStatusMap[item.rollNo] = 'Not Dispatched';
 
     targetRow.dispatchedRolls = Array.from(currentDispatchedSet);
     targetRow.rollDispatchStatus = currentDispatchStatusMap;
@@ -1718,12 +1873,305 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       const orderRef = doc(db, 'loomOrders', targetOrder.id);
       await setDoc(orderRef, {
         ...targetOrder,
-        rows: updatedRows
+        rows: updatedRows,
       });
-      triggerAlert('success', `Roll "${item.rollNo}" status updated to ${newStatus}.`);
+      triggerAlert('info', `Roll #${item.rollNo} status reverted to Not Dispatched.`);
     } catch (err) {
       console.error("Failed to update roll dispatch status", err);
       triggerAlert('warn', 'Failed to update dispatch status in database.');
+    }
+  };
+
+  const handleUpdateRollDispatchStatus = async (
+    item: typeof masterRollLedgerData[0],
+    newStatus: 'Dispatched' | 'Not Dispatched'
+  ) => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+
+    if (newStatus === 'Dispatched') {
+      handleOpenDispatchModal(item);
+    } else {
+      await handleUndispatchRoll(item);
+    }
+  };
+
+  // --- DISPATCH LEDGER DATA & COMPUTATIONS ---
+  const availableDispatchCustomers = useMemo(() => {
+    const set = new Set<string>();
+    masterRollLedgerData.forEach((item) => {
+      if (item.dispatchStatus === 'Dispatched' && item.dispatchDetails?.customerName) {
+        set.add(item.dispatchDetails.customerName.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [masterRollLedgerData]);
+
+  const availableDispatchVehicles = useMemo(() => {
+    const set = new Set<string>();
+    masterRollLedgerData.forEach((item) => {
+      if (item.dispatchStatus === 'Dispatched' && item.dispatchDetails?.vehicleNo) {
+        set.add(item.dispatchDetails.vehicleNo.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [masterRollLedgerData]);
+
+  const dispatchLedgerData = useMemo(() => {
+    return masterRollLedgerData.filter((item) => {
+      if (item.dispatchStatus !== 'Dispatched') return false;
+
+      const details = item.dispatchDetails || {};
+      const dDate = details.dispatchDate || item.orderDate || '';
+
+      // Date Filtering
+      if (dispatchLedgerFilterMode === 'single') {
+        if (dispatchLedgerSingleDate && dDate !== dispatchLedgerSingleDate) {
+          return false;
+        }
+      } else if (dispatchLedgerFilterMode === 'range') {
+        if (dispatchLedgerStartDate && dDate < dispatchLedgerStartDate) return false;
+        if (dispatchLedgerEndDate && dDate > dispatchLedgerEndDate) return false;
+      }
+
+      // Customer Filter
+      if (dispatchLedgerSelectedCustomer !== 'ALL') {
+        const cust = (details.customerName || '').toLowerCase();
+        if (cust !== dispatchLedgerSelectedCustomer.toLowerCase()) return false;
+      }
+
+      // Vehicle Filter
+      if (dispatchLedgerSelectedVehicle !== 'ALL') {
+        const veh = (details.vehicleNo || '').toLowerCase();
+        if (veh !== dispatchLedgerSelectedVehicle.toLowerCase()) return false;
+      }
+
+      // Search Query
+      if (dispatchLedgerSearchQuery.trim()) {
+        const q = dispatchLedgerSearchQuery.toLowerCase().trim();
+        const match =
+          item.rollNo.toLowerCase().includes(q) ||
+          item.orderNo.toLowerCase().includes(q) ||
+          item.size.toLowerCase().includes(q) ||
+          item.quality.toLowerCase().includes(q) ||
+          (details.vehicleNo || '').toLowerCase().includes(q) ||
+          (details.driverName || '').toLowerCase().includes(q) ||
+          (details.challanNo || '').toLowerCase().includes(q) ||
+          (details.customerName || '').toLowerCase().includes(q) ||
+          (details.destination || '').toLowerCase().includes(q) ||
+          (details.remarks || '').toLowerCase().includes(q);
+
+        if (!match) return false;
+      }
+
+      return true;
+    });
+  }, [
+    masterRollLedgerData,
+    dispatchLedgerFilterMode,
+    dispatchLedgerSingleDate,
+    dispatchLedgerStartDate,
+    dispatchLedgerEndDate,
+    dispatchLedgerSelectedCustomer,
+    dispatchLedgerSelectedVehicle,
+    dispatchLedgerSearchQuery,
+  ]);
+
+  const dispatchLedgerTotals = useMemo(() => {
+    let totalWeight = 0;
+    let totalMeters = 0;
+    const uniqueVehicles = new Set<string>();
+    const uniqueCustomers = new Set<string>();
+
+    dispatchLedgerData.forEach((item) => {
+      const d = item.dispatchDetails || {};
+      const wt = d.dispatchedWeight !== undefined ? d.dispatchedWeight : (item.netWt || 0);
+      const m = d.dispatchedMeters !== undefined ? d.dispatchedMeters : (item.meters || 0);
+
+      totalWeight += wt;
+      totalMeters += m;
+
+      if (d.vehicleNo) uniqueVehicles.add(d.vehicleNo.trim().toUpperCase());
+      if (d.customerName) uniqueCustomers.add(d.customerName.trim().toLowerCase());
+    });
+
+    return {
+      totalRolls: dispatchLedgerData.length,
+      totalWeight,
+      totalWeightTons: parseFloat((totalWeight / 1000).toFixed(3)),
+      totalMeters,
+      uniqueVehiclesCount: uniqueVehicles.size,
+      uniqueCustomersCount: uniqueCustomers.size,
+    };
+  }, [dispatchLedgerData]);
+
+  const handleExportDispatchLedgerExcel = async () => {
+    if (dispatchLedgerData.length === 0) {
+      triggerAlert('info', 'No dispatched rolls available to export.');
+      return;
+    }
+
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Dispatch Ledger');
+
+      // Title Banner
+      worksheet.mergeCells('A1:N1');
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • DISPATCH LEDGER REPORT';
+      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF065F46' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      // Subtitle / Filters Info
+      worksheet.mergeCells('A2:N2');
+      const subCell = worksheet.getCell('A2');
+      let periodInfo = 'All Time Dispatches';
+      if (dispatchLedgerFilterMode === 'single') {
+        periodInfo = `Date: ${dispatchLedgerSingleDate || 'All'}`;
+      } else if (dispatchLedgerFilterMode === 'range') {
+        periodInfo = `Date Range: ${dispatchLedgerStartDate} to ${dispatchLedgerEndDate}`;
+      }
+      subCell.value = `FILTER: ${periodInfo} | CUSTOMER: ${dispatchLedgerSelectedCustomer} | VEHICLE: ${dispatchLedgerSelectedVehicle} | TOTAL ROLLS: ${dispatchLedgerTotals.totalRolls}`;
+      subCell.font = { name: 'Calibri', size: 10, bold: true, italic: true, color: { argb: 'FF1E293B' } };
+      subCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } };
+      subCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      worksheet.addRow([]); // Blank row
+
+      // Headers
+      const headers = [
+        'Dispatch Date',
+        'Roll No',
+        'Order No',
+        'Customer Name',
+        'Destination',
+        'Challan / Invoice No',
+        'Vehicle No',
+        'Driver Name & Phone',
+        'Size',
+        'GSM',
+        'Quality',
+        'Dispatched Net Wt (kg)',
+        'Dispatched Meters (m)',
+        'Remarks'
+      ];
+
+      const headerRow = worksheet.addRow(headers);
+      headerRow.eachCell((cell) => {
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF047857' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'thin' },
+          bottom: { style: 'medium' },
+          left: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+      });
+
+      // Data Rows
+      dispatchLedgerData.forEach((item) => {
+        const d = item.dispatchDetails || {};
+        const dDate = d.dispatchDate || item.orderDate || '';
+        const driverInfo = [d.driverName, d.driverPhone].filter(Boolean).join(' - ') || '—';
+        const wt = d.dispatchedWeight !== undefined ? d.dispatchedWeight : (item.netWt || 0);
+        const m = d.dispatchedMeters !== undefined ? d.dispatchedMeters : (item.meters || 0);
+
+        const r = worksheet.addRow([
+          dDate,
+          item.rollNo,
+          item.orderNo,
+          d.customerName || '—',
+          d.destination || '—',
+          d.challanNo || '—',
+          d.vehicleNo || '—',
+          driverInfo,
+          item.size || '—',
+          item.gsm || '—',
+          item.quality || '—',
+          wt,
+          m,
+          d.remarks || item.remarks || '—'
+        ]);
+
+        r.eachCell((cell, colNumber) => {
+          cell.font = { name: 'Calibri', size: 10 };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+          };
+          if (colNumber === 12 || colNumber === 13) {
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.numFmt = '#,##0.00';
+          } else if (colNumber === 1 || colNumber === 2 || colNumber === 3 || colNumber === 6 || colNumber === 7) {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else {
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          }
+        });
+      });
+
+      // Total Row
+      const totalRow = worksheet.addRow([
+        'TOTALS',
+        `${dispatchLedgerTotals.totalRolls} Rolls`,
+        '',
+        '',
+        '',
+        '',
+        `${dispatchLedgerTotals.uniqueVehiclesCount} Vehicles`,
+        '',
+        '',
+        '',
+        '',
+        dispatchLedgerTotals.totalWeight,
+        dispatchLedgerTotals.totalMeters,
+        ''
+      ]);
+
+      totalRow.eachCell((cell, colNumber) => {
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF065F46' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+        cell.border = {
+          top: { style: 'medium' },
+          bottom: { style: 'double' },
+          left: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+        if (colNumber === 12 || colNumber === 13) {
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          cell.numFmt = '#,##0.00';
+        }
+      });
+
+      // Auto-fit column widths
+      worksheet.columns.forEach((col) => {
+        let maxLen = 12;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          if (val.length > maxLen) maxLen = Math.min(val.length + 3, 35);
+        });
+        col.width = maxLen;
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Dispatch_Ledger_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      triggerAlert('success', 'Dispatch Ledger exported to Excel successfully!');
+    } catch (err) {
+      console.error("Failed to export Dispatch Ledger Excel", err);
+      triggerAlert('warn', 'Failed to generate Dispatch Ledger Excel file.');
     }
   };
 
@@ -2462,6 +2910,19 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   <span>Master Roll Ledger</span>
                   <span className="bg-amber-400/20 text-amber-300 text-[10px] font-black px-1.5 py-0.2 rounded-full font-mono border border-amber-400/30">
                     {masterRollLedgerData.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsDispatchLedgerOpen(true)}
+                  className="bg-emerald-900 hover:bg-emerald-800 active:scale-95 text-emerald-200 font-black text-xs uppercase tracking-wider px-3.5 py-1.5 rounded-xl border border-emerald-700 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Open Dispatch Ledger report window for all dispatched rolls"
+                >
+                  <Truck size={15} className="shrink-0 text-emerald-400" />
+                  <span>Dispatch Ledger</span>
+                  <span className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-1.5 py-0.2 rounded-full font-mono border border-emerald-600/50">
+                    {dispatchLedgerTotals.totalRolls}
                   </span>
                 </button>
 
@@ -6550,6 +7011,608 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   <span>Download Excel</span>
                 </button>
               </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* DISPATCH DATA INPUT MODAL */}
+      {showDispatchEntryModal && dispatchModalTargetRoll && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-3 sm:p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            
+            {/* Modal Header */}
+            <div className="bg-emerald-950 text-white px-4 py-3.5 sm:px-6 sm:py-4 flex justify-between items-center border-b border-emerald-900 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
+                  <Truck size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-emerald-300 leading-tight flex items-center gap-2">
+                    <span>Dispatch Details</span>
+                    <span className="bg-emerald-500/20 text-emerald-300 font-mono text-xs px-2 py-0.5 rounded-md border border-emerald-500/30">
+                      Roll #{dispatchModalTargetRoll.rollNo}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-emerald-200/70 font-semibold">
+                    Order Ref #{dispatchModalTargetRoll.orderNo} {dispatchModalTargetRoll.quality ? `• ${dispatchModalTargetRoll.quality}` : ''} {dispatchModalTargetRoll.size ? `(${dispatchModalTargetRoll.size})` : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDispatchEntryModal(false);
+                  setDispatchModalTargetRoll(null);
+                }}
+                className="w-8 h-8 rounded-full bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                title="Cancel"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Form Body */}
+            <div className="p-4 sm:p-6 space-y-4 overflow-y-auto text-xs text-zinc-800">
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Dispatch Date */}
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-700 uppercase mb-1">
+                    Dispatch Date <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={dispatchDate}
+                    onChange={(e) => setDispatchDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                </div>
+
+                {/* Vehicle / Truck No */}
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-700 uppercase mb-1">
+                    Vehicle / Truck No <span className="text-zinc-400 font-normal text-[10px] lowercase">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. GJ05BX1234"
+                    value={dispatchVehicleNo}
+                    onChange={(e) => setDispatchVehicleNo(e.target.value)}
+                    className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono font-bold uppercase text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                </div>
+
+                {/* Driver Name */}
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-700 uppercase mb-1">
+                    Driver Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Driver full name"
+                    value={dispatchDriverName}
+                    onChange={(e) => setDispatchDriverName(e.target.value)}
+                    className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                </div>
+
+                {/* Driver Phone */}
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-700 uppercase mb-1">
+                    Driver Phone
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Mobile number"
+                    value={dispatchDriverPhone}
+                    onChange={(e) => setDispatchDriverPhone(e.target.value)}
+                    className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                </div>
+
+                {/* Challan / Gate Pass / Invoice No */}
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-700 uppercase mb-1">
+                    Challan / Invoice No
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. CH-2026-089"
+                    value={dispatchChallanNo}
+                    onChange={(e) => setDispatchChallanNo(e.target.value)}
+                    className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                </div>
+
+                {/* Customer Name */}
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-700 uppercase mb-1">
+                    Customer / Party Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Customer name"
+                    value={dispatchCustomerName}
+                    onChange={(e) => setDispatchCustomerName(e.target.value)}
+                    className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                </div>
+              </div>
+
+              {/* Destination */}
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-700 uppercase mb-1">
+                  Destination / Delivery Address
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Surat Industrial Area, Gate 2"
+                  value={dispatchDestination}
+                  onChange={(e) => setDispatchDestination(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+
+              {/* Dispatched Weight & Dispatched Meters */}
+              <div className="grid grid-cols-2 gap-3 bg-emerald-50/70 p-3 rounded-2xl border border-emerald-200/80">
+                <div>
+                  <label className="block text-[10px] font-bold text-emerald-900 uppercase mb-1">
+                    Dispatched Net Weight (kg)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Net Wt in kg"
+                    value={dispatchWeight}
+                    onChange={(e) => setDispatchWeight(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-white border border-emerald-300 rounded-xl text-xs font-mono font-bold text-emerald-950 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-emerald-900 uppercase mb-1">
+                    Dispatched Meters (m)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="Meters"
+                    value={dispatchMeters}
+                    onChange={(e) => setDispatchMeters(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-white border border-emerald-300 rounded-xl text-xs font-mono font-bold text-emerald-950 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                  />
+                </div>
+              </div>
+
+              {/* Remarks */}
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-700 uppercase mb-1">
+                  Dispatch Remarks / Notes
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Additional dispatch notes..."
+                  value={dispatchRemarks}
+                  onChange={(e) => setDispatchRemarks(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none"
+                />
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-zinc-50 px-5 py-3 border-t border-zinc-200 flex justify-between items-center shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDispatchEntryModal(false);
+                  setDispatchModalTargetRoll(null);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-200 hover:bg-zinc-300 text-zinc-700 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveRollDispatchDetails}
+                className="px-5 py-2 rounded-xl text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
+              >
+                <CheckCircle size={14} className="stroke-[2.5]" />
+                <span>Save Dispatch Details</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* DISPATCH LEDGER REPORT WINDOW */}
+      {isDispatchLedgerOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-2 sm:p-4 bg-zinc-950/85 backdrop-blur-md animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-7xl shadow-2xl overflow-hidden flex flex-col h-[94vh]">
+            
+            {/* Header */}
+            <div className="bg-emerald-950 text-white px-4 py-3.5 sm:px-6 sm:py-4 flex flex-wrap justify-between items-center border-b border-emerald-900 shrink-0 gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0 shadow-sm">
+                  <Truck size={22} />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-emerald-300 leading-tight flex items-center gap-2">
+                    <span>Dispatch Ledger Directory</span>
+                    <span className="bg-emerald-800/80 text-emerald-200 text-xs px-2.5 py-0.5 rounded-full font-mono border border-emerald-600">
+                      {dispatchLedgerTotals.totalRolls} Dispatched Rolls
+                    </span>
+                  </h3>
+                  <p className="text-xs text-emerald-200/70 font-semibold">
+                    Master Roll Dispatch History • Date, Vehicle, Customer & Quantity Ledger
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportDispatchLedgerExcel}
+                  className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-xs uppercase tracking-wider px-3.5 py-2 rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Download size={15} />
+                  <span>Export Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsDispatchLedgerOpen(false)}
+                  className="w-9 h-9 rounded-full bg-emerald-900/80 hover:bg-emerald-800 text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                  title="Close Dispatch Ledger"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Controls Bar: Filters & Date Selector */}
+            <div className="bg-zinc-900 border-b border-zinc-800 p-3 sm:p-4 shrink-0 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                
+                {/* Search */}
+                <div className="md:col-span-3 relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input
+                    type="text"
+                    placeholder="Search roll, vehicle, customer, challan..."
+                    value={dispatchLedgerSearchQuery}
+                    onChange={(e) => setDispatchLedgerSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                  />
+                </div>
+
+                {/* Date Filter Mode */}
+                <div className="md:col-span-4 flex items-center gap-2 bg-zinc-800/80 p-1 rounded-xl border border-zinc-700/80">
+                  <button
+                    type="button"
+                    onClick={() => setDispatchLedgerFilterMode('all')}
+                    className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      dispatchLedgerFilterMode === 'all'
+                        ? 'bg-emerald-600 text-white shadow-3xs'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    All Time
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDispatchLedgerFilterMode('single')}
+                    className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      dispatchLedgerFilterMode === 'single'
+                        ? 'bg-emerald-600 text-white shadow-3xs'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Single Date
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDispatchLedgerFilterMode('range')}
+                    className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      dispatchLedgerFilterMode === 'range'
+                        ? 'bg-emerald-600 text-white shadow-3xs'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Date Range
+                  </button>
+                </div>
+
+                {/* Date Inputs based on Filter Mode */}
+                <div className="md:col-span-5 flex items-center gap-2">
+                  {dispatchLedgerFilterMode === 'single' && (
+                    <div className="flex items-center gap-2 w-full">
+                      <span className="text-[11px] font-bold text-zinc-400 uppercase shrink-0">Date:</span>
+                      <input
+                        type="date"
+                        value={dispatchLedgerSingleDate}
+                        onChange={(e) => setDispatchLedgerSingleDate(e.target.value)}
+                        className="w-full px-2.5 py-1 text-xs bg-zinc-800 border border-zinc-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                      />
+                    </div>
+                  )}
+
+                  {dispatchLedgerFilterMode === 'range' && (
+                    <div className="flex items-center gap-2 w-full">
+                      <input
+                        type="date"
+                        value={dispatchLedgerStartDate}
+                        onChange={(e) => setDispatchLedgerStartDate(e.target.value)}
+                        className="w-full px-2 py-1 text-xs bg-zinc-800 border border-zinc-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                      />
+                      <span className="text-zinc-500 font-bold text-xs">to</span>
+                      <input
+                        type="date"
+                        value={dispatchLedgerEndDate}
+                        onChange={(e) => setDispatchLedgerEndDate(e.target.value)}
+                        className="w-full px-2 py-1 text-xs bg-zinc-800 border border-zinc-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                      />
+                    </div>
+                  )}
+
+                  {/* Customer Filter Dropdown */}
+                  <div className="w-full">
+                    <select
+                      value={dispatchLedgerSelectedCustomer}
+                      onChange={(e) => setDispatchLedgerSelectedCustomer(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs bg-zinc-800 border border-zinc-700 rounded-xl text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 font-medium"
+                    >
+                      <option value="ALL">All Customers ({availableDispatchCustomers.length})</option>
+                      {availableDispatchCustomers.map((cust) => (
+                        <option key={cust} value={cust}>
+                          {cust}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Vehicle Filter Dropdown */}
+                  <div className="w-full">
+                    <select
+                      value={dispatchLedgerSelectedVehicle}
+                      onChange={(e) => setDispatchLedgerSelectedVehicle(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs bg-zinc-800 border border-zinc-700 rounded-xl text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 font-medium"
+                    >
+                      <option value="ALL">All Vehicles ({availableDispatchVehicles.length})</option>
+                      {availableDispatchVehicles.map((veh) => (
+                        <option key={veh} value={veh}>
+                          {veh}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* KPI Summary Cards */}
+            <div className="bg-emerald-50/60 border-b border-emerald-100 p-3 sm:px-6 grid grid-cols-2 sm:grid-cols-5 gap-2.5 shrink-0">
+              <div className="bg-white border border-emerald-200/80 p-2.5 rounded-xl shadow-3xs">
+                <span className="text-[10px] font-extrabold uppercase text-emerald-800 block">Total Dispatched Rolls</span>
+                <span className="text-base sm:text-lg font-black font-mono text-emerald-950">
+                  {dispatchLedgerTotals.totalRolls}
+                </span>
+              </div>
+
+              <div className="bg-white border border-emerald-200/80 p-2.5 rounded-xl shadow-3xs">
+                <span className="text-[10px] font-extrabold uppercase text-emerald-800 block">Total Net Weight</span>
+                <span className="text-base sm:text-lg font-black font-mono text-emerald-950">
+                  {dispatchLedgerTotals.totalWeight.toLocaleString('en-IN', { maximumFractionDigits: 2 })} kg
+                </span>
+              </div>
+
+              <div className="bg-white border border-emerald-200/80 p-2.5 rounded-xl shadow-3xs">
+                <span className="text-[10px] font-extrabold uppercase text-emerald-800 block">Total Metric Tons</span>
+                <span className="text-base sm:text-lg font-black font-mono text-emerald-950">
+                  {dispatchLedgerTotals.totalWeightTons} MT
+                </span>
+              </div>
+
+              <div className="bg-white border border-emerald-200/80 p-2.5 rounded-xl shadow-3xs">
+                <span className="text-[10px] font-extrabold uppercase text-emerald-800 block">Total Meters</span>
+                <span className="text-base sm:text-lg font-black font-mono text-emerald-950">
+                  {dispatchLedgerTotals.totalMeters.toLocaleString('en-IN', { maximumFractionDigits: 1 })} m
+                </span>
+              </div>
+
+              <div className="bg-white border border-emerald-200/80 p-2.5 rounded-xl shadow-3xs col-span-2 sm:col-span-1">
+                <span className="text-[10px] font-extrabold uppercase text-emerald-800 block">Vehicles & Customers</span>
+                <span className="text-sm font-black text-emerald-950 truncate block">
+                  {dispatchLedgerTotals.uniqueVehiclesCount} Trucks • {dispatchLedgerTotals.uniqueCustomersCount} Parties
+                </span>
+              </div>
+            </div>
+
+            {/* Main Table / View Body */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-5">
+              {dispatchLedgerData.length === 0 ? (
+                <div className="p-12 text-center text-zinc-500 space-y-2">
+                  <Truck size={36} className="mx-auto text-zinc-300 stroke-[1.5]" />
+                  <p className="text-sm font-bold text-zinc-700">No dispatched rolls found matching selected criteria.</p>
+                  <p className="text-xs text-zinc-400">Try adjusting your date range, search query, or customer filter.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Desktop Table View */}
+                  <div className="hidden lg:block overflow-x-auto rounded-2xl border border-zinc-200 shadow-sm">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-emerald-900 text-white font-bold text-[11px] uppercase tracking-wider">
+                          <th className="p-2.5 border-b border-emerald-800">Dispatch Date</th>
+                          <th className="p-2.5 border-b border-emerald-800">Roll #</th>
+                          <th className="p-2.5 border-b border-emerald-800">Order #</th>
+                          <th className="p-2.5 border-b border-emerald-800">Customer & Destination</th>
+                          <th className="p-2.5 border-b border-emerald-800">Challan / Invoice</th>
+                          <th className="p-2.5 border-b border-emerald-800">Vehicle & Driver</th>
+                          <th className="p-2.5 border-b border-emerald-800">Quality & Size</th>
+                          <th className="p-2.5 border-b border-emerald-800 text-right">Dispatched Wt</th>
+                          <th className="p-2.5 border-b border-emerald-800 text-right">Meters</th>
+                          <th className="p-2.5 border-b border-emerald-800 text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-200 bg-white">
+                        {dispatchLedgerData.map((item) => {
+                          const details = item.dispatchDetails || {};
+                          const dDate = details.dispatchDate || item.orderDate || '—';
+                          const wt = details.dispatchedWeight !== undefined ? details.dispatchedWeight : (item.netWt || 0);
+                          const m = details.dispatchedMeters !== undefined ? details.dispatchedMeters : (item.meters || 0);
+
+                          return (
+                            <tr key={item.id} className="hover:bg-emerald-50/40 transition-colors">
+                              <td className="p-2.5 font-mono text-zinc-800 font-medium whitespace-nowrap">
+                                {dDate}
+                              </td>
+                              <td className="p-2.5 font-mono font-black text-emerald-950 whitespace-nowrap">
+                                #{item.rollNo}
+                              </td>
+                              <td className="p-2.5 font-mono text-zinc-700 font-semibold whitespace-nowrap">
+                                #{item.orderNo}
+                              </td>
+                              <td className="p-2.5 font-medium text-zinc-900">
+                                <div className="font-bold">{details.customerName || '—'}</div>
+                                {details.destination && (
+                                  <div className="text-[10px] text-zinc-500 truncate">{details.destination}</div>
+                                )}
+                              </td>
+                              <td className="p-2.5 font-mono font-semibold text-zinc-800">
+                                {details.challanNo || '—'}
+                              </td>
+                              <td className="p-2.5 text-zinc-800">
+                                <div className="font-mono font-bold text-emerald-900 uppercase">
+                                  {details.vehicleNo || '—'}
+                                </div>
+                                {details.driverName && (
+                                  <div className="text-[10px] text-zinc-500">
+                                    {details.driverName} {details.driverPhone ? `(${details.driverPhone})` : ''}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="p-2.5 text-zinc-800">
+                                <div className="font-bold">{item.quality || '—'}</div>
+                                <div className="text-[10px] text-zinc-500 font-mono">
+                                  {item.size || '—'} {item.gsm ? `• ${item.gsm} GSM` : ''}
+                                </div>
+                              </td>
+                              <td className="p-2.5 text-right font-mono font-bold text-zinc-900 whitespace-nowrap">
+                                {wt ? `${wt} kg` : '—'}
+                              </td>
+                              <td className="p-2.5 text-right font-mono font-bold text-emerald-950 whitespace-nowrap">
+                                {m ? `${m} m` : '—'}
+                              </td>
+                              <td className="p-2.5 text-center whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenDispatchModal(item)}
+                                    className="px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-[10px] font-bold rounded-lg border border-emerald-300 transition-all cursor-pointer"
+                                    title="Edit dispatch entry"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUndispatchRoll(item)}
+                                    className="px-2 py-1 bg-zinc-100 hover:bg-rose-100 text-zinc-700 hover:text-rose-800 text-[10px] font-bold rounded-lg border border-zinc-300 hover:border-rose-300 transition-all cursor-pointer"
+                                    title="Revert status to Not Dispatched"
+                                  >
+                                    Undispatch
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile Cards View */}
+                  <div className="lg:hidden space-y-3">
+                    {dispatchLedgerData.map((item) => {
+                      const details = item.dispatchDetails || {};
+                      const dDate = details.dispatchDate || item.orderDate || '—';
+                      const wt = details.dispatchedWeight !== undefined ? details.dispatchedWeight : (item.netWt || 0);
+                      const m = details.dispatchedMeters !== undefined ? details.dispatchedMeters : (item.meters || 0);
+
+                      return (
+                        <div
+                          key={item.id}
+                          className="bg-white border border-zinc-200 rounded-2xl p-3.5 space-y-2.5 shadow-3xs text-xs"
+                        >
+                          <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
+                            <div>
+                              <span className="font-mono font-black text-sm text-emerald-950">Roll #{item.rollNo}</span>
+                              <span className="text-[10px] text-zinc-500 font-mono block">Order #{item.orderNo} • {dDate}</span>
+                            </div>
+                            <span className="bg-emerald-100 text-emerald-900 font-mono font-black text-xs px-2.5 py-1 rounded-xl border border-emerald-300">
+                              {wt} kg
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-[11px]">
+                            <div>
+                              <span className="text-[9px] font-bold text-zinc-400 uppercase block">Vehicle</span>
+                              <span className="font-mono font-bold text-zinc-900 uppercase">{details.vehicleNo || '—'}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-bold text-zinc-400 uppercase block">Challan / Invoice</span>
+                              <span className="font-mono font-semibold text-zinc-800">{details.challanNo || '—'}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-bold text-zinc-400 uppercase block">Customer</span>
+                              <span className="font-medium text-zinc-900">{details.customerName || '—'}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-bold text-zinc-400 uppercase block">Length</span>
+                              <span className="font-mono font-bold text-emerald-900">{m} m</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDispatchModal(item)}
+                              className="px-3 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-xs font-bold rounded-xl border border-emerald-300 transition-all cursor-pointer"
+                            >
+                              Edit Dispatch
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUndispatchRoll(item)}
+                              className="px-3 py-1 bg-zinc-100 hover:bg-rose-100 text-zinc-700 hover:text-rose-800 text-xs font-bold rounded-xl border border-zinc-300 transition-all cursor-pointer"
+                            >
+                              Undispatch
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-zinc-50 px-5 py-3 border-t border-zinc-200 flex justify-between items-center shrink-0">
+              <span className="text-xs font-bold text-zinc-600">
+                Total Shown: <span className="font-mono text-emerald-900 font-extrabold">{dispatchLedgerData.length} Dispatched Rolls</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsDispatchLedgerOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-200 hover:bg-zinc-300 text-zinc-800 transition-all cursor-pointer"
+              >
+                Close Window
+              </button>
             </div>
 
           </div>
