@@ -158,6 +158,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [masterLedgerDispatchFilter, setMasterLedgerDispatchFilter] = useState<'all' | 'not_dispatched' | 'dispatched'>('all');
   const [editingMasterRollId, setEditingMasterRollId] = useState<string | null>(null);
   const masterLedgerFileInputRef = useRef<HTMLInputElement | null>(null);
+  const dispatchLedgerFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // --- DISPATCH ENTRY MODAL STATES ---
   const [showDispatchEntryModal, setShowDispatchEntryModal] = useState<boolean>(false);
@@ -2345,6 +2346,248 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     } catch (err) {
       console.error("Failed to export Dispatch Ledger Excel", err);
       triggerAlert('warn', 'Failed to generate Dispatch Ledger Excel file.');
+    }
+  };
+
+  const handleTriggerDispatchLedgerExcelUpload = () => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+    dispatchLedgerFileInputRef.current?.click();
+  };
+
+  const handleDispatchLedgerExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(arrayBuffer);
+
+      const sheet = workbook.getWorksheet('Detailed Ledger') || workbook.getWorksheet('Dispatch Summary') || workbook.worksheets[0];
+      if (!sheet) {
+        triggerAlert('warn', 'Could not find a valid worksheet in the uploaded file.');
+        return;
+      }
+
+      const getCellValue = (cell: ExcelJS.Cell): any => {
+        if (cell.value === null || cell.value === undefined) return '';
+        if (typeof cell.value === 'object') {
+          if ('result' in cell.value) return cell.value.result ?? '';
+          if ('text' in cell.value) return cell.value.text ?? '';
+          if ('richText' in cell.value && Array.isArray((cell.value as any).richText)) {
+            return (cell.value as any).richText.map((t: any) => t.text).join('');
+          }
+        }
+        return cell.value;
+      };
+
+      let headerRowIndex = -1;
+      const colMap: Record<string, number> = {};
+
+      sheet.eachRow((row, rowNumber) => {
+        if (headerRowIndex !== -1) return;
+
+        const cellTexts: string[] = [];
+        row.eachCell((cell) => {
+          cellTexts.push(String(getCellValue(cell) || '').trim().toLowerCase());
+        });
+
+        if (cellTexts.some(v => v.includes('roll number') || v.includes('roll no') || v === 'roll' || v.includes('roll #'))) {
+          headerRowIndex = rowNumber;
+          row.eachCell((cell, colIndex) => {
+            const txt = String(getCellValue(cell) || '').trim().toLowerCase();
+            if (txt.includes('roll number') || txt.includes('roll no') || txt === 'roll' || txt.includes('roll #')) colMap['rollNo'] = colIndex;
+            else if (txt.includes('dispatch date') || txt === 'date') colMap['dispatchDate'] = colIndex;
+            else if (txt.includes('customer name') || txt.includes('customer')) colMap['customerName'] = colIndex;
+            else if (txt.includes('destination')) colMap['destination'] = colIndex;
+            else if (txt.includes('vehicle no') || txt.includes('vehicle')) colMap['vehicleNo'] = colIndex;
+            else if (txt.includes('driver name & phone') || txt.includes('driver info') || txt.includes('driver')) colMap['driverInfo'] = colIndex;
+            else if (txt === 'size') colMap['size'] = colIndex;
+            else if (txt === 'gsm') colMap['gsm'] = colIndex;
+            else if (txt.includes('quality')) colMap['quality'] = colIndex;
+            else if (txt.includes('dispatched net wt') || txt.includes('dispatched weight') || txt.includes('net wt')) colMap['dispatchedWeight'] = colIndex;
+            else if (txt.includes('dispatched meters') || txt.includes('meters') || txt === 'mtr') colMap['dispatchedMeters'] = colIndex;
+            else if (txt.includes('remark')) colMap['remarks'] = colIndex;
+          });
+        }
+      });
+
+      if (headerRowIndex === -1 || !colMap['rollNo']) {
+        triggerAlert('warn', 'Invalid file structure. Header row with "Roll No" column was not found.');
+        return;
+      }
+
+      const orderUpdatesMap = new Map<string, LoomOrder>();
+      let updatedCount = 0;
+      const notFoundRolls: string[] = [];
+
+      sheet.eachRow((row, rowNumber) => {
+        if (rowNumber <= headerRowIndex) return;
+
+        const getCol = (key: string) => colMap[key] ? getCellValue(row.getCell(colMap[key])) : undefined;
+
+        const rawRollNo = getCol('rollNo');
+        if (rawRollNo === undefined || rawRollNo === null || rawRollNo === '') return;
+        const rollNo = String(rawRollNo).trim();
+        if (!rollNo || rollNo.toUpperCase() === 'GRAND TOTAL' || rollNo.toLowerCase().includes('total')) return;
+
+        const item = masterRollLedgerData.find(m => m.rollNo.toLowerCase() === rollNo.toLowerCase());
+        if (!item) {
+          notFoundRolls.push(rollNo);
+          return;
+        }
+
+        let targetOrder = orderUpdatesMap.get(item.orderId);
+        if (!targetOrder) {
+          const existingOrder = orders.find(o => o.id === item.orderId);
+          if (!existingOrder) return;
+          targetOrder = JSON.parse(JSON.stringify(existingOrder));
+          orderUpdatesMap.set(item.orderId, targetOrder!);
+        }
+
+        const rowObj = targetOrder!.rows[item.subOrderIdx];
+        if (!rowObj) return;
+
+        if (!rowObj.rollDispatchStatus) rowObj.rollDispatchStatus = {};
+        if (!rowObj.rollDispatchDetails) rowObj.rollDispatchDetails = {};
+        if (!rowObj.dispatchedRolls) rowObj.dispatchedRolls = [];
+
+        const currentDetails: RollDispatchDetails = rowObj.rollDispatchDetails[item.rollNo] || {
+          dispatchDate: item.orderDate || new Date().toISOString().split('T')[0],
+          vehicleNo: '',
+          driverName: '',
+          driverPhone: '',
+          challanNo: '',
+          customerName: '',
+          destination: '',
+          dispatchedWeight: item.netWt || 0,
+          dispatchedMeters: item.meters || 0,
+          remarks: '',
+          dispatchedAt: new Date().toISOString()
+        };
+
+        const dateVal = getCol('dispatchDate');
+        if (dateVal !== undefined && dateVal !== '' && dateVal !== '—') {
+          let formattedDate = String(dateVal).trim();
+          if (dateVal instanceof Date) {
+            formattedDate = dateVal.toISOString().split('T')[0];
+          }
+          if (formattedDate) currentDetails.dispatchDate = formattedDate;
+        }
+
+        const customerVal = getCol('customerName');
+        if (customerVal !== undefined && customerVal !== '') {
+          currentDetails.customerName = String(customerVal === '—' ? '' : customerVal).trim();
+        }
+
+        const destinationVal = getCol('destination');
+        if (destinationVal !== undefined && destinationVal !== '') {
+          currentDetails.destination = String(destinationVal === '—' ? '' : destinationVal).trim();
+        }
+
+        const vehicleVal = getCol('vehicleNo');
+        if (vehicleVal !== undefined && vehicleVal !== '') {
+          currentDetails.vehicleNo = String(vehicleVal === '—' ? '' : vehicleVal).trim().toUpperCase();
+        }
+
+        const driverInfoVal = getCol('driverInfo');
+        if (driverInfoVal !== undefined && driverInfoVal !== '' && driverInfoVal !== '—') {
+          const str = String(driverInfoVal).trim();
+          if (str.includes('-')) {
+            const parts = str.split('-');
+            currentDetails.driverName = parts[0].trim();
+            currentDetails.driverPhone = parts.slice(1).join('-').trim();
+          } else if (str.includes('/')) {
+            const parts = str.split('/');
+            currentDetails.driverName = parts[0].trim();
+            currentDetails.driverPhone = parts.slice(1).join('/').trim();
+          } else {
+            currentDetails.driverName = str;
+          }
+        }
+
+        const weightVal = getCol('dispatchedWeight');
+        if (weightVal !== undefined && weightVal !== '' && weightVal !== '—') {
+          const numWt = Number(weightVal);
+          if (!isNaN(numWt)) {
+            currentDetails.dispatchedWeight = numWt;
+            if (!rowObj.rollNetWt) rowObj.rollNetWt = {};
+            rowObj.rollNetWt[item.rollNo] = numWt;
+          }
+        }
+
+        const metersVal = getCol('dispatchedMeters');
+        if (metersVal !== undefined && metersVal !== '' && metersVal !== '—') {
+          const numM = Number(metersVal);
+          if (!isNaN(numM)) {
+            currentDetails.dispatchedMeters = numM;
+            if (!rowObj.rollMeters) rowObj.rollMeters = {};
+            rowObj.rollMeters[item.rollNo] = numM;
+          }
+        }
+
+        const remarksVal = getCol('remarks');
+        if (remarksVal !== undefined && remarksVal !== '') {
+          const remStr = String(remarksVal === '—' ? '' : remarksVal).trim();
+          currentDetails.remarks = remStr;
+          if (!rowObj.rollRemarks) rowObj.rollRemarks = {};
+          rowObj.rollRemarks[item.rollNo] = remStr;
+        }
+
+        const sizeVal = getCol('size');
+        if (sizeVal !== undefined && sizeVal !== '' && sizeVal !== '—') {
+          rowObj.size = String(sizeVal).trim();
+        }
+
+        const gsmVal = getCol('gsm');
+        if (gsmVal !== undefined && gsmVal !== '' && gsmVal !== '—') {
+          rowObj.gsm = Number(gsmVal) || rowObj.gsm;
+        }
+
+        const qualityVal = getCol('quality');
+        if (qualityVal !== undefined && qualityVal !== '' && qualityVal !== '—') {
+          rowObj.quality = String(qualityVal).trim();
+        }
+
+        rowObj.rollDispatchStatus[item.rollNo] = 'Dispatched';
+        rowObj.rollDispatchDetails[item.rollNo] = currentDetails;
+
+        const dispSet = new Set(rowObj.dispatchedRolls || []);
+        dispSet.add(item.rollNo);
+        rowObj.dispatchedRolls = Array.from(dispSet);
+
+        rowObj.productionCompleted = recalculateRowProductionCompleted(rowObj);
+        updatedCount++;
+      });
+
+      if (updatedCount === 0) {
+        triggerAlert('warn', 'No matching roll rows found in the uploaded file to update.');
+        return;
+      }
+
+      for (const updatedOrder of orderUpdatesMap.values()) {
+        const orderRef = doc(db, 'loomOrders', updatedOrder.id);
+        await setDoc(orderRef, updatedOrder);
+      }
+
+      let msg = `Successfully updated dispatch ledger for ${updatedCount} roll(s) across ${orderUpdatesMap.size} order(s) from Excel!`;
+      if (notFoundRolls.length > 0) {
+        msg += ` (${notFoundRolls.length} roll(s) in Excel were not found in database).`;
+      }
+      triggerAlert('success', msg);
+    } catch (err) {
+      console.error('Failed to import Dispatch Ledger Excel file:', err);
+      triggerAlert('warn', 'Error reading Excel file. Please ensure it is a valid .xlsx file exported from the ledger.');
+    } finally {
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -7680,6 +7923,27 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                     </span>
                   </button>
                 </div>
+
+                {!viewOnly && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleTriggerDispatchLedgerExcelUpload}
+                      className="bg-sky-600 hover:bg-sky-500 active:scale-95 text-white font-black text-xs uppercase tracking-wider px-3.5 py-2 rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                      title="Upload Excel to Update Dispatch Ledger Data"
+                    >
+                      <Upload size={15} />
+                      <span className="hidden sm:inline">Upload Excel</span>
+                    </button>
+                    <input
+                      type="file"
+                      ref={dispatchLedgerFileInputRef}
+                      accept=".xlsx, .xls"
+                      onChange={handleDispatchLedgerExcelUpload}
+                      className="hidden"
+                    />
+                  </>
+                )}
 
                 <button
                   type="button"
