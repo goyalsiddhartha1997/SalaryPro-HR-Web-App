@@ -662,7 +662,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
         ? formatDateLabel(sumSingleDate)
         : `${formatDateLabel(sumRangeStartDate)} TO ${formatDateLabel(sumRangeEndDate)}`;
       const shiftLabel = sumFilterShift === 'ALL' ? 'ALL SHIFTS' : `${sumFilterShift} SHIFT`;
-      dateCell.value = `EXPORT PERIOD: ${periodLabel} • SHIFT: ${shiftLabel}`;
+      const printDateLabel = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      dateCell.value = `EXPORT PERIOD: ${periodLabel} • SHIFT: ${shiftLabel} • ${printDateLabel}`;
       dateCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
       dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(2).height = 24;
@@ -789,18 +790,16 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       totalsRow.getCell(9).value = modalTotals.stoppedCount;
       totalsRow.getCell(9).numFmt = '#,##0';
 
-      // 7. COLUMN WIDTHS
-      worksheet.columns = [
-        { width: 25 },
-        { width: 14 },
-        { width: 12 },
-        { width: 18 },
-        { width: 16 },
-        { width: 16 },
-        { width: 20 },
-        { width: 16 },
-        { width: 16 }
-      ];
+      // 7. COLUMN WIDTHS (Auto-adjusted to show all data)
+      worksheet.columns.forEach((col, idx) => {
+        let maxLen = 14;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 12), 45);
+      });
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -967,7 +966,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
         : `${formatDateLabel(sumRangeStartDate)} TO ${formatDateLabel(sumRangeEndDate)}`;
       const shiftLabel = sumFilterShift === 'ALL' ? 'ALL SHIFTS' : `${sumFilterShift} SHIFT`;
       const opLabel = sumSelectedOperator === 'ALL' ? 'ALL OPERATORS' : sumSelectedOperator.toUpperCase();
-      subCell.value = `OPERATOR: ${opLabel} • EXPORT PERIOD: ${periodLabel} • SHIFT: ${shiftLabel}`;
+      const printDateLabel = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      subCell.value = `OPERATOR: ${opLabel} • EXPORT PERIOD: ${periodLabel} • SHIFT: ${shiftLabel} • ${printDateLabel}`;
       subCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
       subCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(2).height = 24;
@@ -1081,16 +1081,16 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       totalsRow.getCell(7).value = modalOperatorTotals.totalLooms;
       totalsRow.getCell(7).numFmt = '#,##0';
 
-      // 7. COLUMN WIDTHS
-      worksheet.columns = [
-        { width: 16 }, // Date
-        { width: 12 }, // Shift
-        { width: 22 }, // Operator Name
-        { width: 32 }, // Individual Loom Meters
-        { width: 18 }, // Total Meters
-        { width: 20 }, // Average Meters
-        { width: 16 }  // Looms Count
-      ];
+      // 7. COLUMN WIDTHS (Auto-adjusted to show all data)
+      worksheet.columns.forEach((col, idx) => {
+        let maxLen = headers[idx] ? headers[idx].length : 12;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 12), 50);
+      });
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1403,7 +1403,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       const dateCell = worksheet.getCell('A2');
       const periodLabel = filterMode === 'single' ? formatDateLabel(singleDate) : `${formatDateLabel(rangeStartDate)} TO ${formatDateLabel(rangeEndDate)}`;
       const shiftLabel = filterShift === 'ALL' ? 'ALL SHIFTS' : `${filterShift} SHIFT`;
-      dateCell.value = `EXPORT PERIOD: ${periodLabel} • SHIFT: ${shiftLabel}`;
+      const printDateMainStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      dateCell.value = `EXPORT PERIOD: ${periodLabel} • SHIFT: ${shiftLabel} • ${printDateMainStr}`;
       dateCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
       dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(2).height = 24;
@@ -1585,24 +1586,16 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       totalsRow.getCell(14).value = `${runningCount} Running / ${stoppedCount} Stopped`;
       totalsRow.getCell(15).value = '-';
 
-      // 7. COLUMN WIDTHS
-      worksheet.columns = [
-        { width: 15 }, // Report Date
-        { width: 16 }, // Loom Number
-        { width: 22 }, // Operator Name
-        { width: 16 }, // Total Meters
-        { width: 24 }, // Weave Quality
-        { width: 14 }, // Size
-        { width: 10 }, // GSM
-        { width: 10 }, // Denier
-        { width: 20 }, // Average Weight (g)
-        { width: 16 }, // Gross Wt (kg)
-        { width: 15 }, // Core Wt (kg)
-        { width: 16 }, // Net Wt (kg)
-        { width: 20 }, // Avg Wt [calc] (kg)
-        { width: 22 }, // Running Status
-        { width: 30 }  // Remarks
-      ];
+      // 7. COLUMN WIDTHS (Auto-adjusted to show all data)
+      worksheet.columns.forEach((col, idx) => {
+        let maxLen = headers[idx] ? headers[idx].length : 12;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 12), 45);
+      });
 
       // ==========================================
       // WORKSHEET 2: LEDGER SUMMARY (VIEW SUMMARY)
@@ -1625,7 +1618,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       // 2. SUB-BANNER (Row 2)
       worksheet2.mergeCells('A2:I2');
       const sumDateCell = worksheet2.getCell('A2');
-      sumDateCell.value = `EXPORT PERIOD: ${periodLabel}`;
+      sumDateCell.value = `EXPORT PERIOD: ${periodLabel} • ${printDateMainStr}`;
       sumDateCell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
       sumDateCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet2.getRow(2).height = 24;
@@ -1719,18 +1712,16 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       sumTotalsRow.getCell(9).value = sumSummaryStopped;
       sumTotalsRow.getCell(9).numFmt = '#,##0';
 
-      // 6. COLUMN WIDTHS FOR SUMMARY WORKSHEET
-      worksheet2.columns = [
-        { width: 25 }, // Quality
-        { width: 14 }, // Size
-        { width: 12 }, // GSM
-        { width: 18 }, // Total Meters (m)
-        { width: 16 }, // Gross Wt (kg)
-        { width: 16 }, // Net Wt (kg)
-        { width: 22 }, // Avg Wt [calc] (kg)
-        { width: 18 }, // Looms Running
-        { width: 18 }  // Looms Stopped
-      ];
+      // 6. COLUMN WIDTHS FOR SUMMARY WORKSHEET (Auto-adjusted to show all data)
+      worksheet2.columns.forEach((col, idx) => {
+        let maxLen = sumHeaders[idx] ? sumHeaders[idx].length : 12;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 12), 45);
+      });
 
       const fileName = `Loom_Running_Report_${filterMode === 'single' ? singleDate : `${rangeStartDate}_to_${rangeEndDate}`}.xlsx`;
       const buffer = await workbook.xlsx.writeBuffer();

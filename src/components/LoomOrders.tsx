@@ -519,8 +519,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       // 1. TOP EXECUTIVE BANNER ROW (Row 1): Company Header & Order Name
       worksheet.mergeCells('A1:N1');
       const titleCell = worksheet.getCell('A1');
-      titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • PP FABRIC ORDER DETAILS - ${modalOrder.orderNo.toUpperCase()}`;
-      titleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      const printDateStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • PP FABRIC ORDER DETAILS - ${modalOrder.orderNo.toUpperCase()} • ${printDateStr}`;
+      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(1).height = 42;
 
@@ -777,23 +778,20 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       totalsRow.getCell(14).value = totalYetToBeProducedKgSum;
       totalsRow.getCell(14).numFmt = '#,##0.00';
 
-      // 6. COLUMN WIDTHS
-      worksheet.columns = [
-        { width: 7 },   // #
-        { width: 26 },  // Weave Quality
-        { width: 18 },  // Lamination Type
-        { width: 15 },  // Size / Width
-        { width: 10 },  // GSM
-        { width: 10 },  // Denier
-        { width: 18 },  // Fabric Weight (g)
-        { width: 22 },  // Roll Count
-        { width: 42 },  // Roll Numbers List
-        { width: 18 },  // Target (KG)
-        { width: 18 },  // Completed (KG)
-        { width: 18 },  // Dispatched (KG)
-        { width: 24 },  // Yet to be Dispatched (KG)
-        { width: 24 }   // Yet to be Produced (KG)
-      ];
+      // 6. COLUMN WIDTHS (Auto-adjusted to show all data)
+      worksheet.columns.forEach((col, idx) => {
+        let maxLen = headers[idx] ? headers[idx].length : 12;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        if (idx === 8) { // Roll Numbers List column
+          col.width = Math.min(Math.max(maxLen + 4, 30), 65);
+        } else {
+          col.width = Math.min(Math.max(maxLen + 4, 12), 45);
+        }
+      });
 
       // 7. WRITE FILE & DOWNLOAD
       const fileNameSuffix = selectedOption === 'both' ? 'Full_Report' : selectedOption === 'dispatched' ? 'Dispatched_Rolls' : 'Not_Dispatched_Rolls';
@@ -2307,7 +2305,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       // Metrics Summary Block (Rows 2 & 3)
       summarySheet.mergeCells('A2:I2');
       const sumSub = summarySheet.getCell('A2');
-      sumSub.value = `FILTER PERIOD: ${periodInfo} | CUSTOMER FILTER: ${dispatchLedgerSelectedCustomer} | VEHICLE FILTER: ${dispatchLedgerSelectedVehicle}`;
+      const printDateDispatchStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      sumSub.value = `FILTER PERIOD: ${periodInfo} | CUSTOMER FILTER: ${dispatchLedgerSelectedCustomer} | VEHICLE FILTER: ${dispatchLedgerSelectedVehicle} | ${printDateDispatchStr}`;
       sumSub.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
       sumSub.alignment = { horizontal: 'center', vertical: 'middle' };
 
@@ -2433,7 +2432,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       // Metrics Summary Block (Rows 2 & 3)
       worksheet.mergeCells('A2:L2');
       const subCell = worksheet.getCell('A2');
-      subCell.value = `FILTER PERIOD: ${periodInfo} | CUSTOMER FILTER: ${dispatchLedgerSelectedCustomer} | VEHICLE FILTER: ${dispatchLedgerSelectedVehicle}`;
+      subCell.value = `FILTER PERIOD: ${periodInfo} | CUSTOMER FILTER: ${dispatchLedgerSelectedCustomer} | VEHICLE FILTER: ${dispatchLedgerSelectedVehicle} | ${printDateDispatchStr}`;
       subCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
       subCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
@@ -3305,8 +3304,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       // 1. TOP BANNER ROW (Row 1)
       worksheet.mergeCells('A1:O1');
       const titleCell = worksheet.getCell('A1');
-      titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • MASTER ROLL DIRECTORY LEDGER - ${modeTitle}`;
-      titleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      const printDateMasterStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • MASTER ROLL DIRECTORY LEDGER - ${modeTitle} • ${printDateMasterStr}`;
+      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(1).height = 42;
 
@@ -3459,24 +3459,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       totalsRow.getCell(11).value = totMeters;
       totalsRow.getCell(11).numFmt = '#,##0';
 
-      // 5. COLUMN WIDTHS
-      worksheet.columns = [
-        { width: 18 },  // Roll Number
-        { width: 14 },  // Size
-        { width: 10 },  // GSM
-        { width: 14 },  // GSM [calc]
-        { width: 10 },  // Denier
-        { width: 18 },  // Fabric Weight
-        { width: 20 },  // Avg Wt [calc] (grams)
-        { width: 16 },  // Gross Wt (kg)
-        { width: 14 },  // Core Wt (kg)
-        { width: 14 },  // Net Wt (kg)
-        { width: 14 },  // Meters
-        { width: 14 },  // Strength
-        { width: 16 },  // Elongation (%)
-        { width: 24 },  // Weave Quality
-        { width: 18 }   // Dispatch Status
-      ];
+      // 5. COLUMN WIDTHS (Auto-adjusted to show all data)
+      worksheet.columns.forEach((col, idx) => {
+        let maxLen = headers[idx] ? headers[idx].length : 12;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 12), 45);
+      });
 
       const dateStr = new Date().toISOString().split('T')[0];
       const fileName = `PP_Fabric_Master_Roll_Ledger_${fileNameSuffix}_${dateStr}.xlsx`;
@@ -8371,7 +8363,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 </div>
               ) : dispatchLedgerViewMode === 'summary' ? (
                 /* Grouped Summary View: Quality -> Size -> GSM */
-                <div className="overflow-x-auto rounded-2xl border border-zinc-200 shadow-sm bg-white">
+                <div className="overflow-x-auto max-h-[68vh] overflow-y-auto rounded-2xl border border-zinc-200 shadow-sm bg-white">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead className="sticky top-0 z-20 bg-emerald-950 text-white font-bold text-[11px] uppercase tracking-wider shadow-xs">
                       <tr>
@@ -8447,7 +8439,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 /* Detailed Ledger View */
                 <>
                   {/* Desktop Table View */}
-                  <div className="hidden lg:block overflow-x-auto rounded-2xl border border-zinc-200 shadow-sm">
+                  <div className="hidden lg:block overflow-x-auto max-h-[68vh] overflow-y-auto rounded-2xl border border-zinc-200 shadow-sm bg-white">
                     <table className="w-full text-left border-collapse text-xs">
                       <thead className="sticky top-0 z-20 bg-emerald-900 text-white font-bold text-[11px] uppercase tracking-wider shadow-xs">
                         <tr>

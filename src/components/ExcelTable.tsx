@@ -777,7 +777,8 @@ export default function ExcelTable({
     worksheet.getRow(1).height = 10; // Spacer
     worksheet.mergeCells('A2:AE2');
     const titleCell = worksheet.getCell('A2');
-    titleCell.value = `PAYROLL SALARY LEDGER REPORT • MONTH: ${currentMonthLabel} ${currentYearLabel} • SUNDAY RULE: ${sundayRuleLabel}`;
+    const printDatePayrollStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+    titleCell.value = `PAYROLL SALARY LEDGER REPORT • MONTH: ${currentMonthLabel} ${currentYearLabel} • SUNDAY RULE: ${sundayRuleLabel} • ${printDatePayrollStr}`;
     titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
     titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
     worksheet.getRow(2).height = 28;
@@ -1016,10 +1017,15 @@ export default function ExcelTable({
       cell.fill = { type: 'pattern', pattern: 'none' };
     });
 
-    // Auto Column Widths
+    // Auto Column Widths (Auto-adjusted to fit all data)
     worksheet.columns.forEach((col, idx) => {
       let maxLen = headers[idx] ? headers[idx].length : 15;
-      col.width = Math.max(maxLen + 4, 16);
+      col.eachCell?.({ includeEmpty: false }, (cell) => {
+        const val = cell.value ? String(cell.value) : '';
+        const lines = val.split('\n');
+        lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+      });
+      col.width = Math.min(Math.max(maxLen + 4, 14), 50);
     });
 
     // Write buffer & save file

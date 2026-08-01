@@ -1264,7 +1264,8 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       // Sub-banner
       sheetOverview.mergeCells('A2:F2');
       const dateCell = sheetOverview.getCell('A2');
-      dateCell.value = `REPORT PERIOD: ${periodLabel}  |  SHIFT: ${shiftLabel}  |  GENERATED: ${new Date().toLocaleString()}`;
+      const printDateRawStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      dateCell.value = `REPORT PERIOD: ${periodLabel}  |  SHIFT: ${shiftLabel}  |  ${printDateRawStr}`;
       dateCell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFF59E0B' } }; // Amber
       dateCell.fill = subHeaderFill;
       dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -1412,14 +1413,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
         };
       }
 
-      sheetOverview.columns = [
-        { width: 32 }, // Category
-        { width: 18 }, // Varieties Count
-        { width: 22 }, // Total Stock (kg)
-        { width: 22 }, // Total Stock (Tons)
-        { width: 20 }, // Low Stock Items
-        { width: 24 }  // Share (%)
-      ];
+      sheetOverview.columns.forEach((col, idx) => {
+        let maxLen = 16;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 14), 45);
+      });
 
       // -------------------------------------------------------------
       // SHEET 2: CURRENT RAW MATERIAL STOCK SHEET
@@ -1437,7 +1439,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
 
       sheetStock.mergeCells('A2:J2');
       const subStock = sheetStock.getCell('A2');
-      subStock.value = `INVENTORY SNAPSHOT AS OF ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}  |  TOTAL ITEMS: ${items.filter(i => i.id !== 'seed_marker').length}`;
+      subStock.value = `INVENTORY SNAPSHOT AS OF ${printDateRawStr}  |  TOTAL ITEMS: ${items.filter(i => i.id !== 'seed_marker').length}`;
       subStock.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFF59E0B' } };
       subStock.fill = subHeaderFill;
       subStock.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -1561,18 +1563,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       stockTotalsRow.getCell(7).numFmt = '#,##0';
       stockTotalsRow.getCell(7).alignment = { horizontal: 'left', vertical: 'middle' };
 
-      sheetStock.columns = [
-        { width: 8 },  // S.No.
-        { width: 16 }, // Material ID
-        { width: 32 }, // Material Name
-        { width: 18 }, // Category
-        { width: 22 }, // In-Store Stock (kg)
-        { width: 22 }, // In-Store Stock (Tons)
-        { width: 15 }, // No. of Bags
-        { width: 14 }, // Kg per Bag
-        { width: 20 }, // Stock Level Status
-        { width: 35 }  // Remarks
-      ];
+      sheetStock.columns.forEach((col, idx) => {
+        let maxLen = stockHeaders[idx] ? stockHeaders[idx].length : 12;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 12), 45);
+      });
 
       // -------------------------------------------------------------
       // SHEET 3: ADD HISTORY LEDGER (INWARD REPLENISHMENTS)
@@ -1590,7 +1589,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
 
       sheetAdd.mergeCells('A2:E2');
       const subAdd = sheetAdd.getCell('A2');
-      subAdd.value = `FILTER PERIOD: ${periodLabel}  |  SHIFT: ${shiftLabel}`;
+      subAdd.value = `FILTER PERIOD: ${periodLabel}  |  SHIFT: ${shiftLabel}  |  ${printDateRawStr}`;
       subAdd.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFD1FAE5' } };
       subAdd.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF047857' } };
       subAdd.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -1718,13 +1717,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       addTotalsRow.getCell(4).value = '—';
       addTotalsRow.getCell(5).value = '—';
 
-      sheetAdd.columns = [
-        { width: 18 }, // Date
-        { width: 32 }, // Material Name
-        { width: 20 }, // Qty Added
-        { width: 16 }, // Shift
-        { width: 35 }  // Remarks
-      ];
+      sheetAdd.columns.forEach((col, idx) => {
+        let maxLen = addHeaders[idx] ? addHeaders[idx].length : 14;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 14), 45);
+      });
 
       // -------------------------------------------------------------
       // SHEET 4: USE HISTORY LEDGER (PLANT CONSUMPTION / DEDUCTIONS)
@@ -1742,7 +1743,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
 
       sheetUse.mergeCells('A2:E2');
       const subUse = sheetUse.getCell('A2');
-      subUse.value = `FILTER PERIOD: ${periodLabel}  |  SHIFT: ${shiftLabel}`;
+      subUse.value = `FILTER PERIOD: ${periodLabel}  |  SHIFT: ${shiftLabel}  |  ${printDateRawStr}`;
       subUse.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFECDD3' } };
       subUse.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFBE123C' } };
       subUse.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -1875,13 +1876,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       useTotalsRow.getCell(4).numFmt = '#,##0.00';
       useTotalsRow.getCell(5).value = '—';
 
-      sheetUse.columns = [
-        { width: 18 }, // Date
-        { width: 32 }, // Material Name
-        { width: 22 }, // Qty Used
-        { width: 22 }, // Process Wastage
-        { width: 16 }  // Shift
-      ];
+      sheetUse.columns.forEach((col, idx) => {
+        let maxLen = useHeaders[idx] ? useHeaders[idx].length : 14;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 14), 45);
+      });
 
       // -------------------------------------------------------------
       // SHEET 5: DAILY MATERIAL SHIFT AUDIT LEDGER
@@ -1899,7 +1902,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
 
       sheetAudit.mergeCells('A2:J2');
       const subAudit = sheetAudit.getCell('A2');
-      subAudit.value = `AUDIT PERIOD: ${ledgerFilterMode === 'single' ? formatDateToDMY(ledgerSingleDate) : `${formatDateToDMY(ledgerRangeStart)} TO ${formatDateToDMY(ledgerRangeEnd)}`}  |  SHIFT: ${ledgerAuditShift}`;
+      subAudit.value = `AUDIT PERIOD: ${ledgerFilterMode === 'single' ? formatDateToDMY(ledgerSingleDate) : `${formatDateToDMY(ledgerRangeStart)} TO ${formatDateToDMY(ledgerRangeEnd)}`}  |  SHIFT: ${ledgerAuditShift}  |  ${printDateRawStr}`;
       subAudit.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFF59E0B' } };
       subAudit.fill = subHeaderFill;
       subAudit.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -2031,18 +2034,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       auditTotalsRow.getCell(9).numFmt = '#,##0.00';
       auditTotalsRow.getCell(9).alignment = { horizontal: 'left', vertical: 'middle' };
 
-      sheetAudit.columns = [
-        { width: 32 }, // Material Name
-        { width: 18 }, // Category
-        { width: 14 }, // Shift
-        { width: 20 }, // Opening Stock
-        { width: 20 }, // Received
-        { width: 20 }, // Consumption
-        { width: 20 }, // Wastage
-        { width: 18 }, // Adjustments
-        { width: 20 }, // Closing Stock
-        { width: 35 }  // Remarks
-      ];
+      sheetAudit.columns.forEach((col, idx) => {
+        let maxLen = auditHeaders[idx] ? auditHeaders[idx].length : 14;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 14), 45);
+      });
 
       // DOWNLOAD FILE
       const dateStr = metricsFilterMode === 'single' ? metricsSingleDate : `${metricsRangeStart}_to_${metricsRangeEnd}`;

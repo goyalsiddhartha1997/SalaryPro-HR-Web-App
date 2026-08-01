@@ -713,7 +713,8 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       // 1. TOP BANNER (Rows 1 & 2 merged)
       const startDateFormatted = formatDateLabel(exportStartDate);
       const endDateFormatted = formatDateLabel(exportEndDate);
-      const bannerText = `FFPL [TAPE PLANT PRODUCTION REPORT SUMMARY] - Date Range: ${startDateFormatted} to ${endDateFormatted}`;
+      const printDateTapeStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      const bannerText = `FFPL [TAPE PLANT PRODUCTION REPORT SUMMARY] - Date Range: ${startDateFormatted} to ${endDateFormatted} • ${printDateTapeStr}`;
 
       worksheet.mergeCells(`A1:${endColLetter}2`);
       const titleCell = worksheet.getCell('A1');
@@ -866,20 +867,20 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
           const cell = row.getCell(colIdx + 1);
           cell.value = val;
           cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
-          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
           cell.border = thickBlackBorder;
         });
       });
 
-      const cols = [
-        { width: 22 },
-        { width: 18 },
-        { width: 55 },
-        { width: 20 },
-        { width: 35 }
-      ];
-      if (hasRemarks) cols.push({ width: 35 });
-      worksheet.columns = cols;
+      worksheet.columns.forEach((col, idx) => {
+        let maxLen = headers[idx] ? headers[idx].length : 14;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 14), 60);
+      });
 
       // 6. TOTALS ROW AT BOTTOM
       const totalsRowIdx = tableDataStartRow + exportData.length;

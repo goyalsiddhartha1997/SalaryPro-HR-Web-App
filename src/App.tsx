@@ -2963,7 +2963,7 @@ export default function App() {
                 <p className="text-[10px] text-slate-500 font-mono mt-0.5 font-bold">Active Monthly Salary Calculation Sheet Ledger Report</p>
               </div>
               <div className="text-right font-mono text-[9px] text-slate-400">
-                <p>Printed: {new Date().toISOString().slice(0, 10)} {new Date().toLocaleTimeString()}</p>
+                <p>PRINT DATE: {new Date().toLocaleDateString('en-IN')} {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
                 <p>Page Setup: A4 Landscape • Total Personnel Count: {quickKPIs.staffCount}</p>
               </div>
             </div>

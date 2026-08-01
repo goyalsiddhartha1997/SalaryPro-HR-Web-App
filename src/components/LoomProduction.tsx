@@ -375,7 +375,8 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
       // 2. SUB-BANNER DATE RANGE (Row 2)
       worksheet.mergeCells('A2:G2');
       const dateCell = worksheet.getCell('A2');
-      dateCell.value = `REPORT DATE RANGE: ${formatDateLabel(exportStartDate)} TO ${formatDateLabel(exportEndDate)}`;
+      const printDateLoomStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      dateCell.value = `REPORT DATE RANGE: ${formatDateLabel(exportStartDate)} TO ${formatDateLabel(exportEndDate)} • ${printDateLoomStr}`;
       dateCell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
       dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(2).height = 24;
@@ -495,16 +496,16 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
       totalsRow.getCell(6).value = sumWastage;
       totalsRow.getCell(6).numFmt = '#,##0.0';
 
-      // 7. COLUMN WIDTHS
-      worksheet.columns = [
-        { width: 16 }, // Date
-        { width: 14 }, // Shift
-        { width: 18 }, // Active Looms
-        { width: 22 }, // Production (Meters)
-        { width: 20 }, // Average per Loom
-        { width: 18 }, // Wastage (KG)
-        { width: 35 }  // Remarks
-      ];
+      // 7. COLUMN WIDTHS (Auto-adjusted to show all data)
+      worksheet.columns.forEach((col, idx) => {
+        let maxLen = headers[idx] ? headers[idx].length : 14;
+        col.eachCell?.({ includeEmpty: false }, (cell) => {
+          const val = cell.value ? String(cell.value) : '';
+          const lines = val.split('\n');
+          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 14), 50);
+      });
 
       const fileName = `Loom_Production_Report_${exportStartDate}_to_${exportEndDate}.xlsx`;
       const buffer = await workbook.xlsx.writeBuffer();
