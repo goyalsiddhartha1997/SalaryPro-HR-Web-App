@@ -57,60 +57,47 @@ async function startServer() {
       };
 
       const promptPart = {
-        text: `You are an expert OCR and data extraction system for a PP fabric weaving and manufacturing plant.
-Read the attached handwritten "Loom Running Report" image. It contains details about multiple looms and their manufacturing configurations.
+        text: `You are an expert OCR and handwriting data extraction engine for a PP fabric weaving and manufacturing plant.
+Read the attached handwritten "Loom Running Report" image. It contains 21 distinct columns ordered from left to right as:
 
-The ledger contains columns ordered from left to right as:
-1. Loom Number / No. (labeled "L/No" or "L/No. -", e.g., 17, 18, 19...)
-2. Loom Operator Name (labeled "Operator", "Operator Name", "Name", "Op", e.g., "Ramesh", "Suresh", "Karan", or blank if omitted)
-3. Total Meters (labeled "Total Meters", "Meters", "Mtrs", "Total Mtr", e.g., 450, 500, 320, 600...)
-4. Size (labeled "Size.", e.g., 27", 22", 15", 24"...)
-5. DNR / Denier (labeled "DNR", e.g., 750, 650, 420, 520, 850...)
-6. Quality (labeled "Quality", e.g., "Silver", "Natural", or ditto marks)
-7. GSM (labeled "Gsm." or "Dnm.", this is a highly critical decimal factor ranging from 1.5 to 5.5, e.g., 3.5, 3.0, 1.95, 2.5, 4.0)
-8. Average Weight (labeled "Averge." or "Average", e.g., "93-95 gm", "80-82 gm", "41-43 gm")
-9. Gross Weight (kg) (labeled "Gross Wt", "Gross", "Gr Wt", e.g., 52.5)
-10. Core Weight (kg) (labeled "Core Wt", "Core", "C Wt", e.g., 1.5)
-11. Net Weight (kg) (labeled "Net Wt", "Net", "N Wt", e.g., 51.0)
-12. Avg Weight Calculated (kg) (labeled "Avg Wt", "Avg Wt [calc]", e.g., 0.102)
-13. Running Status (labeled "Runing" or "Run", e.g., "yes", "no yes stop", "No Ready")
+1. LOOM NO (labeled "LOOM NO", e.g. 1, 2, 3... 17, 18, 19... 26, 27... 34)
+2. LOOM OPERATOR (labeled "LOOM OPERATOR", e.g. "Shokit", "Guddu Singh", "Sutesh Singh", "Bhart Singh", "No Load", or indicated by vertical arrows)
+3. MESH (labeled "MESH", e.g. "10x10", "11", "u", "11x11", "10x11")
+4. METERS (labeled "METERS", e.g. 300, 250, 300, 640, 810, 610, 860, 890, 700, 740, 820, 840)
+5. QUALITY (labeled "QUALITY", e.g. "Silver", "Natural", or ditto marks "11" / "u")
+6. SIZE (labeled "SIZE", e.g. "15", "25", "24", "22", "27"", "15"")
+7. GSM (labeled "GSM", this is a critical decimal factor like 2.5, 3.5, 3.0, 2.0. DO NOT ROUND OR TRUNCATE)
+8. DENIER (labeled "DENIER", e.g. 520, 750, 650, 400)
+9. AVG WT (g) (labeled "AVG WT (g)" or "Averge.", e.g. 37.5, 87.5, 72.0, 42-44, 94.5, 81.0, 84.0)
+10. ROLL NO (labeled "ROLL NO", e.g. "185", "186", "187", "188", "189", "190" - if blank or vertical line, leave as empty string)
+11. WARP STRENGTH (kgs) (labeled "WARP STRENGTH (kgs)", e.g. "43-47", "43-46", "50-41", "44-46", "30-33", "48-51")
+12. WARP ELONGATION (%) (labeled "WARP ELONGATION (%)", e.g. "18-19", "17-18", "18-18", "16-17", "20-20")
+13. WEFT STRENGTH (kgs) (labeled "WEFT STRENGTH (kgs)", e.g. "47-45", "32-36", "50-45", "28-30", "47-46")
+14. WEFT ELONGATION (%) (labeled "WEFT ELONGATION (%)", e.g. "19-18", "16-18", "20-20", "17-17", "19-19")
+15. ROLL METERS (labeled "ROLL METERS", e.g. 2960, 2875, 2720, 5415, 4995, 3295)
+16. GR WT (kg) (labeled "GR WT (kg)", e.g. 245.4, 236, 223.8, 245.8, 190, 279.4)
+17. CR WT (kg) (labeled "CR WT (kg)", e.g. 2.2, 2.2, 1.8, 1.0, 2.2)
+18. NET WT (kg) (labeled "NET WT (kg)", e.g. 243.2, 233.8, 221.6, 244.0, 189, 277.2)
+19. AVG WT [CALC] (g) (labeled "AVG WT [CALC] (g)", e.g. 82.7, 81.3, 81.4, 45.0, 37.8, 84.1)
+20. GSM [CALC] (labeled "GSM [CALC]", e.g. 3.3, 3.3, 3.4, 2.0, 2.5, 3.3)
+21. RUNNING STATUS (labeled "RUNNING STATUS", e.g. "Running", "Runing", "Stop", "Stopped", "No Load")
 
-CRITICAL INSTRUCTIONS FOR WEIGHT METRICS (IN KG):
-- Extract Gross Wt, Core Wt, Net Wt, and Avg Wt [calculated] in kg if written on paper.
-- If Net Wt is omitted or 0 but Gross Wt and Core Wt are available, Net Wt = Gross Wt - Core Wt.
-- If Avg Wt [calculated] is omitted or 0 but Net Wt and Total Meters are available (>0), Avg Wt [calculated] = Net Wt / Total Meters.
+CRITICAL INSTRUCTIONS FOR WARP AND WEFT RANGE VALUES:
+- The columns WARP STRENGTH (kgs), WARP ELONGATION (%), WEFT STRENGTH (kgs), and WEFT ELONGATION (%) frequently contain RANGE VALUES separated by a hyphen '-', such as "18-19", "42-45", "43-47", "50-41", "17-18", "32-36", "47-45", "19-18", "16-18", "20-20".
+- You MUST extract these range values EXACTLY as written with the hyphen intact (e.g. "18-19", "43-47"). Do NOT average them or convert them to a single number!
 
-CRITICAL INSTRUCTIONS FOR OPERATOR NAME & TOTAL METERS:
-- Extract the Loom Operator Name if written in the 2nd column or anywhere for that row. If blank, return "".
-- Extract Total Meters as a numeric value (e.g., 450, 500, 320). If unreadable or missing, default to 0.
+CRITICAL INSTRUCTIONS FOR HANDWRITTEN ARROWS & DITTO SYMBOLS:
+- Vertical lines or double-headed/single-headed arrows (↕ or | with arrowheads) spanning multiple rows indicate that the value at the top, center, or start of the arrow line applies to ALL rows spanned by that arrow line.
+  * LOOM OPERATOR: If an operator name like "Shokit", "Guddu Singh", "Sutesh Singh", or "Bhart Singh" has a vertical arrow spanning multiple looms, propagate that exact operator name to ALL looms spanned by that arrow line!
+  * NO LOAD: If "No Load" or horizontal dashes with vertical arrows span looms 1-8 or 9-16, set the LOOM OPERATOR to "No Load" and RUNNING STATUS to "Stopped" for those rows.
+  * METERS / QUALITY / SIZE / GSM / DENIER / ROLL METERS: If a vertical arrow or ditto marks ("11", "u", double ticks) span across rows, propagate the non-ditto value down to all spanned rows.
+- RUNNING STATUS: "Runing" or "Running" or ditto marks underneath "Runing" mean "Running". "Stop", "Stopped", "No Load" mean "Stopped".
 
-CRITICAL INSTRUCTIONS FOR GSM DECIMAL EXTRACTION & CROSS-REFERENCE VERIFICATION:
-- The GSM column contains fractional/decimal values with an explicit decimal point (e.g., "3.5", "3.0", "1.95", "2.5", "4.0").
-- DO NOT ROUND OR TRUNCATE THESE VALUES! For example, "3.5" must be extracted exactly as 3.5 (NOT 3.0 or 3). "2.5" must be extracted exactly as 2.5 (NOT 2). "3.0" must be extracted exactly as 3.0.
-- CROSS-REFERENCE WITH AVERAGE WEIGHT: The "Average Weight" column is a range (e.g., "93-95 gm") representing the fabric weight. This physical range is mathematically equal to (Size * GSM).
-  You MUST use this mathematical formula to cross-verify the GSM digit:
-  * For a Size of 27 and GSM of 3.5: 27 * 3.5 = 94.5 (which perfectly fits the "93-95 gm" range written on the paper). Therefore, for Loom 17, the GSM MUST be 3.5!
-  * For a Size of 27 and GSM of 3.0: 27 * 3.0 = 81 (which perfectly fits the "80-82 gm" range written on the paper). Therefore, for Looms 18 and 19, the GSM is 3.0.
-  * For a Size of 22 and GSM of 1.95: 22 * 1.95 = 42.9 (which fits "41-43 gm"). Therefore, GSM is 1.95.
-  * For a Size of 15 and GSM of 2.5: 15 * 2.5 = 37.5 (which fits "36-38 gm"). Therefore, GSM is 2.5.
-  * For a Size of 24 and GSM of 3.5: 24 * 3.5 = 84 (which fits "83-85 gm"). Therefore, GSM is 3.5.
-  * For a Size of 19 and GSM of 3.5: 19 * 3.5 = 66.5 (which fits "65-67 gm"). Therefore, GSM is 3.5.
-  * For a Size of 25 and GSM of 3.5: 25 * 3.5 = 87.5 (which fits "86-88 gm"). Therefore, GSM is 3.5.
-  - Please carefully check the Average Weight column for each row to double check the exact decimal GSM.
+CRITICAL INSTRUCTIONS FOR GSM DECIMAL EXTRACTION:
+- GSM values contain explicit decimals (e.g., 2.5, 3.5, 3.0, 2.0).
+- DO NOT ROUND OR TRUNCATE! "3.5" must be extracted as 3.5. "2.5" as 2.5. "3.0" as 3.0.
 
-CRITICAL INSTRUCTIONS FOR HANDWRITTEN DITTO / CONTINUATION SYMBOLS:
-In this ledger, several handwritten shorthand symbols are used as ditto marks meaning "same as above":
-- "u", double-quotes, ",,", and ticks are standard column ditto marks. When you see these in columns like Quality, Size, GSM, or Denier, propagate the value of that column from the nearest preceding non-ditto row.
-- In the "Run" / "Running Status" column, "Not" means "Stopped".
-- The symbols "y", double-quotes, or similar continuation symbols in the "Run" column are ditto marks that copy the status from the line directly above.
-  - For example, if a preceding row is "Running", any rows beneath it with ditto marks in the "Run" column copy that "Running" state.
-
-Extract each line/row from the handwritten list accurately. Do not skip any rows.
-Ensure you convert the status to strictly 'Running' or 'Stopped'.
-Extract the decimal GSM factor accurately and place it into the "gsm" field.
-If a numeric value is missing or completely unreadable, default it to 0. If a text field is unreadable, leave it blank or use a reasonable default.
-
-Return the result as a strictly formatted JSON array matching the requested schema.`
+Extract every loom row in the sheet from top to bottom without omitting any row. Return a strictly formatted JSON array.`
       };
 
       // Try calling Gemini with multiple model options and robust exponential backoff retry to handle 503 high demand / 429 rate limit
@@ -133,65 +120,101 @@ Return the result as a strictly formatted JSON array matching the requested sche
                 responseMimeType: 'application/json',
                 responseSchema: {
                   type: Type.ARRAY,
-                  description: 'List of extracted loom running statuses',
+                  description: 'List of extracted loom running statuses and metrics',
                   items: {
                     type: Type.OBJECT,
                     properties: {
                       loomNo: {
                         type: Type.STRING,
-                        description: 'The identifier of the loom (e.g. "1", "2B", "15")'
+                        description: 'The identifier of the loom (e.g. "1", "2", "17", "26")'
                       },
                       operatorName: {
                         type: Type.STRING,
-                        description: 'Name of the loom operator (e.g. "Ramesh", "Suresh", or "" if empty)'
+                        description: 'Name of the loom operator (e.g. "Shokit", "Guddu Singh", "Sutesh Singh", "Bhart Singh", "No Load")'
+                      },
+                      mesh: {
+                        type: Type.STRING,
+                        description: 'Mesh specification (e.g. "10x10", "11", "10x11")'
                       },
                       totalMeters: {
                         type: Type.NUMBER,
-                        description: 'Total fabric length in meters (e.g. 450, 500, 320)'
+                        description: 'Total fabric length in meters (e.g. 300, 250, 640, 810)'
                       },
                       quality: {
                         type: Type.STRING,
-                        description: 'Fabric grade or quality specification description'
+                        description: 'Fabric quality description (e.g. "Silver", "Natural")'
                       },
                       size: {
                         type: Type.STRING,
-                        description: 'Size of the fabric in inches or cm (e.g. "15", "24\"")'
+                        description: 'Size of fabric in inches or cm (e.g. "15", "25", "27\"")'
                       },
                       gsm: {
                         type: Type.NUMBER,
-                        description: 'Decimal GSM factor value ranging from 1.5 to 5.5 (e.g. 2.5, 3.5, 3.0)'
+                        description: 'Decimal GSM value (e.g. 2.5, 3.5, 3.0, 2.0)'
                       },
                       denier: {
                         type: Type.INTEGER,
-                        description: 'Numeric Denier value'
+                        description: 'Numeric Denier value (e.g. 520, 750, 650, 400)'
                       },
                       average: {
                         type: Type.NUMBER,
-                        description: 'Average value in grams'
+                        description: 'Average fabric weight in grams (e.g. 37.5, 87.5, 94.5)'
+                      },
+                      rollNo: {
+                        type: Type.STRING,
+                        description: 'Roll number (e.g. "185", "186", "187")'
+                      },
+                      warpStrength: {
+                        type: Type.STRING,
+                        description: 'Warp strength in kgs. Range string separated by hyphen e.g. "43-47", "48-51", "50-41"'
+                      },
+                      warpElongation: {
+                        type: Type.STRING,
+                        description: 'Warp elongation in %. Range string separated by hyphen e.g. "18-19", "17-18", "20-20"'
+                      },
+                      weftStrength: {
+                        type: Type.STRING,
+                        description: 'Weft strength in kgs. Range string separated by hyphen e.g. "47-45", "32-36", "50-45"'
+                      },
+                      weftElongation: {
+                        type: Type.STRING,
+                        description: 'Weft elongation in %. Range string separated by hyphen e.g. "19-18", "16-18", "20-20"'
+                      },
+                      rollMeters: {
+                        type: Type.NUMBER,
+                        description: 'Roll length in meters (e.g. 2960, 2875, 2720)'
                       },
                       grossWt: {
                         type: Type.NUMBER,
-                        description: 'Gross Weight in kilograms (kg)'
+                        description: 'Gross Weight in kilograms (kg) (e.g. 245.4, 236.0, 223.8)'
                       },
                       coreWt: {
                         type: Type.NUMBER,
-                        description: 'Core Weight in kilograms (kg)'
+                        description: 'Core Weight in kilograms (kg) (e.g. 2.2, 1.8, 1.0)'
                       },
                       netWt: {
                         type: Type.NUMBER,
-                        description: 'Net Weight in kilograms (kg)'
+                        description: 'Net Weight in kilograms (kg) (e.g. 243.2, 233.8, 221.6)'
                       },
                       avgWtCalculated: {
                         type: Type.NUMBER,
-                        description: 'Calculated average weight in kilograms (kg)'
+                        description: 'Calculated average weight in grams (e.g. 82.7, 81.3, 81.4)'
+                      },
+                      gsmCalculated: {
+                        type: Type.NUMBER,
+                        description: 'Calculated GSM value (e.g. 3.3, 3.4, 2.0)'
                       },
                       runningStatus: {
                         type: Type.STRING,
                         enum: ['Running', 'Stopped'],
-                        description: 'Status of loom (either "Running" or "Stopped")'
+                        description: 'Running status of loom ("Running" or "Stopped")'
+                      },
+                      remarks: {
+                        type: Type.STRING,
+                        description: 'Any notes or remarks'
                       }
                     },
-                    required: ['loomNo', 'operatorName', 'totalMeters', 'quality', 'size', 'gsm', 'denier', 'average', 'runningStatus']
+                    required: ['loomNo', 'quality', 'size', 'gsm', 'denier', 'average', 'runningStatus']
                   }
                 }
               }
@@ -230,7 +253,7 @@ Return the result as a strictly formatted JSON array matching the requested sche
 
       const rawRows = JSON.parse(jsonText.trim());
       
-      // Post-processing to calculate the average: size * GSM, where size is numeric (e.g. 15" -> 15)
+      // Post-processing to calculate average and ensure defaults for missing fields
       const rows = rawRows.map((row: any) => {
         const sizeStr = String(row.size || '');
         const sizeMatch = sizeStr.match(/[\d.]+/);
@@ -247,23 +270,37 @@ Return the result as a strictly formatted JSON array matching the requested sche
         }
         let avgWtCalcNum = typeof row.avgWtCalculated === 'number' ? row.avgWtCalculated : (parseFloat(row.avgWtCalculated) || 0);
         if (!avgWtCalcNum && netWtNum > 0 && metersNum > 0) {
-          avgWtCalcNum = parseFloat((netWtNum / metersNum).toFixed(4));
+          avgWtCalcNum = parseFloat(((netWtNum * 1000) / metersNum).toFixed(2));
         }
+
+        const rollMetersNum = typeof row.rollMeters === 'number' ? row.rollMeters : (parseFloat(row.rollMeters) || 0);
+        let gsmCalcNum = typeof row.gsmCalculated === 'number' ? row.gsmCalculated : (parseFloat(row.gsmCalculated) || 0);
+
+        const opName = String(row.operatorName || '').trim();
+        const isStopped = row.runningStatus === 'Stopped' || opName.toUpperCase().includes('NO LOAD');
 
         return {
           loomNo: String(row.loomNo || ''),
-          operatorName: String(row.operatorName || ''),
+          operatorName: opName,
+          mesh: String(row.mesh || ''),
           totalMeters: metersNum,
           quality: String(row.quality || ''),
           size: sizeStr,
           gsm: gsmNum,
           denier: typeof row.denier === 'number' ? row.denier : parseInt(row.denier) || 0,
           average: calculatedAverage || (typeof row.average === 'number' ? row.average : parseFloat(row.average) || 0),
+          rollNo: String(row.rollNo || ''),
+          warpStrength: row.warpStrength != null ? String(row.warpStrength) : '',
+          warpElongation: row.warpElongation != null ? String(row.warpElongation) : '',
+          weftStrength: row.weftStrength != null ? String(row.weftStrength) : '',
+          weftElongation: row.weftElongation != null ? String(row.weftElongation) : '',
+          rollMeters: rollMetersNum,
           grossWt: grossWtNum,
           coreWt: coreWtNum,
           netWt: netWtNum,
           avgWtCalculated: avgWtCalcNum,
-          runningStatus: row.runningStatus === 'Stopped' ? 'Stopped' : 'Running',
+          gsmCalculated: gsmCalcNum,
+          runningStatus: isStopped ? 'Stopped' : 'Running',
           remarks: String(row.remarks || '')
         };
       });

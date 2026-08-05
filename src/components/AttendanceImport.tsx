@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Employee } from '../types';
+import { formatDateDDMMMYYYY } from '../utils/dateUtils';
 import { 
   Upload, 
   CheckCircle2, 
@@ -2364,8 +2365,9 @@ export default function AttendanceImport({
       });
 
       if (sheetData.length > 0) {
+        const formattedDateLabel = formatDateDDMMMYYYY(dateStr);
         // Create a worksheet with the date on the first row
-        const worksheet = XLSX.utils.aoa_to_sheet([[`Attendance Log Date: ${dateStr}`]]);
+        const worksheet = XLSX.utils.aoa_to_sheet([[`Attendance Log Date: ${formattedDateLabel}`]]);
         
         // Add the JSON headers/data starting from the second row (A2)
         XLSX.utils.sheet_add_json(worksheet, sheetData, { origin: "A2" });
@@ -2375,8 +2377,8 @@ export default function AttendanceImport({
           { state: 'frozen', ySplit: 2, topLeftCell: 'A3', activePane: 'bottomLeft' }
         ];
 
-        // Use the date string as the sheet name (e.g. "2026-06-01")
-        XLSX.utils.book_append_sheet(workbook, worksheet, dateStr);
+        // Use the date string as the sheet name
+        XLSX.utils.book_append_sheet(workbook, worksheet, formattedDateLabel);
         sheetsAdded++;
 
         // Auto Column widths
@@ -2446,7 +2448,8 @@ export default function AttendanceImport({
         dayName = dObj.toLocaleDateString('en-US', { weekday: 'short' });
       } catch (e) {}
 
-      const dateWithDay = dayName ? `${dateStr} (${dayName})` : dateStr;
+      const formattedD = formatDateDDMMMYYYY(dateStr);
+      const dateWithDay = dayName ? `${formattedD} (${dayName})` : formattedD;
 
       sheetData.push({
         'Date': dateWithDay,
@@ -2464,7 +2467,7 @@ export default function AttendanceImport({
 
     const worksheetHeader = [
       [`Attendance Report: ${targetEmp.name} (Code: ${targetEmp.id})`],
-      [`Period: ${exportFromDate} to ${exportToDate}`],
+      [`Period: ${formatDateDDMMMYYYY(exportFromDate)} to ${formatDateDDMMMYYYY(exportToDate)}`],
       [`Total Present Days: ${totalPresentDays}`, `Total Absent Days: ${totalAbsentDays}`],
       []
     ];
@@ -2747,14 +2750,7 @@ export default function AttendanceImport({
 
   const humanSelectedDate = useMemo(() => {
     if (!historyDate) return '';
-    const parts = historyDate.split('-');
-    if (parts.length !== 3) return historyDate;
-    const y = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10) - 1;
-    const d = parseInt(parts[2], 10);
-    const dateObj = new Date(y, m, d);
-    if (isNaN(dateObj.getTime())) return historyDate;
-    return dateObj.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+    return formatDateDDMMMYYYY(historyDate);
   }, [historyDate]);
 
   // Calculations for KPI blocks

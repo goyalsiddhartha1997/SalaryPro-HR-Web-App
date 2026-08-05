@@ -42,6 +42,7 @@ export default function SearchEmp({
   // Query States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedActiveStatus, setSelectedActiveStatus] = useState('');
+  const [selectedContractor, setSelectedContractor] = useState('');
   const [selectedDept, setSelectedDept] = useState('');
   const [selectedDesignation, setSelectedDesignation] = useState('');
   const [selectedShift, setSelectedShift] = useState('');
@@ -94,10 +95,18 @@ export default function SearchEmp({
     return Array.from(new Set(list)).sort();
   }, [employees]);
 
+  const contractors = useMemo(() => {
+    const list = employees
+      .map(emp => emp.contractor)
+      .filter((c): c is string => typeof c === 'string' && c.trim() !== '');
+    return Array.from(new Set(list)).sort();
+  }, [employees]);
+
   // Reset helper
   const handleResetFilters = () => {
     setSearchQuery('');
     setSelectedActiveStatus('');
+    setSelectedContractor('');
     setSelectedDept('');
     setSelectedDesignation('');
     setSelectedShift('');
@@ -114,12 +123,13 @@ export default function SearchEmp({
       const isLive = emp.name && emp.name.trim() !== '' && !emp.id.toUpperCase().startsWith('EMP_TEMP_');
       if (!isLive) return false;
 
-      // Search Query Match (by name or ID)
+      // Search Query Match (by name, ID, or contractor)
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         const matchesName = emp.name.toLowerCase().includes(query);
         const matchesId = emp.id.toLowerCase().includes(query);
-        if (!matchesName && !matchesId) return false;
+        const matchesContractor = emp.contractor ? emp.contractor.toLowerCase().includes(query) : false;
+        if (!matchesName && !matchesId && !matchesContractor) return false;
       }
 
       // Active Status Match
@@ -128,6 +138,11 @@ export default function SearchEmp({
         if (status !== selectedActiveStatus) {
           return false;
         }
+      }
+
+      // Contractor Match
+      if (selectedContractor && (emp.contractor || '') !== selectedContractor) {
+        return false;
       }
 
       // Department Match
@@ -180,6 +195,7 @@ export default function SearchEmp({
     employees, 
     searchQuery, 
     selectedActiveStatus,
+    selectedContractor,
     selectedDept, 
     selectedDesignation, 
     selectedShift, 
@@ -237,6 +253,7 @@ export default function SearchEmp({
   // Determine if any filters are currently active/applied
   const hasActiveFilters = searchQuery !== '' ||
     selectedActiveStatus !== '' ||
+    selectedContractor !== '' ||
     selectedDept !== '' ||
     selectedDesignation !== '' ||
     selectedShift !== '' ||
@@ -351,7 +368,7 @@ export default function SearchEmp({
           </div>
           <input 
             type="text" 
-            placeholder="Search by Employee ID or Full Name (e.g. 'Jaswinder', '55')..."
+            placeholder="Search by Employee ID, Full Name, or Contractor Name (e.g. 'Jaswinder', '55')..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-slate-50 border border-slate-200 pl-10 pr-4 py-3 rounded-2xl text-[12.5px] font-bold text-slate-800 placeholder-slate-400 focus:outline-hidden focus:bg-white focus:ring-2 focus:ring-emerald-500/25 focus:border-emerald-500"
@@ -420,7 +437,7 @@ export default function SearchEmp({
         </div>
 
         {/* Filter Dropdowns Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3.5">
           
           {/* Active Status dropdown */}
           <div className="space-y-1.5">
@@ -437,6 +454,29 @@ export default function SearchEmp({
                 <option value="">All Employees</option>
                 <option value="ACTIVE">Active Employees Only</option>
                 <option value="INACTIVE">Inactive Employees Only</option>
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-400">
+                <span className="text-[10px]">▼</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Contractor dropdown */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-1 select-none">
+              <User size={11} className="text-blue-600" />
+              Contractor
+            </label>
+            <div className="relative">
+              <select
+                value={selectedContractor}
+                onChange={(e) => setSelectedContractor(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200.5 rounded-1.5xl px-3 py-2.5 text-xs font-bold text-slate-700 focus:outline-hidden focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 appearance-none cursor-pointer"
+              >
+                <option value="">All Contractors ({contractors.length})</option>
+                {contractors.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
               </select>
               <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-400">
                 <span className="text-[10px]">▼</span>
@@ -640,6 +680,7 @@ export default function SearchEmp({
                 <tr className="bg-slate-50/30 border-b border-slate-150 text-[10.5px] font-extrabold text-slate-500 tracking-wider uppercase select-none">
                   <th className="py-3 px-4.5 font-bold">Emp ID</th>
                   <th className="py-3 px-3 font-bold">Staff Full Name</th>
+                  <th className="py-3 px-3 font-bold">Contractor Name</th>
                   <th className="py-3 px-3 font-bold">Dept & Role</th>
                   <th className="py-3 px-3 font-bold">Shift & Basis</th>
                   <th className="py-3 px-3 text-right font-bold">Base Salary</th>
@@ -670,6 +711,13 @@ export default function SearchEmp({
                           </div>
                           <span className="text-slate-800 font-black tracking-tight">{emp.name}</span>
                         </div>
+                      </td>
+
+                      {/* Contractor Name */}
+                      <td className="py-3.5 px-3">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-slate-700 bg-slate-100/80 px-2 py-0.5 rounded-md border border-slate-200/60">
+                          {emp.contractor && emp.contractor.trim() ? emp.contractor : '—'}
+                        </span>
                       </td>
 
                       {/* Dept & Role */}

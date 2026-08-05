@@ -9,6 +9,7 @@ import { doc, setDoc, collection, query, where, onSnapshot, deleteDoc, getDoc, g
 import { Wallet, Calendar as CalendarIcon, Plus, Info, Landmark, History, Coins, Utensils, Coffee, Receipt, UserCheck, Edit, Trash2, Check, X, ArrowUpDown, ArrowUp, ArrowDown, Search, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Employee } from '../types';
+import { formatDateDDMMMYYYY } from '../utils/dateUtils';
 
 export interface CanteenFoodBill {
   id: string;
@@ -927,9 +928,8 @@ export default function AdvancePaid({
         const totalMealsOnDate = dateBills.reduce((sum, b) => sum + b.noOfMeals, 0);
         const totalAmountOnDate = dateBills.reduce((sum, b) => sum + b.amount, 0);
 
-        // Convert YYYY-MM-DD to DD-MM-YYYY for presentation
-        const parts = dateStr.split('-');
-        const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        // Convert YYYY-MM-DD to DD-MMM-YYYY for presentation
+        const formattedDate = formatDateDDMMMYYYY(dateStr);
 
         return [
           formattedDate,
@@ -972,7 +972,7 @@ export default function AdvancePaid({
       // 7. Assemble all rows with metadata headers
       const reportHeaders = [
         [`CANTEEN FOOD BILLS REPORT`],
-        [`Selected Period: ${exportStartDate} to ${exportEndDate}`],
+        [`Selected Period: ${formatDateDDMMMYYYY(exportStartDate)} to ${formatDateDDMMMYYYY(exportEndDate)}`],
         [`Generated On: ${new Date().toLocaleString()}`],
         [], // spacing row
         [
@@ -1116,7 +1116,7 @@ export default function AdvancePaid({
       // 4. Build report rows
       const reportHeaders = [
         [`EMPLOYEE ADVANCES REPORT`],
-        [`Selected Period: ${advanceExportStartDate} to ${advanceExportEndDate}`],
+        [`Selected Period: ${formatDateDDMMMYYYY(advanceExportStartDate)} to ${formatDateDDMMMYYYY(advanceExportEndDate)}`],
         [`Generated On: ${new Date().toLocaleString()}`],
         [], // spacing row
         [
@@ -1130,7 +1130,7 @@ export default function AdvancePaid({
 
       const itemRows = sortedFilteredAdvances.map(adv => {
         return [
-          adv.date || '-',
+          formatDateDDMMMYYYY(adv.date) || '-',
           adv.employeeId,
           adv.name,
           adv.remarks || '-',

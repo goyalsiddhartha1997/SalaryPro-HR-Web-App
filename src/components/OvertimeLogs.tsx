@@ -8,6 +8,7 @@ import { db } from '../firebase';
 import { doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
 import { Clock, Calendar as CalendarIcon, Plus, Info, History, Trash2, Edit, Check, X, Search, Zap, Loader2, ArrowRight, UserCheck, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Employee } from '../types';
+import { formatDateDDMMMYYYY } from '../utils/dateUtils';
 
 interface OvertimeLog {
   id: string;
@@ -896,10 +897,7 @@ export default function OvertimeLogs({
                   <tbody className="divide-y divide-slate-100 font-medium">
                     {sortedRecordedLogs.map((log) => {
                       // Format log date to show neatly, standard ISO is YYYY-MM-DD
-                      const dateObj = new Date(log.date);
-                      const displayDateStr = !isNaN(dateObj.getTime())
-                        ? `${dateObj.getDate()} ${months[dateObj.getMonth()].slice(0,3)} ${dateObj.getFullYear()}`
-                        : log.date;
+                      const displayDateStr = formatDateDDMMMYYYY(log.date);
 
                       return (
                         <tr key={log.id} className="hover:bg-slate-50/40 transition-colors">

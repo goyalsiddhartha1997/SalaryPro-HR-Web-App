@@ -19,6 +19,7 @@ import RawMaterialsInventory from './components/RawMaterialsInventory';
 import LoomProduction from './components/LoomProduction';
 import LoomRunningReport from './components/LoomRunningReport';
 import TapePlantProduction from './components/TapePlantProduction';
+import TapePlantRunningReport from './components/TapePlantRunningReport';
 import SearchEmp from './components/SearchEmp';
 import { 
   collection, 
@@ -80,6 +81,7 @@ import {
   ChevronRight,
   Sparkles,
   Zap,
+  Gauge,
   Award,
   BookOpen,
   Send,
@@ -2540,8 +2542,20 @@ export default function App() {
                 className="w-full flex items-center justify-start text-left gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all text-slate-400 hover:text-slate-700 hover:bg-slate-50"
                 style={activeTab === 'tape-production' ? { backgroundColor: 'var(--color-slate-55, #f1f5f9)', color: '#1e293b', fontWeight: 900 } : {}}
               >
-                <FileSpreadsheet size={16} className={activeTab === 'tape-production' ? 'text-amber-500 font-extrabold' : 'text-slate-400'} />
+                <FileSpreadsheet size={16} className={`shrink-0 ${activeTab === 'tape-production' ? 'text-amber-500 font-extrabold' : 'text-slate-400'}`} />
                 <span className="whitespace-nowrap">Tape Plant Prod Report</span>
+              </button>
+            )}
+
+            {/* Tape Plant Running Report Link */}
+            {loggedInEmail !== 'hr@fortuneflexipack.com' && (
+              <button
+                onClick={() => { setActiveTab('tape-running'); setMobileMenuOpen(false); }}
+                className="w-full flex items-center justify-start text-left gap-3.5 px-4 py-3 rounded-2xl text-[13px] font-bold tracking-wide transition-all text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+                style={activeTab === 'tape-running' ? { backgroundColor: 'var(--color-slate-55, #f1f5f9)', color: '#1e293b', fontWeight: 900 } : {}}
+              >
+                <Gauge size={16} className={`shrink-0 ${activeTab === 'tape-running' ? 'text-indigo-600 font-extrabold' : 'text-slate-500'}`} />
+                <span className="whitespace-nowrap">Tape Plant Running Report</span>
               </button>
             )}
 
@@ -2650,6 +2664,7 @@ export default function App() {
                   {activeTab === 'loom-production' && 'Loom Prod Report'}
                   {activeTab === 'loom-running' && 'Loom Running Report'}
                   {activeTab === 'tape-production' && 'Tape Plant Prod Report'}
+                  {activeTab === 'tape-running' && 'Tape Plant Running Report'}
                   {activeTab === 'calendar' && 'Search EMP'}
                   {activeTab === 'attendance' && 'Attendance Logs'}
                   {activeTab === 'performance' && 'Evaluation Overviews'}
@@ -2668,7 +2683,8 @@ export default function App() {
                 {activeTab === 'loom-production' && 'Daily metrics, looms, and wastage reports for weaving plant'}
                 {activeTab === 'loom-running' && 'Daily running status tracking ledger, specifications, and handwriting digitisation portal'}
                 {activeTab === 'tape-production' && 'Daily raw materials, lamination, and extrusion line production metrics'}
-                {activeTab !== 'employees' && activeTab !== 'payroll' && activeTab !== 'dashboard' && activeTab !== 'calendar' && activeTab !== 'looms' && activeTab !== 'inventory' && activeTab !== 'loom-production' && activeTab !== 'loom-running' && activeTab !== 'tape-production' && 'HR Portal sandbox and database logs'}
+                {activeTab === 'tape-running' && 'Daily tape plant denier, strength, elongation quality specifications ledger'}
+                {activeTab !== 'employees' && activeTab !== 'payroll' && activeTab !== 'dashboard' && activeTab !== 'calendar' && activeTab !== 'looms' && activeTab !== 'inventory' && activeTab !== 'loom-production' && activeTab !== 'loom-running' && activeTab !== 'tape-production' && activeTab !== 'tape-running' && 'HR Portal sandbox and database logs'}
               </p>
             </div>
           </div>
@@ -3179,6 +3195,14 @@ export default function App() {
           {/* ==================== TAB: TAPE PLANT PRODUCTION REPORT ==================== */}
           {activeTab === 'tape-production' && (
             <TapePlantProduction 
+              triggerAlert={triggerAlert}
+              viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com' || loggedInEmail === 'accounts@fortuneflexipack.com')}
+            />
+          )}
+
+          {/* ==================== TAB: TAPE PLANT RUNNING REPORT ==================== */}
+          {activeTab === 'tape-running' && (
+            <TapePlantRunningReport 
               triggerAlert={triggerAlert}
               viewOnly={!(loggedInEmail === 'sandydalhousie@gmail.com' || loggedInEmail === 'hr@fortuneflexipack.com' || loggedInEmail === 'accounts@fortuneflexipack.com')}
             />

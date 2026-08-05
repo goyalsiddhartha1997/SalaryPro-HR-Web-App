@@ -32,20 +32,10 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { RawMaterialItem, InventoryLog } from '../types';
+import { formatDateDDMMMYYYY } from '../utils/dateUtils';
 
 const formatDateToDMY = (dateStr?: string) => {
-  if (!dateStr) return '—';
-  const parts = dateStr.split('-');
-  if (parts.length === 3) {
-    const [year, month, day] = parts;
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const mIdx = parseInt(month, 10) - 1;
-    if (mIdx >= 0 && mIdx < 12) {
-      return `${day} ${months[mIdx]} ${year}`;
-    }
-    return `${day}-${month}-${year}`;
-  }
-  return dateStr;
+  return formatDateDDMMMYYYY(dateStr);
 };
 
 interface RawMaterialsInventoryProps {
@@ -1264,7 +1254,7 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       // Sub-banner
       sheetOverview.mergeCells('A2:F2');
       const dateCell = sheetOverview.getCell('A2');
-      const printDateRawStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      const printDateRawStr = `PRINT DATE: ${formatDateDDMMMYYYY(new Date())} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
       dateCell.value = `REPORT PERIOD: ${periodLabel}  |  SHIFT: ${shiftLabel}  |  ${printDateRawStr}`;
       dateCell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFF59E0B' } }; // Amber
       dateCell.fill = subHeaderFill;
@@ -1414,13 +1404,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       }
 
       sheetOverview.columns.forEach((col, idx) => {
-        let maxLen = 16;
-        col.eachCell?.({ includeEmpty: false }, (cell) => {
-          const val = cell.value ? String(cell.value) : '';
-          const lines = val.split('\n');
-          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        let maxLen = catTableHeaders[idx] ? catTableHeaders[idx].length : 10;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= 8) {
+            const val = cell.value ? String(cell.value) : '';
+            const lines = val.split('\n');
+            lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+          }
         });
-        col.width = Math.min(Math.max(maxLen + 4, 14), 45);
+        col.width = Math.min(Math.max(maxLen + 3, 10), 40);
       });
 
       // -------------------------------------------------------------
@@ -1564,13 +1556,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       stockTotalsRow.getCell(7).alignment = { horizontal: 'left', vertical: 'middle' };
 
       sheetStock.columns.forEach((col, idx) => {
-        let maxLen = stockHeaders[idx] ? stockHeaders[idx].length : 12;
-        col.eachCell?.({ includeEmpty: false }, (cell) => {
-          const val = cell.value ? String(cell.value) : '';
-          const lines = val.split('\n');
-          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        let maxLen = stockHeaders[idx] ? stockHeaders[idx].length : 10;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= 4) {
+            const val = cell.value ? String(cell.value) : '';
+            const lines = val.split('\n');
+            lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+          }
         });
-        col.width = Math.min(Math.max(maxLen + 4, 12), 45);
+        col.width = Math.min(Math.max(maxLen + 3, 10), 40);
       });
 
       // -------------------------------------------------------------
@@ -1718,13 +1712,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       addTotalsRow.getCell(5).value = '—';
 
       sheetAdd.columns.forEach((col, idx) => {
-        let maxLen = addHeaders[idx] ? addHeaders[idx].length : 14;
-        col.eachCell?.({ includeEmpty: false }, (cell) => {
-          const val = cell.value ? String(cell.value) : '';
-          const lines = val.split('\n');
-          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        let maxLen = addHeaders[idx] ? addHeaders[idx].length : 10;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= 4) {
+            const val = cell.value ? String(cell.value) : '';
+            const lines = val.split('\n');
+            lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+          }
         });
-        col.width = Math.min(Math.max(maxLen + 4, 14), 45);
+        col.width = Math.min(Math.max(maxLen + 3, 10), 40);
       });
 
       // -------------------------------------------------------------
@@ -1877,13 +1873,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       useTotalsRow.getCell(5).value = '—';
 
       sheetUse.columns.forEach((col, idx) => {
-        let maxLen = useHeaders[idx] ? useHeaders[idx].length : 14;
-        col.eachCell?.({ includeEmpty: false }, (cell) => {
-          const val = cell.value ? String(cell.value) : '';
-          const lines = val.split('\n');
-          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        let maxLen = useHeaders[idx] ? useHeaders[idx].length : 10;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= 4) {
+            const val = cell.value ? String(cell.value) : '';
+            const lines = val.split('\n');
+            lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+          }
         });
-        col.width = Math.min(Math.max(maxLen + 4, 14), 45);
+        col.width = Math.min(Math.max(maxLen + 3, 10), 40);
       });
 
       // -------------------------------------------------------------
@@ -2035,13 +2033,15 @@ export default function RawMaterialsInventory({ triggerAlert, viewOnly = false }
       auditTotalsRow.getCell(9).alignment = { horizontal: 'left', vertical: 'middle' };
 
       sheetAudit.columns.forEach((col, idx) => {
-        let maxLen = auditHeaders[idx] ? auditHeaders[idx].length : 14;
-        col.eachCell?.({ includeEmpty: false }, (cell) => {
-          const val = cell.value ? String(cell.value) : '';
-          const lines = val.split('\n');
-          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        let maxLen = auditHeaders[idx] ? auditHeaders[idx].length : 10;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= 4) {
+            const val = cell.value ? String(cell.value) : '';
+            const lines = val.split('\n');
+            lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+          }
         });
-        col.width = Math.min(Math.max(maxLen + 4, 14), 45);
+        col.width = Math.min(Math.max(maxLen + 3, 10), 40);
       });
 
       // DOWNLOAD FILE

@@ -8,6 +8,7 @@ import { db } from '../firebase';
 import { doc, setDoc, deleteDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { Clock, Calendar as CalendarIcon, Plus, Info, History, Trash2, ClipboardList, Timer, Search, UserCheck, ArrowUpDown, ArrowUp, ArrowDown, X } from 'lucide-react';
 import { Employee } from '../types';
+import { formatDateDDMMMYYYY } from '../utils/dateUtils';
 
 interface GatePass {
   id: string;
@@ -751,11 +752,8 @@ export default function GatePassRecord({
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {sortedRecordedPasses.map((r) => {
-                      // Format date for readable view e.g. "29 May 2026"
-                      const dateObj = new Date(r.date);
-                      const formattedDate = isNaN(dateObj.getTime())
-                        ? r.date
-                        : `${dateObj.getDate()} ${months[dateObj.getMonth()].slice(0,3)} ${dateObj.getFullYear()}`;
+                      // Format date for readable view e.g. "29-MAY-2026"
+                      const formattedDate = formatDateDDMMMYYYY(r.date);
 
                       return (
                         <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">

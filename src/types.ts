@@ -121,6 +121,10 @@ export interface LoomOrderRow {
   rollMeters?: Record<string, number>;
   rollStrength?: Record<string, string | number>;
   rollElongation?: Record<string, string | number>;
+  rollWarpStrength?: Record<string, string | number>;
+  rollWarpElongation?: Record<string, string | number>;
+  rollWeftStrength?: Record<string, string | number>;
+  rollWeftElongation?: Record<string, string | number>;
 }
 
 export interface LoomOrder {
@@ -163,16 +167,24 @@ export interface RawMaterialItem {
 export interface LoomRunningRow {
   loomNo: string;
   operatorName?: string;
+  mesh?: string;
   totalMeters?: number;
   quality: string;
   size: string;
   gsm: number;
   denier: number;
   average: number;
+  rollNo?: string;
+  warpStrength?: string | number;
+  warpElongation?: string | number;
+  weftStrength?: string | number;
+  weftElongation?: string | number;
+  rollMeters?: number;
   grossWt?: number;
   coreWt?: number;
   netWt?: number;
   avgWtCalculated?: number;
+  gsmCalculated?: number;
   runningStatus: 'Running' | 'Stopped';
   remarks?: string;
 }
@@ -200,5 +212,26 @@ export interface TapePlantProductionReport {
   operatorsCount?: number;
   windermenCount?: number;
   helpersCount?: number;
+}
+
+export interface TapePlantRunningRow {
+  id: string;
+  roundNo: number | string;
+  denier: number | string;
+  quality: string;
+  strength: number | string; // in kgs
+  elongation: number | string; // in %
+  tapeWidth?: number | string; // in mm
+  remarks?: string;
+}
+
+export interface TapePlantRunningReport {
+  id: string; // YYYY-MM-DD-shift or auto ID
+  date: string; // YYYY-MM-DD
+  shift: 'DAY' | 'NIGHT';
+  rounds: TapePlantRunningRow[];
+  totalEmployees?: number;
+  remarks?: string;
+  createdAt: string;
 }
 

@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { ComputedEmployee, Employee } from '../types';
+import { formatDateDDMMMYYYY } from '../utils/dateUtils';
 import { isEmployeePresent, getWorkMinutes, getAdjustedPunches, getNextDateStr, getShiftTimingDurationHours } from '../data';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, collectionGroup, query, where, getDocs } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
@@ -1652,15 +1653,8 @@ export default function EmployeeProfileDetails({
                     filteredOtLogs.map((log) => {
                       const hw = calculateHoursWorked(log.arrTime, log.outTime);
                       const shiftAmount = (hw / 12) * otRates.dailyRate;
-                      // Format date format for log e.g. "08 Jun"
-                      let displayDate = log.date;
-                      try {
-                        const dObj = new Date(log.date);
-                        if (!isNaN(dObj.getTime())) {
-                          const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-                          displayDate = `${dObj.getDate().toString().padStart(2, '0')} ${monthsList[dObj.getMonth()].substring(0, 3)} (${days[dObj.getDay()]})`;
-                        }
-                      } catch (e) {}
+                      // Format date format for log e.g. "08-JUN-2026"
+                      const displayDate = formatDateDDMMMYYYY(log.date);
 
                       return (
                         <div key={log.id} className="bg-slate-50/40 border border-slate-100 rounded-xl p-2.5 hover:bg-slate-50 hover:shadow-xs transition-all">

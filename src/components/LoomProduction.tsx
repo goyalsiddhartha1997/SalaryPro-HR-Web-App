@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
+import { formatDateDDMMMYYYY } from '../utils/dateUtils';
 
 interface LoomProductionReport {
   id: string; // usually YYYY-MM-DD
@@ -375,8 +376,8 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
       // 2. SUB-BANNER DATE RANGE (Row 2)
       worksheet.mergeCells('A2:G2');
       const dateCell = worksheet.getCell('A2');
-      const printDateLoomStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
-      dateCell.value = `REPORT DATE RANGE: ${formatDateLabel(exportStartDate)} TO ${formatDateLabel(exportEndDate)} • ${printDateLoomStr}`;
+      const printDateLoomStr = `PRINT DATE: ${formatDateDDMMMYYYY(new Date())} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      dateCell.value = `REPORT DATE RANGE: ${formatDateDDMMMYYYY(exportStartDate)} TO ${formatDateDDMMMYYYY(exportEndDate)} • ${printDateLoomStr}`;
       dateCell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
       dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(2).height = 24;
@@ -431,8 +432,7 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
       // 5. DATA ROWS
       let currentR = 8;
       exportData.forEach(r => {
-        const parts = r.date.split('-');
-        const displayDate = `${parts[2]}/${parts[1]}/${parts[0]}`; // DD/MM/YYYY
+        const displayDate = formatDateDDMMMYYYY(r.date);
         const shiftLabel = r.shift ? r.shift.toUpperCase() : 'DAY';
 
         const excelRow = worksheet.getRow(currentR);
@@ -496,15 +496,17 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
       totalsRow.getCell(6).value = sumWastage;
       totalsRow.getCell(6).numFmt = '#,##0.0';
 
-      // 7. COLUMN WIDTHS (Auto-adjusted to show all data)
+      // 7. COLUMN WIDTHS (Auto-adjusted to fit data)
       worksheet.columns.forEach((col, idx) => {
-        let maxLen = headers[idx] ? headers[idx].length : 14;
-        col.eachCell?.({ includeEmpty: false }, (cell) => {
-          const val = cell.value ? String(cell.value) : '';
-          const lines = val.split('\n');
-          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        let maxLen = headers[idx] ? headers[idx].length : 10;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= 7) {
+            const val = cell.value ? String(cell.value) : '';
+            const lines = val.split('\n');
+            lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+          }
         });
-        col.width = Math.min(Math.max(maxLen + 4, 14), 50);
+        col.width = Math.min(Math.max(maxLen + 3, 10), 45);
       });
 
       const fileName = `Loom_Production_Report_${exportStartDate}_to_${exportEndDate}.xlsx`;
@@ -527,14 +529,9 @@ export default function LoomProduction({ triggerAlert, viewOnly = false }: LoomP
     }
   };
 
-  // --- HELPER: FORMAT DATE TO "DD/MM/YYYY" ---
+  // --- HELPER: FORMAT DATE TO "DD-MMM-YYYY" ---
   const formatDateLabel = (dateStr: string) => {
-    if (!dateStr) return '';
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-      return `${parts[2]}/${parts[1]}/${parts[0]}`;
-    }
-    return dateStr;
+    return formatDateDDMMMYYYY(dateStr);
   };
 
   // --- LIST OF MONTH NAMES ---

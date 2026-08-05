@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
+import { formatDateDDMMMYYYY } from '../utils/dateUtils';
 import { TapePlantProductionReport, RawMaterialItem, InventoryLog } from '../types';
 
 interface TapePlantProductionProps {
@@ -711,9 +712,9 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       };
 
       // 1. TOP BANNER (Rows 1 & 2 merged)
-      const startDateFormatted = formatDateLabel(exportStartDate);
-      const endDateFormatted = formatDateLabel(exportEndDate);
-      const printDateTapeStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      const startDateFormatted = formatDateDDMMMYYYY(exportStartDate);
+      const endDateFormatted = formatDateDDMMMYYYY(exportEndDate);
+      const printDateTapeStr = `PRINT DATE: ${formatDateDDMMMYYYY(new Date())} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
       const bannerText = `FFPL [TAPE PLANT PRODUCTION REPORT SUMMARY] - Date Range: ${startDateFormatted} to ${endDateFormatted} • ${printDateTapeStr}`;
 
       worksheet.mergeCells(`A1:${endColLetter}2`);
@@ -843,8 +844,7 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
         const row = worksheet.getRow(rowNum);
         row.height = 22;
 
-        const parts = r.date.split('-');
-        const displayDate = `${parts[2]}/${parts[1]}/${parts[0]}`; // DD/MM/YYYY
+        const displayDate = formatDateDDMMMYYYY(r.date);
         const shiftLabel = r.shift ? r.shift.toUpperCase() : 'DAY';
         const manpowerStr = formatManpower(r);
 
@@ -873,13 +873,15 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       });
 
       worksheet.columns.forEach((col, idx) => {
-        let maxLen = headers[idx] ? headers[idx].length : 14;
-        col.eachCell?.({ includeEmpty: false }, (cell) => {
-          const val = cell.value ? String(cell.value) : '';
-          const lines = val.split('\n');
-          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        let maxLen = headers[idx] ? headers[idx].length : 10;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= tableHeaderRowIdx) {
+            const val = cell.value ? String(cell.value) : '';
+            const lines = val.split('\n');
+            lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+          }
         });
-        col.width = Math.min(Math.max(maxLen + 4, 14), 60);
+        col.width = Math.min(Math.max(maxLen + 3, 10), 45);
       });
 
       // 6. TOTALS ROW AT BOTTOM
@@ -920,14 +922,7 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
   };
 
   const formatDateLabel = (dateStr?: string) => {
-    if (!dateStr) return '';
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-      const [year, month, day] = parts;
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      return `${day} ${months[parseInt(month, 10) - 1]} ${year}`;
-    }
-    return dateStr;
+    return formatDateDDMMMYYYY(dateStr);
   };
 
   const monthsList = [

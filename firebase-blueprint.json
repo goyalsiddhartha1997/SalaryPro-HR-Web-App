@@ -547,6 +547,39 @@
         }
       },
       "required": ["id", "date", "shift", "isStopped"]
+    },
+    "TapePlantRunningReport": {
+      "title": "Tape Plant Running Report",
+      "description": "Daily logged tape plant running report with round-wise denier, quality, strength (kgs), and elongation (%)",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique report ID e.g. YYYY-MM-DD-shift"
+        },
+        "date": {
+          "type": "string",
+          "description": "Report date in YYYY-MM-DD"
+        },
+        "shift": {
+          "type": "string",
+          "enum": ["DAY", "NIGHT"],
+          "description": "Shift pattern for the running report"
+        },
+        "rounds": {
+          "type": "array",
+          "description": "Array of rounds containing roundNo, denier, quality, strength, elongation"
+        },
+        "totalEmployees": {
+          "type": "number",
+          "description": "Total staff/employees in plant for this shift"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO creation timestamp"
+        }
+      },
+      "required": ["id", "date", "shift", "rounds", "createdAt"]
     }
   },
   "firestore": {
@@ -597,6 +630,10 @@
     "/tapePlantProductions/{productionId}": {
       "schema": "TapePlantProduction",
       "description": "Daily logged tape plant production metrics, usages, and wastage logs"
+    },
+    "/tapePlantRunningReports/{reportId}": {
+      "schema": "TapePlantRunningReport",
+      "description": "Daily logged tape plant running report with round-wise denier, quality, strength (kgs), and elongation (%)"
     }
   }
 }

@@ -52,6 +52,7 @@ import {
 import { LoomOrder, LoomOrderRow, RollDispatchDetails } from '../types';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
+import { formatDateDDMMMYYYY } from '../utils/dateUtils';
 
 interface LoomOrdersProps {
   triggerAlert: (type: 'info' | 'success' | 'warn', msg: string) => void;
@@ -151,7 +152,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [duplicateSearchQuery, setDuplicateSearchQuery] = useState<string>('');
 
   // --- MASTER ROLL LEDGER MODAL STATES ---
-  type MasterLedgerSortKey = 'rollNo' | 'size' | 'gsm' | 'denier' | 'fabricWeight' | 'grossWt' | 'coreWt' | 'netWt' | 'avgWtCalculated' | 'gsmCalculated' | 'meters' | 'strength' | 'elongation' | 'quality' | 'dispatchStatus' | 'remarks' | 'orderNo';
+  type MasterLedgerSortKey = 'rollNo' | 'size' | 'gsm' | 'denier' | 'fabricWeight' | 'grossWt' | 'coreWt' | 'netWt' | 'avgWtCalculated' | 'gsmCalculated' | 'meters' | 'warpStrength' | 'warpElongation' | 'weftStrength' | 'weftElongation' | 'strength' | 'elongation' | 'quality' | 'dispatchStatus' | 'remarks' | 'orderNo';
 
   const [isMasterLedgerOpen, setIsMasterLedgerOpen] = useState<boolean>(false);
   const [masterLedgerSearchQuery, setMasterLedgerSearchQuery] = useState<string>('');
@@ -246,8 +247,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       case 'avgWtCalculated': return 'Avg Wt [calc] (grams)';
       case 'gsmCalculated': return 'GSM [calc]';
       case 'meters': return 'Meters';
-      case 'strength': return 'Strength';
-      case 'elongation': return 'Elongation (%)';
+      case 'warpStrength': return 'Warp Strength';
+      case 'warpElongation': return 'Warp Elongation (%)';
+      case 'weftStrength': return 'Weft Strength';
+      case 'weftElongation': return 'Weft Elongation (%)';
+      case 'strength': return 'Warp Strength';
+      case 'elongation': return 'Warp Elongation (%)';
       case 'quality': return 'Weave Quality';
       case 'dispatchStatus': return 'Dispatch Status';
       case 'remarks': return 'Remarks';
@@ -269,6 +274,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [masterEditMeters, setMasterEditMeters] = useState<string>('');
   const [masterEditStrength, setMasterEditStrength] = useState<string>('');
   const [masterEditElongation, setMasterEditElongation] = useState<string>('');
+  const [masterEditWarpStrength, setMasterEditWarpStrength] = useState<string>('');
+  const [masterEditWarpElongation, setMasterEditWarpElongation] = useState<string>('');
+  const [masterEditWeftStrength, setMasterEditWeftStrength] = useState<string>('');
+  const [masterEditWeftElongation, setMasterEditWeftElongation] = useState<string>('');
   const [masterEditQuality, setMasterEditQuality] = useState<string>('');
   const [masterEditRemarks, setMasterEditRemarks] = useState<string>('');
   const [masterEditDispatchStatus, setMasterEditDispatchStatus] = useState<'Dispatched' | 'Not Dispatched'>('Not Dispatched');
@@ -354,6 +363,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
     return () => unsubscribe();
   }, []);
+
+  // Auto-migrate master order created by loom running report to have unassigned orderNo (empty string)
+  useEffect(() => {
+    if (viewOnly || !orders || orders.length === 0) return;
+    const masterOrd = orders.find(o => o.id === 'L_RUNNING_DAY_SHIFTS_MASTER' && o.orderNo === 'LOOM_RUNNING_DAY_SHIFT');
+    if (masterOrd) {
+      setDoc(doc(db, 'loomOrders', masterOrd.id), { ...masterOrd, orderNo: '' }).catch(console.error);
+    }
+  }, [orders, viewOnly]);
 
   // Compute selected order (modal & sidebar)
   const modalOrder = useMemo(() => {
@@ -503,8 +521,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
     try {
       const workbook = new ExcelJS.Workbook();
-      const sheetName = modalOrder.orderNo.substring(0, 30).replace(/[\\/*?:[\]]/g, '') || 'Order';
-      const worksheet = workbook.addWorksheet(sheetName);
+      const worksheet = workbook.addWorksheet('Master Roll Ledger');
 
       // Gridlines visible
       worksheet.views = [{ showGridLines: true }];
@@ -516,51 +533,76 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         right: { style: 'medium' as const, color: { argb: 'FF000000' } },
       };
 
-      // 1. TOP EXECUTIVE BANNER ROW (Row 1): Company Header & Order Name
-      worksheet.mergeCells('A1:N1');
+      const allOrderRolls = masterRollLedgerData.filter(item => item.orderId === modalOrder.id);
+      let filteredOrderRolls = [...allOrderRolls];
+      let modeTitle = 'FULL REPORT';
+
+      if (selectedOption === 'dispatched') {
+        filteredOrderRolls = filteredOrderRolls.filter(item => item.dispatchStatus === 'Dispatched');
+        modeTitle = 'DISPATCHED ROLLS ONLY';
+      } else if (selectedOption === 'not_dispatched') {
+        filteredOrderRolls = filteredOrderRolls.filter(item => item.dispatchStatus === 'Not Dispatched');
+        modeTitle = 'NON-DISPATCHED ROLLS ONLY';
+      }
+
+      // Sort rolls in ascending order by roll number
+      filteredOrderRolls.sort((a, b) => {
+        const numA = parseFloat(a.rollNo);
+        const numB = parseFloat(b.rollNo);
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return numA - numB;
+        }
+        return a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' });
+      });
+
+      // 1. TOP EXECUTIVE BANNER ROW (Row 1)
+      worksheet.mergeCells('A1:R1');
       const titleCell = worksheet.getCell('A1');
-      const printDateStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
-      titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • PP FABRIC ORDER DETAILS - ${modalOrder.orderNo.toUpperCase()} • ${printDateStr}`;
+      const printDateStr = `PRINT DATE: ${formatDateDDMMMYYYY(new Date())} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • ORDER ${modalOrder.orderNo.toUpperCase()} MASTER ROLL DIRECTORY LEDGER - ${modeTitle} • ${printDateStr}`;
       titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(1).height = 42;
 
-      for (let col = 1; col <= 14; col++) {
+      for (let col = 1; col <= 18; col++) {
         worksheet.getRow(1).getCell(col).border = thickBlackBorder;
       }
 
       // 2. METRICS CARDS (Rows 2 & 3)
-      // Merge ranges for Labels (Row 2) and Values (Row 3)
-      worksheet.mergeCells('A2:B2');
-      worksheet.mergeCells('C2:D2');
-      worksheet.mergeCells('E2:F2');
-      worksheet.mergeCells('G2:H2');
-      worksheet.mergeCells('I2:N2');
+      const totalCount = allOrderRolls.length;
+      const dispCount = allOrderRolls.filter(i => i.dispatchStatus === 'Dispatched').length;
+      const notDispCount = totalCount - dispCount;
+      const sumNetWeight = filteredOrderRolls.reduce((acc, i) => acc + (i.netWt || 0), 0);
+      const sumTotalMeters = filteredOrderRolls.reduce((acc, i) => acc + (i.meters || 0), 0);
 
-      worksheet.mergeCells('A3:B3');
-      worksheet.mergeCells('C3:D3');
-      worksheet.mergeCells('E3:F3');
-      worksheet.mergeCells('G3:H3');
-      worksheet.mergeCells('I3:N3');
+      worksheet.mergeCells('A2:C2');
+      worksheet.mergeCells('D2:F2');
+      worksheet.mergeCells('G2:I2');
+      worksheet.mergeCells('J2:L2');
+      worksheet.mergeCells('M2:R2');
+
+      worksheet.mergeCells('A3:C3');
+      worksheet.mergeCells('D3:F3');
+      worksheet.mergeCells('G3:I3');
+      worksheet.mergeCells('J3:L3');
+      worksheet.mergeCells('M3:R3');
 
       worksheet.getRow(2).height = 20;
       worksheet.getRow(3).height = 24;
 
-      // Set Labels
-      worksheet.getCell('A2').value = 'Target Quantity:';
-      worksheet.getCell('C2').value = 'Completed Fabric Weight:';
-      worksheet.getCell('E2').value = 'Recorded Rolls Weight:';
-      worksheet.getCell('G2').value = 'Dispatched Rolls Weight:';
-      worksheet.getCell('I2').value = 'Non-Dispatched Rolls Weight:';
+      worksheet.getCell('A2').value = 'Total Registered Rolls:';
+      worksheet.getCell('D2').value = 'Dispatched Rolls:';
+      worksheet.getCell('G2').value = 'Non-Dispatched Rolls:';
+      worksheet.getCell('J2').value = 'Total Net Weight:';
+      worksheet.getCell('M2').value = 'Total Fabric Meters:';
 
-      // Set Values
-      worksheet.getCell('A3').value = `${modalStats.totalTarget.toFixed(2)} KG`;
-      worksheet.getCell('C3').value = `${modalStats.totalCompleted.toFixed(2)} KG (${modalStats.completionRate.toFixed(1)}%)`;
-      worksheet.getCell('E3').value = `${modalStats.totalRecordedRolls} / ${modalStats.totalRolls} Rolls (${modalStats.totalRecordedNetWt.toFixed(2)} KG)`;
-      worksheet.getCell('G3').value = `${modalStats.totalDispatchedRolls} Rolls (${modalStats.totalDispatchedNetWt.toFixed(2)} KG)`;
-      worksheet.getCell('I3').value = `${modalStats.totalNotDispatchedRolls} Rolls (${modalStats.totalNotDispatchedNetWt.toFixed(2)} KG)`;
+      worksheet.getCell('A3').value = `${totalCount} Rolls`;
+      worksheet.getCell('D3').value = `${dispCount} Rolls (${totalCount > 0 ? Math.round((dispCount / totalCount) * 100) : 0}%)`;
+      worksheet.getCell('G3').value = `${notDispCount} Rolls (${totalCount > 0 ? Math.round((notDispCount / totalCount) * 100) : 0}%)`;
+      worksheet.getCell('J3').value = `${sumNetWeight.toFixed(2)} KG`;
+      worksheet.getCell('M3').value = `${sumTotalMeters.toLocaleString()} Meters`;
 
-      for (let col = 1; col <= 14; col++) {
+      for (let col = 1; col <= 18; col++) {
         [2, 3].forEach(r => {
           const c = worksheet.getRow(r).getCell(col);
           c.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
@@ -570,34 +612,26 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       }
 
       // 3. TABLE HEADER ROW (Row 5)
-      worksheet.getRow(4).height = 10; // spacer row
-
-      let col8Header = 'No. of Rolls';
-      let col9Header = 'Roll Numbers List';
-
-      if (selectedOption === 'dispatched') {
-        col8Header = 'No. of Dispatched Rolls';
-        col9Header = 'Dispatched Roll Numbers List';
-      } else if (selectedOption === 'not_dispatched') {
-        col8Header = 'No. of Non-Dispatched Rolls';
-        col9Header = 'Non-Dispatched Roll Numbers List';
-      }
-
+      worksheet.getRow(4).height = 10;
       const headers = [
-        '#',
-        'Weave Quality',
-        'Lamination Type',
-        'Size / Width',
+        'Roll Number',
+        'Size',
         'GSM',
+        'GSM [calc]',
         'Denier',
-        'Fabric Weight (g)',
-        col8Header,
-        col9Header,
-        'Target (KG)',
-        'Completed (KG)',
-        'Dispatched (KG)',
-        'Yet to be Dispatched (KG)',
-        'Yet to be Produced (KG)'
+        'AVG WT (g)',
+        'Avg Wt [calc] (grams)',
+        'Gross Wt (kg)',
+        'Core Wt (kg)',
+        'Net Wt (kg)',
+        'Meters',
+        'Warp Strength',
+        'Warp Elongation (%)',
+        'Weft Strength',
+        'Weft Elongation (%)',
+        'Weave Quality',
+        'Dispatch Status',
+        'Remarks'
       ];
 
       const headerRow = worksheet.getRow(5);
@@ -606,159 +640,72 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         const cell = headerRow.getCell(idx + 1);
         cell.value = h;
         cell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
-        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
         cell.border = thickBlackBorder;
       });
 
       // 4. DATA ROWS
-      const tableData = sortedModalRows.map(({ row }, idx) => {
-        const rolls = row.rollNumbers || [];
-        const dispList = row.dispatchedRolls || [];
-        const dispMap = row.rollDispatchStatus || {};
-        const rollNetWtMap = row.rollNetWt || {};
-        const rollDispDetailsMap = row.rollDispatchDetails || {};
-
-        let rollCount = row.noOfRolls || 0;
-        let rollListStr = rolls.join(', ');
-        let completedWeight = row.productionCompleted || 0;
-
-        // Compute Dispatched KG for the row
-        const dispatchedRolls = rolls.filter(r => {
-          const trimmed = (r || '').trim();
-          return dispMap[trimmed] === 'Dispatched' || dispList.includes(trimmed);
-        });
-
-        let dispatchedKg = 0;
-        if (dispatchedRolls.length > 0) {
-          let sumDispatchedWt = 0;
-          let hasRecordedWeights = false;
-
-          dispatchedRolls.forEach(rNo => {
-            const trimmed = (rNo || '').trim();
-            const details = rollDispDetailsMap[trimmed] || rollDispDetailsMap[rNo];
-            if (details && typeof details.dispatchedWeight === 'number' && details.dispatchedWeight > 0) {
-              sumDispatchedWt += details.dispatchedWeight;
-              hasRecordedWeights = true;
-            } else if (trimmed in rollNetWtMap && typeof rollNetWtMap[trimmed] === 'number') {
-              sumDispatchedWt += rollNetWtMap[trimmed];
-              hasRecordedWeights = true;
-            } else if (rNo in rollNetWtMap && typeof rollNetWtMap[rNo] === 'number') {
-              sumDispatchedWt += rollNetWtMap[rNo];
-              hasRecordedWeights = true;
-            }
-          });
-
-          if (hasRecordedWeights) {
-            dispatchedKg = parseFloat(sumDispatchedWt.toFixed(2));
-          } else {
-            const totalRollsCount = rolls.length || 1;
-            dispatchedKg = parseFloat(((row.productionCompleted || 0) * (dispatchedRolls.length / totalRollsCount)).toFixed(2));
-          }
-        }
-
-        // Compute Yet to be Dispatched KG for the row
-        const notDispatchedRolls = rolls.filter(r => {
-          const trimmed = (r || '').trim();
-          return dispMap[trimmed] !== 'Dispatched' && !dispList.includes(trimmed);
-        });
-
-        let yetToBeDispatchedKg = 0;
-        if (notDispatchedRolls.length > 0) {
-          let sumNotDispatchedWt = 0;
-          let hasRecordedWeights = false;
-
-          notDispatchedRolls.forEach(rNo => {
-            const trimmed = (rNo || '').trim();
-            if (trimmed in rollNetWtMap && typeof rollNetWtMap[trimmed] === 'number') {
-              sumNotDispatchedWt += rollNetWtMap[trimmed];
-              hasRecordedWeights = true;
-            } else if (rNo in rollNetWtMap && typeof rollNetWtMap[rNo] === 'number') {
-              sumNotDispatchedWt += rollNetWtMap[rNo];
-              hasRecordedWeights = true;
-            }
-          });
-
-          if (hasRecordedWeights) {
-            yetToBeDispatchedKg = parseFloat(sumNotDispatchedWt.toFixed(2));
-          } else {
-            const totalRollsCount = rolls.length || 1;
-            yetToBeDispatchedKg = parseFloat(((row.productionCompleted || 0) * (notDispatchedRolls.length / totalRollsCount)).toFixed(2));
-          }
-        }
-
-        // Compute Yet to be Produced KG for the row (Target - Completed)
-        const targetWeight = row.totalQuantity || 0;
-        const fullCompletedWeight = row.productionCompleted || 0;
-        const yetToBeProducedKg = Math.max(0, parseFloat((targetWeight - fullCompletedWeight).toFixed(2)));
-
-        if (selectedOption === 'dispatched') {
-          rollCount = dispatchedRolls.length;
-          rollListStr = dispatchedRolls.length > 0 ? dispatchedRolls.join(', ') : '0 dispatched rolls';
-          completedWeight = dispatchedKg;
-        } else if (selectedOption === 'not_dispatched') {
-          rollCount = notDispatchedRolls.length;
-          rollListStr = notDispatchedRolls.length > 0 ? notDispatchedRolls.join(', ') : '0 non-dispatched rolls';
-          completedWeight = yetToBeDispatchedKg;
-        }
-
-        return [
-          idx + 1,
-          row.quality || '',
-          (row.laminationType || 'NON-LAMINATION').toUpperCase(),
-          row.size || '',
-          row.gsm || 0,
-          row.denier || 0,
-          row.fabricWeight || 0,
-          rollCount,
-          rollListStr,
-          targetWeight,
-          completedWeight,
-          dispatchedKg,
-          yetToBeDispatchedKg,
-          yetToBeProducedKg
-        ];
-      });
-
       let currentR = 6;
-      let totalRollsSum = 0;
-      let totalTargetSum = 0;
-      let totalCompSum = 0;
-      let totalDispatchedKgSum = 0;
-      let totalYetToBeDispatchedKgSum = 0;
-      let totalYetToBeProducedKgSum = 0;
+      let totalGrossWtSum = 0;
+      let totalCoreWtSum = 0;
+      let totalNetWtSum = 0;
+      let totalMetersSum = 0;
 
-      tableData.forEach((rowValues) => {
+      filteredOrderRolls.forEach((item) => {
         const r = worksheet.getRow(currentR);
-        r.height = 24;
+        r.height = 22;
 
-        totalRollsSum += Number(rowValues[7]) || 0;
-        totalTargetSum += Number(rowValues[9]) || 0;
-        totalCompSum += Number(rowValues[10]) || 0;
-        totalDispatchedKgSum += Number(rowValues[11]) || 0;
-        totalYetToBeDispatchedKgSum += Number(rowValues[12]) || 0;
-        totalYetToBeProducedKgSum += Number(rowValues[13]) || 0;
+        totalGrossWtSum += item.grossWt || 0;
+        totalCoreWtSum += item.coreWt || 0;
+        totalNetWtSum += item.netWt || 0;
+        totalMetersSum += item.meters || 0;
+
+        const szVal = parseFloat(String(item.size || '').replace(/[^0-9.]/g, '')) || 0;
+        const avgVal = Number(item.avgWtCalculated) || 0;
+        const gsmCalcVal = (szVal > 0 && avgVal > 0) ? parseFloat((avgVal / szVal).toFixed(2)) : 0;
+
+        const rowValues = [
+          item.rollNo,
+          item.size,
+          item.gsm,
+          gsmCalcVal,
+          item.denier,
+          item.fabricWeight,
+          item.avgWtCalculated || 0,
+          item.grossWt || 0,
+          item.coreWt || 0,
+          item.netWt || 0,
+          item.meters || 0,
+          item.warpStrength || item.strength || '-',
+          item.warpElongation || item.elongation || '-',
+          item.weftStrength || '-',
+          item.weftElongation || '-',
+          item.quality,
+          item.dispatchStatus,
+          item.remarks || '-'
+        ];
 
         rowValues.forEach((val, colIdx) => {
           const cell = r.getCell(colIdx + 1);
           cell.value = val;
           cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
-          cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: colIdx === 8 };
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
           cell.border = thickBlackBorder;
 
-          if (colIdx === 6) { // Fabric Weight
+          if (colIdx === 3) { // GSM [calc]
             cell.numFmt = '#,##0.00';
-          } else if (colIdx >= 9 && colIdx <= 13) { // Target, Completed, Dispatched, Yet to be Dispatched, Yet to be Produced
-            cell.numFmt = '#,##0.00';
+          } else if (colIdx >= 5 && colIdx <= 10) { // Fabric Wt (5), Avg Wt calc (6), Gross (7), Core (8), Net (9), Meters (10)
+            cell.numFmt = colIdx === 6 ? '#,##0.0000' : '#,##0.00';
           }
         });
 
         currentR++;
       });
 
-      // 5. TOTALS ROW
+      // 5. TOTALS ROW AT BOTTOM
       const totalsRow = worksheet.getRow(currentR);
       totalsRow.height = 26;
-      for (let c = 1; c <= 14; c++) {
+      for (let c = 1; c <= 18; c++) {
         const cell = totalsRow.getCell(c);
         cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
         cell.alignment = { horizontal: 'left', vertical: 'middle' };
@@ -766,30 +713,316 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       }
 
       totalsRow.getCell(1).value = 'TOTALS';
-      totalsRow.getCell(8).value = totalRollsSum;
-      totalsRow.getCell(10).value = totalTargetSum;
+      totalsRow.getCell(8).value = totalGrossWtSum;
+      totalsRow.getCell(8).numFmt = '#,##0.00';
+      totalsRow.getCell(9).value = totalCoreWtSum;
+      totalsRow.getCell(9).numFmt = '#,##0.00';
+      totalsRow.getCell(10).value = totalNetWtSum;
       totalsRow.getCell(10).numFmt = '#,##0.00';
-      totalsRow.getCell(11).value = totalCompSum;
-      totalsRow.getCell(11).numFmt = '#,##0.00';
-      totalsRow.getCell(12).value = totalDispatchedKgSum;
-      totalsRow.getCell(12).numFmt = '#,##0.00';
-      totalsRow.getCell(13).value = totalYetToBeDispatchedKgSum;
-      totalsRow.getCell(13).numFmt = '#,##0.00';
-      totalsRow.getCell(14).value = totalYetToBeProducedKgSum;
-      totalsRow.getCell(14).numFmt = '#,##0.00';
+      totalsRow.getCell(11).value = totalMetersSum;
+      totalsRow.getCell(11).numFmt = '#,##0';
 
-      // 6. COLUMN WIDTHS (Auto-adjusted to show all data)
+      // 6. COLUMN WIDTHS
       worksheet.columns.forEach((col, idx) => {
-        let maxLen = headers[idx] ? headers[idx].length : 12;
-        col.eachCell?.({ includeEmpty: false }, (cell) => {
-          const val = cell.value ? String(cell.value) : '';
-          const lines = val.split('\n');
-          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        let maxLen = headers[idx] ? headers[idx].length : 10;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= 5) {
+            const val = cell.value ? String(cell.value) : '';
+            const lines = val.split('\n');
+            lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+          }
         });
-        if (idx === 8) { // Roll Numbers List column
-          col.width = Math.min(Math.max(maxLen + 4, 30), 65);
+        col.width = Math.min(Math.max(maxLen + 3, 10), 45);
+      });
+
+      // --- SHEET 2: SUMMARY WORKSHEET ---
+      const summarySheet = workbook.addWorksheet('Summary');
+      summarySheet.views = [{ showGridLines: true }];
+
+      // Filter master roll ledger data for current modal order
+      let orderRolls = masterRollLedgerData.filter(item => item.orderId === modalOrder.id);
+      let summaryModeTitle = 'FULL REPORT';
+
+      if (selectedOption === 'dispatched') {
+        orderRolls = orderRolls.filter(item => item.dispatchStatus === 'Dispatched');
+        summaryModeTitle = 'DISPATCHED ROLLS ONLY';
+      } else if (selectedOption === 'not_dispatched') {
+        orderRolls = orderRolls.filter(item => item.dispatchStatus === 'Not Dispatched');
+        summaryModeTitle = 'NON-DISPATCHED ROLLS ONLY';
+      }
+
+      // Grouping logic for Summary
+      const summaryMap = new Map<string, {
+        quality: string;
+        size: string;
+        gsm: number;
+        denier: number;
+        noOfRolls: number;
+        rollNos: string[];
+        totalNetWeight: number;
+        totalMeters: number;
+      }>();
+
+      orderRolls.forEach((item) => {
+        const quality = item.quality?.trim() || 'Unspecified';
+        const size = item.size?.trim() || 'Unspecified';
+        const gsm = item.gsm !== undefined && item.gsm !== null && item.gsm !== '' ? Number(item.gsm) : 0;
+        const denier = item.denier !== undefined && item.denier !== null && item.denier !== '' ? Number(item.denier) : 0;
+
+        const key = `${quality.toLowerCase()}|||${size.toLowerCase()}|||${gsm}|||${denier}`;
+
+        if (!summaryMap.has(key)) {
+          summaryMap.set(key, {
+            quality,
+            size,
+            gsm,
+            denier,
+            noOfRolls: 0,
+            rollNos: [],
+            totalNetWeight: 0,
+            totalMeters: 0,
+          });
+        }
+
+        const group = summaryMap.get(key)!;
+        group.noOfRolls += 1;
+        if (item.rollNo) {
+          group.rollNos.push(String(item.rollNo).trim());
+        }
+
+        let netWtVal = Number(item.netWt) || 0;
+        if (netWtVal === 0) {
+          const matchingRow = modalOrder.rows[item.subOrderIdx];
+          if (matchingRow && matchingRow.productionCompleted && matchingRow.rollNumbers && matchingRow.rollNumbers.length > 0) {
+            netWtVal = matchingRow.productionCompleted / matchingRow.rollNumbers.length;
+          }
+        }
+
+        group.totalNetWeight += netWtVal;
+        group.totalMeters += Number(item.meters) || 0;
+      });
+
+      const summaryList = Array.from(summaryMap.values()).map((group) => {
+        const sortedRolls = Array.from(new Set(group.rollNos)).sort((a, b) => {
+          const numA = parseFloat(a);
+          const numB = parseFloat(b);
+          if (!isNaN(numA) && !isNaN(numB)) {
+            return numA - numB;
+          }
+          return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+        });
+        return {
+          ...group,
+          rollNosListStr: sortedRolls.join(', ')
+        };
+      });
+
+      // Sort first by quality, then size, then gsm, then denier
+      summaryList.sort((a, b) => {
+        const qualComp = a.quality.localeCompare(b.quality, undefined, { sensitivity: 'base' });
+        if (qualComp !== 0) return qualComp;
+
+        const sizeComp = a.size.localeCompare(b.size, undefined, { numeric: true, sensitivity: 'base' });
+        if (sizeComp !== 0) return sizeComp;
+
+        if (a.gsm !== b.gsm) return a.gsm - b.gsm;
+
+        return a.denier - b.denier;
+      });
+
+      // Pre-calculate overall summary totals for top metrics
+      const overallTotalNetWt = summaryList.reduce((sum, g) => sum + g.totalNetWeight, 0);
+      const overallTotalRolls = summaryList.reduce((sum, g) => sum + g.noOfRolls, 0);
+      const overallTotalMeters = summaryList.reduce((sum, g) => sum + g.totalMeters, 0);
+
+      // Banner / Header on Summary Sheet
+      summarySheet.mergeCells('A1:I1');
+      const sumTitleCell = summarySheet.getCell('A1');
+      sumTitleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • ORDER ${modalOrder.orderNo.toUpperCase()} SUMMARY REPORT - ${summaryModeTitle}`;
+      sumTitleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
+      sumTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      summarySheet.getRow(1).height = 36;
+
+      summarySheet.mergeCells('A2:I2');
+      const sumSubCell = summarySheet.getCell('A2');
+      sumSubCell.value = `ORDER #: ${modalOrder.orderNo} | FILTER OPTION: ${selectedOption.toUpperCase()} | ${printDateStr}`;
+      sumSubCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+      sumSubCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      summarySheet.getRow(2).height = 22;
+
+      for (let col = 1; col <= 9; col++) {
+        summarySheet.getRow(1).getCell(col).border = thickBlackBorder;
+        summarySheet.getRow(2).getCell(col).border = thickBlackBorder;
+      }
+
+      summarySheet.getRow(3).height = 10; // blank row space
+
+      // --- TOP METRICS CARDS (Rows 4 & 5) ---
+      // Metric 1: Total Net Wt (kgs) [A4:C4 & A5:C5]
+      summarySheet.mergeCells('A4:C4');
+      summarySheet.mergeCells('A5:C5');
+      const m1Label = summarySheet.getCell('A4');
+      m1Label.value = 'TOTAL NET WT (KGS)';
+      m1Label.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+      m1Label.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      const m1Val = summarySheet.getCell('A5');
+      m1Val.value = overallTotalNetWt;
+      m1Val.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      m1Val.alignment = { horizontal: 'center', vertical: 'middle' };
+      m1Val.numFmt = '#,##0.00';
+
+      // Metric 2: Total No of Rolls [D4:F4 & D5:F5]
+      summarySheet.mergeCells('D4:F4');
+      summarySheet.mergeCells('D5:F5');
+      const m2Label = summarySheet.getCell('D4');
+      m2Label.value = 'TOTAL NO OF ROLLS';
+      m2Label.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+      m2Label.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      const m2Val = summarySheet.getCell('D5');
+      m2Val.value = overallTotalRolls;
+      m2Val.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      m2Val.alignment = { horizontal: 'center', vertical: 'middle' };
+      m2Val.numFmt = '#,##0';
+
+      // Metric 3: Total Meters [G4:I4 & G5:I5]
+      summarySheet.mergeCells('G4:I4');
+      summarySheet.mergeCells('G5:I5');
+      const m3Label = summarySheet.getCell('G4');
+      m3Label.value = 'TOTAL METERS';
+      m3Label.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+      m3Label.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      const m3Val = summarySheet.getCell('G5');
+      m3Val.value = overallTotalMeters;
+      m3Val.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      m3Val.alignment = { horizontal: 'center', vertical: 'middle' };
+      m3Val.numFmt = '#,##0';
+
+      summarySheet.getRow(4).height = 20;
+      summarySheet.getRow(5).height = 30;
+
+      // Apply borders to metric card cells A4:I5
+      for (let col = 1; col <= 9; col++) {
+        summarySheet.getRow(4).getCell(col).border = thickBlackBorder;
+        summarySheet.getRow(5).getCell(col).border = thickBlackBorder;
+      }
+
+      summarySheet.getRow(6).height = 12; // blank row space
+
+      // Table Headers (Row 7)
+      const summaryHeaders = [
+        'S No',
+        'Quality',
+        'Size',
+        'GSM',
+        'DENIER',
+        'No of rolls',
+        'Roll nos list',
+        'Total net weight (kgs)',
+        'Total Meters'
+      ];
+
+      const sumHeaderRow = summarySheet.getRow(7);
+      sumHeaderRow.height = 28;
+      summaryHeaders.forEach((h, idx) => {
+        const cell = sumHeaderRow.getCell(idx + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+      });
+
+      let sumR = 8;
+      let sumTotRolls = 0;
+      let sumTotNetWt = 0;
+      let sumTotMeters = 0;
+
+      summaryList.forEach((group, index) => {
+        const r = summarySheet.getRow(sumR);
+        r.height = 22;
+
+        sumTotRolls += group.noOfRolls;
+        sumTotNetWt += group.totalNetWeight;
+        sumTotMeters += group.totalMeters;
+
+        const rowVals = [
+          index + 1,
+          group.quality,
+          group.size,
+          group.gsm || '—',
+          group.denier || '—',
+          group.noOfRolls,
+          group.rollNosListStr,
+          group.totalNetWeight,
+          group.totalMeters
+        ];
+
+        rowVals.forEach((val, colIdx) => {
+          const cell = r.getCell(colIdx + 1);
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+          cell.border = thickBlackBorder;
+
+          if (colIdx === 0) { // S No
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else if (colIdx === 1) { // Quality
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          } else if (colIdx >= 2 && colIdx <= 4) { // Size, GSM, Denier
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else if (colIdx === 5) { // No of rolls
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.numFmt = '#,##0';
+          } else if (colIdx === 6) { // Roll nos list
+            cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+          } else if (colIdx === 7) { // Total net weight
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.numFmt = '#,##0.00';
+          } else if (colIdx === 8) { // Total Meters
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.numFmt = '#,##0';
+          }
+        });
+
+        sumR++;
+      });
+
+      // Summary Grand Total Row
+      const sumTotalsRow = summarySheet.getRow(sumR);
+      sumTotalsRow.height = 26;
+      for (let c = 1; c <= 9; c++) {
+        const cell = sumTotalsRow.getCell(c);
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.border = thickBlackBorder;
+      }
+
+      sumTotalsRow.getCell(1).value = 'GRAND TOTAL';
+      sumTotalsRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+      sumTotalsRow.getCell(6).value = sumTotRolls;
+      sumTotalsRow.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' };
+      sumTotalsRow.getCell(6).numFmt = '#,##0';
+      sumTotalsRow.getCell(8).value = sumTotNetWt;
+      sumTotalsRow.getCell(8).alignment = { horizontal: 'right', vertical: 'middle' };
+      sumTotalsRow.getCell(8).numFmt = '#,##0.00';
+      sumTotalsRow.getCell(9).value = sumTotMeters;
+      sumTotalsRow.getCell(9).alignment = { horizontal: 'right', vertical: 'middle' };
+      sumTotalsRow.getCell(9).numFmt = '#,##0';
+
+      // Column Auto-Widths for Summary Sheet
+      summarySheet.columns.forEach((col, idx) => {
+        const colNum = idx + 1;
+        if (colNum === 7) { // Roll nos list column
+          col.width = 45;
         } else {
-          col.width = Math.min(Math.max(maxLen + 4, 12), 45);
+          let maxLen = summaryHeaders[idx] ? summaryHeaders[idx].length : 10;
+          col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+            if (rowNumber >= 7) {
+              const val = cell.value ? String(cell.value) : '';
+              if (val.length > maxLen) maxLen = val.length;
+            }
+          });
+          col.width = Math.min(Math.max(maxLen + 3, 10), 35);
         }
       });
 
@@ -939,8 +1172,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         netWt: targetSubRow?.rollNetWt?.[trimmed] ?? 0,
         avgWtCalculated: targetSubRow?.rollAvgWtCalculated?.[trimmed] ?? 0,
         meters: targetSubRow?.rollMeters?.[trimmed] ?? 0,
-        strength: targetSubRow?.rollStrength?.[trimmed] ?? '',
-        elongation: targetSubRow?.rollElongation?.[trimmed] ?? '',
+        warpStrength: (targetSubRow?.rollWarpStrength && targetSubRow?.rollWarpStrength[trimmed]) ?? (targetSubRow?.rollStrength && targetSubRow?.rollStrength[trimmed]) ?? '',
+        warpElongation: (targetSubRow?.rollWarpElongation && targetSubRow?.rollWarpElongation[trimmed]) ?? (targetSubRow?.rollElongation && targetSubRow?.rollElongation[trimmed]) ?? '',
+        weftStrength: (targetSubRow?.rollWeftStrength && targetSubRow?.rollWeftStrength[trimmed]) ?? '',
+        weftElongation: (targetSubRow?.rollWeftElongation && targetSubRow?.rollWeftElongation[trimmed]) ?? '',
+        strength: (targetSubRow?.rollWarpStrength && targetSubRow?.rollWarpStrength[trimmed]) ?? (targetSubRow?.rollStrength && targetSubRow?.rollStrength[trimmed]) ?? '',
+        elongation: (targetSubRow?.rollWarpElongation && targetSubRow?.rollWarpElongation[trimmed]) ?? (targetSubRow?.rollElongation && targetSubRow?.rollElongation[trimmed]) ?? '',
         quality: targetSubRow?.quality || 'N/A',
         remarks: targetSubRow?.rollRemarks?.[trimmed] || '',
         dispatchStatus: isDispatched ? 'Dispatched' : 'Not Dispatched',
@@ -1078,6 +1315,103 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     return row.productionCompleted || 0;
   };
 
+  const claimUnassignedRollsForOrder = async (
+    targetOrder: LoomOrder,
+    currentOrders: LoomOrder[]
+  ): Promise<LoomOrder> => {
+    const unassignedMaster = currentOrders.find(
+      o => (o.id === 'L_RUNNING_DAY_SHIFTS_MASTER' || o.id === 'UNASSIGNED_ROLLS_MASTER' || o.orderNo === 'LOOM_RUNNING_DAY_SHIFT' || !o.orderNo) &&
+           o.id !== targetOrder.id
+    );
+
+    if (!unassignedMaster || !unassignedMaster.rows || unassignedMaster.rows.length === 0) {
+      return targetOrder;
+    }
+
+    const updatedTarget = JSON.parse(JSON.stringify(targetOrder)) as LoomOrder;
+    const updatedUnassigned = JSON.parse(JSON.stringify(unassignedMaster)) as LoomOrder;
+    let unassignedChanged = false;
+
+    const unassignedMap = new Map<string, { unassignedRow: LoomOrderRow; origRollNo: string }>();
+    updatedUnassigned.rows.forEach(uRow => {
+      (uRow.rollNumbers || []).forEach(rNo => {
+        const trimmed = (rNo || '').trim().toUpperCase();
+        if (trimmed) {
+          unassignedMap.set(trimmed, { unassignedRow: uRow, origRollNo: (rNo || '').trim() });
+        }
+      });
+    });
+
+    if (unassignedMap.size === 0) return targetOrder;
+
+    (updatedTarget.rows || []).forEach(targetRow => {
+      const activeRolls = targetRow.rollNumbers || [];
+      activeRolls.forEach(rNo => {
+        const trimmed = (rNo || '').trim().toUpperCase();
+        const match = unassignedMap.get(trimmed);
+        if (match) {
+          const { unassignedRow, origRollNo } = match;
+
+          const copyMetric = (key: keyof LoomOrderRow) => {
+            const uMap = (unassignedRow[key] || {}) as Record<string, any>;
+            if (uMap && (origRollNo in uMap || trimmed in uMap)) {
+              const val = uMap[origRollNo] !== undefined ? uMap[origRollNo] : uMap[trimmed];
+              (targetRow as any)[key] = { ...((targetRow as any)[key] || {}), [rNo]: val };
+              delete uMap[origRollNo];
+              delete uMap[trimmed];
+            }
+          };
+
+          copyMetric('rollGrossWt');
+          copyMetric('rollCoreWt');
+          copyMetric('rollNetWt');
+          copyMetric('rollAvgWtCalculated');
+          copyMetric('rollMeters');
+          copyMetric('rollWarpStrength');
+          copyMetric('rollWarpElongation');
+          copyMetric('rollWeftStrength');
+          copyMetric('rollWeftElongation');
+          copyMetric('rollStrength');
+          copyMetric('rollElongation');
+          copyMetric('rollRemarks');
+          copyMetric('rollDispatchStatus');
+          copyMetric('rollDispatchDetails');
+
+          unassignedRow.rollNumbers = (unassignedRow.rollNumbers || []).filter(
+            r => (r || '').trim().toUpperCase() !== trimmed
+          );
+          unassignedRow.noOfRolls = unassignedRow.rollNumbers.length;
+
+          unassignedChanged = true;
+        }
+      });
+
+      if (targetRow.rollNetWt && Object.keys(targetRow.rollNetWt).length > 0) {
+        let sumNet = 0;
+        (targetRow.rollNumbers || []).forEach(r => {
+          if (typeof targetRow.rollNetWt?.[r] === 'number') {
+            sumNet += targetRow.rollNetWt[r];
+          }
+        });
+        if (sumNet > 0) {
+          targetRow.productionCompleted = parseFloat(sumNet.toFixed(2));
+        }
+      }
+    });
+
+    if (unassignedChanged) {
+      updatedUnassigned.rows = updatedUnassigned.rows.filter(r => (r.rollNumbers || []).length > 0);
+      updatedUnassigned.orderNo = '';
+      try {
+        await setDoc(doc(db, 'loomOrders', updatedUnassigned.id), updatedUnassigned);
+      } catch (err) {
+        console.error("Failed to update unassigned master order in claimUnassignedRollsForOrder", err);
+      }
+    }
+
+    return updatedTarget;
+  };
+
   const syncRollNumbersStateAndFirestore = async (updatedRolls: string[]) => {
     if (!rollModalContext) return;
 
@@ -1124,11 +1458,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       updatedRows[rollModalContext.subOrderIdx] = targetRow;
 
       try {
+        const orderToSave = await claimUnassignedRollsForOrder({ ...targetOrder, rows: updatedRows }, orders);
         const orderRef = doc(db, 'loomOrders', targetOrder.id);
-        await setDoc(orderRef, {
-          ...targetOrder,
-          rows: updatedRows
-        });
+        await setDoc(orderRef, orderToSave);
       } catch (err) {
         console.error("Failed to update roll numbers in Firestore", err);
         triggerAlert('warn', 'Failed to save roll numbers update to database.');
@@ -1296,11 +1628,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     const updatedRows = [...(targetOrder.rows || []), newSubOrder];
 
     try {
+      const orderToSave = await claimUnassignedRollsForOrder({ ...targetOrder, rows: updatedRows }, orders);
       const orderRef = doc(db, 'loomOrders', targetOrder.id);
-      await setDoc(orderRef, {
-        ...targetOrder,
-        rows: updatedRows
-      });
+      await setDoc(orderRef, orderToSave);
 
       triggerAlert('success', 'New sub-order specification logged successfully.');
       
@@ -1435,11 +1765,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     updatedRows[index] = editedRow;
 
     try {
+      const orderToSave = await claimUnassignedRollsForOrder({ ...targetOrder, rows: updatedRows }, orders);
       const orderRef = doc(db, 'loomOrders', targetOrder.id);
-      await setDoc(orderRef, {
-        ...targetOrder,
-        rows: updatedRows
-      });
+      await setDoc(orderRef, orderToSave);
 
       triggerAlert('success', `Sub-order item #${index + 1} updated successfully.`);
       setEditingRowIndex(null);
@@ -1620,6 +1948,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       netWt: number;
       avgWtCalculated: number;
       meters: number;
+      warpStrength: string | number;
+      warpElongation: string | number;
+      weftStrength: string | number;
+      weftElongation: string | number;
       strength: string | number;
       elongation: string | number;
       quality: string;
@@ -1640,11 +1972,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           if (trimmed) {
             const isDispatched = dispMap[trimmed] === 'Dispatched' || dispList.includes(trimmed);
 
+            const wStrength = (row.rollWarpStrength && row.rollWarpStrength[trimmed]) ?? (row.rollStrength && row.rollStrength[trimmed]) ?? '';
+            const wElongation = (row.rollWarpElongation && row.rollWarpElongation[trimmed]) ?? (row.rollElongation && row.rollElongation[trimmed]) ?? '';
+            const wfStrength = (row.rollWeftStrength && row.rollWeftStrength[trimmed]) ?? '';
+            const wfElongation = (row.rollWeftElongation && row.rollWeftElongation[trimmed]) ?? '';
+
             list.push({
               id: `${order.id}___${subIdx}___${rIdx}___${trimmed}`,
               rollNo: trimmed,
               orderId: order.id,
-              orderNo: order.orderNo,
+              orderNo: (order.id === 'L_RUNNING_DAY_SHIFTS_MASTER' || order.orderNo === 'LOOM_RUNNING_DAY_SHIFT') ? '' : (order.orderNo || ''),
               orderDate: order.date,
               subOrderIdx: subIdx,
               rollNoIdx: rIdx,
@@ -1657,8 +1994,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               netWt: (row.rollNetWt && row.rollNetWt[trimmed]) ?? 0,
               avgWtCalculated: (row.rollAvgWtCalculated && row.rollAvgWtCalculated[trimmed]) ?? 0,
               meters: (row.rollMeters && row.rollMeters[trimmed]) ?? 0,
-              strength: (row.rollStrength && row.rollStrength[trimmed]) ?? '',
-              elongation: (row.rollElongation && row.rollElongation[trimmed]) ?? '',
+              warpStrength: wStrength,
+              warpElongation: wElongation,
+              weftStrength: wfStrength,
+              weftElongation: wfElongation,
+              strength: wStrength,
+              elongation: wElongation,
               quality: row.quality || '',
               remarks: (row.rollRemarks && row.rollRemarks[trimmed]) || '',
               dispatchStatus: isDispatched ? 'Dispatched' : 'Not Dispatched',
@@ -1713,11 +2054,19 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         case 'meters':
           cmp = a.meters - b.meters;
           break;
+        case 'warpStrength':
         case 'strength':
-          cmp = String(a.strength).localeCompare(String(b.strength), undefined, { numeric: true, sensitivity: 'base' });
+          cmp = String(a.warpStrength || a.strength).localeCompare(String(b.warpStrength || b.strength), undefined, { numeric: true, sensitivity: 'base' });
           break;
+        case 'warpElongation':
         case 'elongation':
-          cmp = (Number(a.elongation) || 0) - (Number(b.elongation) || 0);
+          cmp = (Number(a.warpElongation || a.elongation) || 0) - (Number(b.warpElongation || b.elongation) || 0);
+          break;
+        case 'weftStrength':
+          cmp = String(a.weftStrength).localeCompare(String(b.weftStrength), undefined, { numeric: true, sensitivity: 'base' });
+          break;
+        case 'weftElongation':
+          cmp = (Number(a.weftElongation) || 0) - (Number(b.weftElongation) || 0);
           break;
         case 'quality':
           cmp = a.quality.localeCompare(b.quality, undefined, { numeric: true, sensitivity: 'base' });
@@ -1820,6 +2169,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     setMasterEditNetWt(item.netWt ? String(item.netWt) : '');
     setMasterEditAvgWtCalculated(item.avgWtCalculated ? String(item.avgWtCalculated) : '');
     setMasterEditMeters(item.meters ? String(item.meters) : '');
+    setMasterEditWarpStrength(item.warpStrength ? String(item.warpStrength) : (item.strength ? String(item.strength) : ''));
+    setMasterEditWarpElongation(item.warpElongation ? String(item.warpElongation) : (item.elongation ? String(item.elongation) : ''));
+    setMasterEditWeftStrength(item.weftStrength ? String(item.weftStrength) : '');
+    setMasterEditWeftElongation(item.weftElongation ? String(item.weftElongation) : '');
     setMasterEditStrength(item.strength ? String(item.strength) : '');
     setMasterEditElongation(item.elongation ? String(item.elongation) : '');
     setMasterEditQuality(item.quality);
@@ -2276,9 +2629,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
       let periodInfo = 'All Time Dispatches';
       if (dispatchLedgerFilterMode === 'single') {
-        periodInfo = `Date: ${dispatchLedgerSingleDate || 'All'}`;
+        periodInfo = `Date: ${formatDateDDMMMYYYY(dispatchLedgerSingleDate) || 'All'}`;
       } else if (dispatchLedgerFilterMode === 'range') {
-        periodInfo = `Date Range: ${dispatchLedgerStartDate} to ${dispatchLedgerEndDate}`;
+        periodInfo = `Date Range: ${formatDateDDMMMYYYY(dispatchLedgerStartDate)} to ${formatDateDDMMMYYYY(dispatchLedgerEndDate)}`;
       }
 
       const thickBlackBorder = {
@@ -2305,7 +2658,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       // Metrics Summary Block (Rows 2 & 3)
       summarySheet.mergeCells('A2:I2');
       const sumSub = summarySheet.getCell('A2');
-      const printDateDispatchStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      const printDateDispatchStr = `PRINT DATE: ${formatDateDDMMMYYYY(new Date())} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
       sumSub.value = `FILTER PERIOD: ${periodInfo} | CUSTOMER FILTER: ${dispatchLedgerSelectedCustomer} | VEHICLE FILTER: ${dispatchLedgerSelectedVehicle} | ${printDateDispatchStr}`;
       sumSub.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
       sumSub.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -2347,14 +2700,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       const sumHeaderRow = summarySheet.addRow(sumHeaders);
       sumHeaderRow.eachCell((cell) => {
         cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
         cell.border = thickBlackBorder;
       });
 
       // Data Rows - Left aligned by default
       dispatchLedgerSummary.forEach((row) => {
         const r = summarySheet.addRow([
-          row.date,
+          formatDateDDMMMYYYY(row.date),
           row.quality,
           row.size,
           row.gsm,
@@ -2368,7 +2721,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         r.eachCell((cell, colNumber) => {
           cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
           cell.alignment = { 
-            horizontal: colNumber === 5 ? 'center' : 'left', 
+            horizontal: 'left', 
             vertical: 'middle',
             wrapText: colNumber === 6
           };
@@ -2406,12 +2759,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         if (colNum === 6) {
           col.width = 45;
         } else {
-          let maxLen = 16;
-          col.eachCell?.({ includeEmpty: false }, (cell) => {
-            const val = cell.value ? String(cell.value) : '';
-            if (val.length > maxLen) maxLen = Math.min(val.length + 4, 40);
+          let maxLen = sumHeaders[idx] ? sumHeaders[idx].length : 10;
+          col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+            if (rowNumber >= 5) {
+              const val = cell.value ? String(cell.value) : '';
+              if (val.length > maxLen) maxLen = val.length;
+            }
           });
-          col.width = maxLen;
+          col.width = Math.min(Math.max(maxLen + 3, 10), 40);
         }
       });
 
@@ -2477,14 +2832,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       const headerRow = worksheet.addRow(headers);
       headerRow.eachCell((cell) => {
         cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
         cell.border = thickBlackBorder;
       });
 
       // Data Rows - Left aligned by default
       sortedDispatchLedgerData.forEach((item) => {
         const d = item.dispatchDetails || {};
-        const dDate = d.dispatchDate || item.orderDate || '';
+        const dDate = formatDateDDMMMYYYY(d.dispatchDate || item.orderDate);
         const driverInfo = [d.driverName, d.driverPhone].filter(Boolean).join(' - ') || '—';
         const wt = d.dispatchedWeight !== undefined ? d.dispatchedWeight : (item.netWt || 0);
         const m = d.dispatchedMeters !== undefined ? d.dispatchedMeters : (item.meters || 0);
@@ -2541,13 +2896,191 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         }
       });
 
-      worksheet.columns.forEach((col) => {
-        let maxLen = 14;
-        col.eachCell?.({ includeEmpty: false }, (cell) => {
-          const val = cell.value ? String(cell.value) : '';
-          if (val.length > maxLen) maxLen = Math.min(val.length + 4, 40);
+      worksheet.columns.forEach((col, idx) => {
+        let maxLen = headers[idx] ? headers[idx].length : 10;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= 5) {
+            const val = cell.value ? String(cell.value) : '';
+            if (val.length > maxLen) maxLen = val.length;
+          }
         });
-        col.width = maxLen;
+        col.width = Math.min(Math.max(maxLen + 3, 10), 40);
+      });
+
+      // --- SHEET 3: DISPATCHED ROLLS SPECIFICATIONS & DATA ---
+      const rollSheet = workbook.addWorksheet('Dispatched Rolls Data');
+      rollSheet.views = [{ showGridLines: true }];
+
+      // Unique Sets for Metrics Banner
+      const uniqueVehiclesSet = new Set<string>();
+      const uniqueInvoicesSet = new Set<string>();
+      const uniqueCustomersSet = new Set<string>();
+      const uniqueDatesSet = new Set<string>();
+
+      sortedDispatchLedgerData.forEach((item) => {
+        const d = item.dispatchDetails || {};
+        if (d.vehicleNo?.trim()) uniqueVehiclesSet.add(d.vehicleNo.trim().toUpperCase());
+        if (d.invoiceNo?.trim()) uniqueInvoicesSet.add(d.invoiceNo.trim().toUpperCase());
+        else if (d.challanNo?.trim()) uniqueInvoicesSet.add(d.challanNo.trim().toUpperCase());
+
+        const cust = d.customerName || item.customerName || '';
+        if (cust.trim()) uniqueCustomersSet.add(cust.trim());
+
+        const dt = formatDateDDMMMYYYY(d.dispatchDate || item.orderDate);
+        if (dt && dt !== '—') uniqueDatesSet.add(dt);
+      });
+
+      const vehiclesListStr = Array.from(uniqueVehiclesSet).slice(0, 5).join(', ') + (uniqueVehiclesSet.size > 5 ? ` (+${uniqueVehiclesSet.size - 5} more)` : '');
+      const invoicesListStr = Array.from(uniqueInvoicesSet).slice(0, 5).join(', ') + (uniqueInvoicesSet.size > 5 ? ` (+${uniqueInvoicesSet.size - 5} more)` : '');
+      const customersListStr = Array.from(uniqueCustomersSet).slice(0, 5).join(', ') + (uniqueCustomersSet.size > 5 ? ` (+${uniqueCustomersSet.size - 5} more)` : '');
+      const datesListStr = Array.from(uniqueDatesSet).slice(0, 5).join(', ') + (uniqueDatesSet.size > 5 ? ` (+${uniqueDatesSet.size - 5} more)` : '');
+
+      // Title Banner (Row 1)
+      rollSheet.mergeCells('A1:I1');
+      const rollTitleCell = rollSheet.getCell('A1');
+      rollTitleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • DISPATCHED ROLLS SPECIFICATION LEDGER';
+      rollTitleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
+      rollTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      for (let col = 1; col <= 9; col++) {
+        rollSheet.getCell(1, col).border = thickBlackBorder;
+      }
+
+      // Metrics Summary Block (Rows 2, 3 & 4)
+      rollSheet.mergeCells('A2:I2');
+      const rollSubCell = rollSheet.getCell('A2');
+      rollSubCell.value = `FILTER PERIOD: ${periodInfo} | CUSTOMER FILTER: ${dispatchLedgerSelectedCustomer} | VEHICLE FILTER: ${dispatchLedgerSelectedVehicle} | ${printDateDispatchStr}`;
+      rollSubCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+      rollSubCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      rollSheet.mergeCells('A3:C3');
+      rollSheet.mergeCells('D3:F3');
+      rollSheet.mergeCells('G3:I3');
+
+      rollSheet.getCell('A3').value = `Total Rolls Dispatched: ${dispatchLedgerTotals.totalRolls}`;
+      rollSheet.getCell('D3').value = `Total Weight Dispatched: ${dispatchLedgerTotals.totalWeight.toLocaleString('en-IN', { maximumFractionDigits: 2 })} kg (${dispatchLedgerTotals.totalWeightTons} MT)`;
+      rollSheet.getCell('G3').value = `Total Meters Dispatched: ${dispatchLedgerTotals.totalMeters.toLocaleString('en-IN', { maximumFractionDigits: 1 })} m`;
+
+      rollSheet.mergeCells('A4:C4');
+      rollSheet.mergeCells('D4:F4');
+      rollSheet.mergeCells('G4:I4');
+
+      rollSheet.getCell('A4').value = `Dispatch Date(s): ${datesListStr || periodInfo || '—'}`;
+      rollSheet.getCell('D4').value = `Customer(s): ${customersListStr || dispatchLedgerSelectedCustomer || '—'}`;
+      rollSheet.getCell('G4').value = `Vehicles: ${vehiclesListStr || '—'} | Invoices: ${invoicesListStr || '—'}`;
+
+      for (let r = 2; r <= 4; r++) {
+        for (let col = 1; col <= 9; col++) {
+          const cell = rollSheet.getCell(r, col);
+          cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          cell.border = thickBlackBorder;
+        }
+      }
+
+      rollSheet.addRow([]); // Blank row (Row 5)
+
+      // Table Headers (Row 6)
+      const rollHeaders = [
+        'Roll Number',
+        'Size',
+        'GSM',
+        'Gross Weight (kg)',
+        'Core Width / Wt (kg)',
+        'Net Weight (kg)',
+        'Meters (m)',
+        'Average Weight Calculated (g)',
+        'Quality'
+      ];
+
+      const rollHeaderRow = rollSheet.addRow(rollHeaders);
+      rollHeaderRow.eachCell((cell) => {
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+      });
+
+      // Data Rows
+      let totRollGross = 0;
+      let totRollCore = 0;
+      let totRollNet = 0;
+      let totRollMeters = 0;
+      let totRollAvgWtSum = 0;
+
+      sortedDispatchLedgerData.forEach((item) => {
+        const d = item.dispatchDetails || {};
+        const gross = item.grossWt || 0;
+        const core = item.coreWt || (item as any).coreWidth || 0;
+        const net = d.dispatchedWeight !== undefined ? d.dispatchedWeight : (item.netWt || 0);
+        const meters = d.dispatchedMeters !== undefined ? d.dispatchedMeters : (item.meters || 0);
+        const avgWt = item.avgWtCalculated || 0;
+
+        totRollGross += gross;
+        totRollCore += core;
+        totRollNet += net;
+        totRollMeters += meters;
+        totRollAvgWtSum += avgWt;
+
+        const r = rollSheet.addRow([
+          item.rollNo,
+          item.size || '—',
+          item.gsm || '—',
+          gross,
+          core,
+          net,
+          meters,
+          avgWt,
+          item.quality || '—'
+        ]);
+
+        r.eachCell((cell, colNumber) => {
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+          cell.alignment = { 
+            horizontal: 'left', 
+            vertical: 'middle' 
+          };
+          cell.border = thickBlackBorder;
+          if (colNumber >= 4 && colNumber <= 8) {
+            cell.numFmt = '#,##0.00';
+          }
+        });
+      });
+
+      // Total Row
+      const rollTotalRow = rollSheet.addRow([
+        'TOTALS',
+        `${dispatchLedgerTotals.totalRolls} Rolls`,
+        '',
+        totRollGross,
+        totRollCore,
+        totRollNet,
+        totRollMeters,
+        sortedDispatchLedgerData.length > 0 ? parseFloat((totRollAvgWtSum / sortedDispatchLedgerData.length).toFixed(2)) : 0,
+        ''
+      ]);
+
+      rollTotalRow.eachCell((cell, colNumber) => {
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { 
+          horizontal: 'left', 
+          vertical: 'middle' 
+        };
+        cell.border = thickBlackBorder;
+        if (colNumber >= 4 && colNumber <= 8) {
+          cell.numFmt = '#,##0.00';
+        }
+      });
+
+      // Column Auto-Widths
+      rollSheet.columns.forEach((col, idx) => {
+        let maxLen = rollHeaders[idx] ? rollHeaders[idx].length : 10;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= 6) {
+            const val = cell.value ? String(cell.value) : '';
+            const lines = val.split('\n');
+            lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+          }
+        });
+        col.width = Math.min(Math.max(maxLen + 3, 10), 40);
       });
 
       const buffer = await workbook.xlsx.writeBuffer();
@@ -2869,6 +3402,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     const existingRollNetWt = { ...(targetRow.rollNetWt || {}) };
     const existingRollAvgWtCalculated = { ...(targetRow.rollAvgWtCalculated || {}) };
     const existingRollMeters = { ...(targetRow.rollMeters || {}) };
+    const existingRollWarpStrength = { ...(targetRow.rollWarpStrength || {}) };
+    const existingRollWarpElongation = { ...(targetRow.rollWarpElongation || {}) };
+    const existingRollWeftStrength = { ...(targetRow.rollWeftStrength || {}) };
+    const existingRollWeftElongation = { ...(targetRow.rollWeftElongation || {}) };
     const existingRollStrength = { ...(targetRow.rollStrength || {}) };
     const existingRollElongation = { ...(targetRow.rollElongation || {}) };
 
@@ -2879,6 +3416,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       if (item.rollNo in existingRollNetWt) delete existingRollNetWt[item.rollNo];
       if (item.rollNo in existingRollAvgWtCalculated) delete existingRollAvgWtCalculated[item.rollNo];
       if (item.rollNo in existingRollMeters) delete existingRollMeters[item.rollNo];
+      if (item.rollNo in existingRollWarpStrength) delete existingRollWarpStrength[item.rollNo];
+      if (item.rollNo in existingRollWarpElongation) delete existingRollWarpElongation[item.rollNo];
+      if (item.rollNo in existingRollWeftStrength) delete existingRollWeftStrength[item.rollNo];
+      if (item.rollNo in existingRollWeftElongation) delete existingRollWeftElongation[item.rollNo];
       if (item.rollNo in existingRollStrength) delete existingRollStrength[item.rollNo];
       if (item.rollNo in existingRollElongation) delete existingRollElongation[item.rollNo];
     }
@@ -2889,8 +3430,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     existingRollNetWt[trimmedNewRollNo] = Number(masterEditNetWt) || 0;
     existingRollAvgWtCalculated[trimmedNewRollNo] = Number(masterEditAvgWtCalculated) || 0;
     existingRollMeters[trimmedNewRollNo] = Number(masterEditMeters) || 0;
-    existingRollStrength[trimmedNewRollNo] = masterEditStrength.trim();
-    existingRollElongation[trimmedNewRollNo] = masterEditElongation.trim();
+    existingRollWarpStrength[trimmedNewRollNo] = masterEditWarpStrength.trim();
+    existingRollWarpElongation[trimmedNewRollNo] = masterEditWarpElongation.trim();
+    existingRollWeftStrength[trimmedNewRollNo] = masterEditWeftStrength.trim();
+    existingRollWeftElongation[trimmedNewRollNo] = masterEditWeftElongation.trim();
+    existingRollStrength[trimmedNewRollNo] = (masterEditWarpStrength || masterEditStrength).trim();
+    existingRollElongation[trimmedNewRollNo] = (masterEditWarpElongation || masterEditElongation).trim();
 
     targetRow.rollRemarks = existingRollRemarks;
     targetRow.rollGrossWt = existingRollGrossWt;
@@ -2898,6 +3443,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     targetRow.rollNetWt = existingRollNetWt;
     targetRow.rollAvgWtCalculated = existingRollAvgWtCalculated;
     targetRow.rollMeters = existingRollMeters;
+    targetRow.rollWarpStrength = existingRollWarpStrength;
+    targetRow.rollWarpElongation = existingRollWarpElongation;
+    targetRow.rollWeftStrength = existingRollWeftStrength;
+    targetRow.rollWeftElongation = existingRollWeftElongation;
     targetRow.rollStrength = existingRollStrength;
     targetRow.rollElongation = existingRollElongation;
 
@@ -2980,6 +3529,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     if (targetRow.rollNetWt) { const m = { ...targetRow.rollNetWt }; delete m[item.rollNo]; targetRow.rollNetWt = m; }
     if (targetRow.rollAvgWtCalculated) { const m = { ...targetRow.rollAvgWtCalculated }; delete m[item.rollNo]; targetRow.rollAvgWtCalculated = m; }
     if (targetRow.rollMeters) { const m = { ...targetRow.rollMeters }; delete m[item.rollNo]; targetRow.rollMeters = m; }
+    if (targetRow.rollWarpStrength) { const m = { ...targetRow.rollWarpStrength }; delete m[item.rollNo]; targetRow.rollWarpStrength = m; }
+    if (targetRow.rollWarpElongation) { const m = { ...targetRow.rollWarpElongation }; delete m[item.rollNo]; targetRow.rollWarpElongation = m; }
+    if (targetRow.rollWeftStrength) { const m = { ...targetRow.rollWeftStrength }; delete m[item.rollNo]; targetRow.rollWeftStrength = m; }
+    if (targetRow.rollWeftElongation) { const m = { ...targetRow.rollWeftElongation }; delete m[item.rollNo]; targetRow.rollWeftElongation = m; }
     if (targetRow.rollStrength) { const m = { ...targetRow.rollStrength }; delete m[item.rollNo]; targetRow.rollStrength = m; }
     if (targetRow.rollElongation) { const m = { ...targetRow.rollElongation }; delete m[item.rollNo]; targetRow.rollElongation = m; }
 
@@ -3047,11 +3600,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     updatedRows[ledgerAddSubOrderIdx] = targetRow;
 
     try {
+      const orderToSave = await claimUnassignedRollsForOrder({ ...targetOrder, rows: updatedRows }, orders);
       const orderRef = doc(db, 'loomOrders', targetOrder.id);
-      await setDoc(orderRef, {
-        ...targetOrder,
-        rows: updatedRows
-      });
+      await setDoc(orderRef, orderToSave);
       setLedgerAddRollNo('');
       setIsAddingRollInLedger(false);
       triggerAlert('success', `Added Roll "${trimmedRollNo}" to Order #${targetOrder.orderNo}.`);
@@ -3126,6 +3677,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
             else if (txt.includes('core wt')) colMap['coreWt'] = colIndex;
             else if (txt.includes('net wt')) colMap['netWt'] = colIndex;
             else if (txt.includes('meter') || txt === 'mtr') colMap['meters'] = colIndex;
+            else if (txt.includes('warp strength')) colMap['warpStrength'] = colIndex;
+            else if (txt.includes('warp elongation')) colMap['warpElongation'] = colIndex;
+            else if (txt.includes('weft strength')) colMap['weftStrength'] = colIndex;
+            else if (txt.includes('weft elongation')) colMap['weftElongation'] = colIndex;
             else if (txt.includes('strength')) colMap['strength'] = colIndex;
             else if (txt.includes('elongation')) colMap['elongation'] = colIndex;
             else if (txt.includes('weave quality') || txt.includes('quality')) colMap['quality'] = colIndex;
@@ -3178,6 +3733,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         if (!rowObj.rollMeters) rowObj.rollMeters = {};
         if (!rowObj.rollStrength) rowObj.rollStrength = {};
         if (!rowObj.rollElongation) rowObj.rollElongation = {};
+        if (!rowObj.rollWarpStrength) rowObj.rollWarpStrength = {};
+        if (!rowObj.rollWarpElongation) rowObj.rollWarpElongation = {};
+        if (!rowObj.rollWeftStrength) rowObj.rollWeftStrength = {};
+        if (!rowObj.rollWeftElongation) rowObj.rollWeftElongation = {};
         if (!rowObj.rollRemarks) rowObj.rollRemarks = {};
         if (!rowObj.rollDispatchStatus) rowObj.rollDispatchStatus = {};
         if (!rowObj.dispatchedRolls) rowObj.dispatchedRolls = [];
@@ -3212,11 +3771,27 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         const metersVal = getCol('meters');
         if (metersVal !== undefined && metersVal !== '') rowObj.rollMeters[item.rollNo] = Number(metersVal) || 0;
 
-        const strengthVal = getCol('strength');
-        if (strengthVal !== undefined && strengthVal !== '') rowObj.rollStrength[item.rollNo] = String(strengthVal).trim();
+        const warpStrVal = getCol('warpStrength') ?? getCol('strength');
+        if (warpStrVal !== undefined && warpStrVal !== '') {
+          rowObj.rollWarpStrength[item.rollNo] = String(warpStrVal).trim();
+          rowObj.rollStrength[item.rollNo] = String(warpStrVal).trim();
+        }
 
-        const elongationVal = getCol('elongation');
-        if (elongationVal !== undefined && elongationVal !== '') rowObj.rollElongation[item.rollNo] = String(elongationVal).trim();
+        const warpEloVal = getCol('warpElongation') ?? getCol('elongation');
+        if (warpEloVal !== undefined && warpEloVal !== '') {
+          rowObj.rollWarpElongation[item.rollNo] = String(warpEloVal).trim();
+          rowObj.rollElongation[item.rollNo] = String(warpEloVal).trim();
+        }
+
+        const weftStrVal = getCol('weftStrength');
+        if (weftStrVal !== undefined && weftStrVal !== '') {
+          rowObj.rollWeftStrength[item.rollNo] = String(weftStrVal).trim();
+        }
+
+        const weftEloVal = getCol('weftElongation');
+        if (weftEloVal !== undefined && weftEloVal !== '') {
+          rowObj.rollWeftElongation[item.rollNo] = String(weftEloVal).trim();
+        }
 
         const remarksVal = getCol('remarks');
         if (remarksVal !== undefined && remarksVal !== '') rowObj.rollRemarks[item.rollNo] = String(remarksVal).trim();
@@ -3302,15 +3877,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       };
 
       // 1. TOP BANNER ROW (Row 1)
-      worksheet.mergeCells('A1:O1');
+      worksheet.mergeCells('A1:R1');
       const titleCell = worksheet.getCell('A1');
-      const printDateMasterStr = `PRINT DATE: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      const printDateMasterStr = `PRINT DATE: ${formatDateDDMMMYYYY(new Date())} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
       titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • MASTER ROLL DIRECTORY LEDGER - ${modeTitle} • ${printDateMasterStr}`;
       titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(1).height = 42;
 
-      for (let col = 1; col <= 15; col++) {
+      for (let col = 1; col <= 18; col++) {
         worksheet.getRow(1).getCell(col).border = thickBlackBorder;
       }
 
@@ -3327,12 +3902,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       worksheet.mergeCells('G2:I2');
       worksheet.mergeCells('J2:L2');
       worksheet.mergeCells('M2:O2');
+      worksheet.mergeCells('P2:R2');
 
       worksheet.mergeCells('A3:C3');
       worksheet.mergeCells('D3:F3');
       worksheet.mergeCells('G3:I3');
       worksheet.mergeCells('J3:L3');
       worksheet.mergeCells('M3:O3');
+      worksheet.mergeCells('P3:R3');
 
       worksheet.getRow(2).height = 20;
       worksheet.getRow(3).height = 24;
@@ -3342,14 +3919,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       worksheet.getCell('G2').value = 'Non-Dispatched Rolls:';
       worksheet.getCell('J2').value = 'Total Net Weight:';
       worksheet.getCell('M2').value = 'Total Fabric Meters:';
+      worksheet.getCell('P2').value = 'Report Orders:';
 
       worksheet.getCell('A3').value = `${totalCount} Rolls`;
       worksheet.getCell('D3').value = `${dispCount} Rolls (${totalCount > 0 ? Math.round((dispCount / totalCount) * 100) : 0}%)`;
       worksheet.getCell('G3').value = `${notDispCount} Rolls (${totalCount > 0 ? Math.round((notDispCount / totalCount) * 100) : 0}%)`;
       worksheet.getCell('J3').value = `${sumNetWeight.toFixed(2)} KG`;
       worksheet.getCell('M3').value = `${sumTotalMeters.toLocaleString()} Meters`;
+      worksheet.getCell('P3').value = `${selectedMasterExportOrderIds.length} Orders`;
 
-      for (let col = 1; col <= 15; col++) {
+      for (let col = 1; col <= 18; col++) {
         [2, 3].forEach(r => {
           const c = worksheet.getRow(r).getCell(col);
           c.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
@@ -3372,10 +3951,13 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         'Core Wt (kg)',
         'Net Wt (kg)',
         'Meters',
-        'Strength',
-        'Elongation (%)',
+        'Warp Strength',
+        'Warp Elongation (%)',
+        'Weft Strength',
+        'Weft Elongation (%)',
         'Weave Quality',
-        'Dispatch Status'
+        'Dispatch Status',
+        'Remarks'
       ];
 
       const headerRow = worksheet.getRow(5);
@@ -3410,10 +3992,13 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           item.coreWt || 0,
           item.netWt || 0,
           item.meters || 0,
-          item.strength || '-',
-          item.elongation || '-',
+          item.warpStrength || item.strength || '-',
+          item.warpElongation || item.elongation || '-',
+          item.weftStrength || '-',
+          item.weftElongation || '-',
           item.quality,
-          item.dispatchStatus
+          item.dispatchStatus,
+          item.remarks || '-'
         ];
 
         rowValues.forEach((val, colIdx) => {
@@ -3436,7 +4021,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       // 5. TOTALS ROW AT BOTTOM
       const totalsRow = worksheet.getRow(currentR);
       totalsRow.height = 26;
-      for (let c = 1; c <= 15; c++) {
+      for (let c = 1; c <= 18; c++) {
         const cell = totalsRow.getCell(c);
         cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
         cell.alignment = { horizontal: 'left', vertical: 'middle' };
@@ -3459,15 +4044,287 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       totalsRow.getCell(11).value = totMeters;
       totalsRow.getCell(11).numFmt = '#,##0';
 
-      // 5. COLUMN WIDTHS (Auto-adjusted to show all data)
+      // 5. COLUMN WIDTHS (Auto-adjusted to fit data)
       worksheet.columns.forEach((col, idx) => {
-        let maxLen = headers[idx] ? headers[idx].length : 12;
-        col.eachCell?.({ includeEmpty: false }, (cell) => {
-          const val = cell.value ? String(cell.value) : '';
-          const lines = val.split('\n');
-          lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+        let maxLen = headers[idx] ? headers[idx].length : 10;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= 5) {
+            const val = cell.value ? String(cell.value) : '';
+            const lines = val.split('\n');
+            lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+          }
         });
-        col.width = Math.min(Math.max(maxLen + 4, 12), 45);
+        col.width = Math.min(Math.max(maxLen + 3, 10), 40);
+      });
+
+      // --- SHEET 2: SUMMARY WORKSHEET ---
+      const summarySheet = workbook.addWorksheet('Summary');
+      summarySheet.views = [{ showGridLines: true }];
+
+      // Grouping logic for Summary
+      const summaryMap = new Map<string, {
+        quality: string;
+        size: string;
+        gsm: number;
+        denier: number;
+        noOfRolls: number;
+        rollNos: string[];
+        totalNetWeight: number;
+        totalMeters: number;
+      }>();
+
+      filteredData.forEach((item) => {
+        const quality = item.quality?.trim() || 'Unspecified';
+        const size = item.size?.trim() || 'Unspecified';
+        const gsm = item.gsm !== undefined && item.gsm !== null && item.gsm !== '' ? Number(item.gsm) : 0;
+        const denier = item.denier !== undefined && item.denier !== null && item.denier !== '' ? Number(item.denier) : 0;
+
+        const key = `${quality.toLowerCase()}|||${size.toLowerCase()}|||${gsm}|||${denier}`;
+
+        if (!summaryMap.has(key)) {
+          summaryMap.set(key, {
+            quality,
+            size,
+            gsm,
+            denier,
+            noOfRolls: 0,
+            rollNos: [],
+            totalNetWeight: 0,
+            totalMeters: 0,
+          });
+        }
+
+        const group = summaryMap.get(key)!;
+        group.noOfRolls += 1;
+        if (item.rollNo) {
+          group.rollNos.push(String(item.rollNo).trim());
+        }
+        group.totalNetWeight += Number(item.netWt) || 0;
+        group.totalMeters += Number(item.meters) || 0;
+      });
+
+      const summaryList = Array.from(summaryMap.values()).map((group) => {
+        const sortedRolls = Array.from(new Set(group.rollNos)).sort((a, b) => {
+          const numA = parseFloat(a);
+          const numB = parseFloat(b);
+          if (!isNaN(numA) && !isNaN(numB)) {
+            return numA - numB;
+          }
+          return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+        });
+        return {
+          ...group,
+          rollNosListStr: sortedRolls.join(', ')
+        };
+      });
+
+      // Sort first by quality, then size, then gsm, then denier
+      summaryList.sort((a, b) => {
+        const qualComp = a.quality.localeCompare(b.quality, undefined, { sensitivity: 'base' });
+        if (qualComp !== 0) return qualComp;
+
+        const sizeComp = a.size.localeCompare(b.size, undefined, { numeric: true, sensitivity: 'base' });
+        if (sizeComp !== 0) return sizeComp;
+
+        if (a.gsm !== b.gsm) return a.gsm - b.gsm;
+
+        return a.denier - b.denier;
+      });
+
+      // Pre-calculate overall summary totals for top metrics
+      const overallTotalNetWt = summaryList.reduce((sum, g) => sum + g.totalNetWeight, 0);
+      const overallTotalRolls = summaryList.reduce((sum, g) => sum + g.noOfRolls, 0);
+      const overallTotalMeters = summaryList.reduce((sum, g) => sum + g.totalMeters, 0);
+
+      // Banner / Header on Summary Sheet
+      summarySheet.mergeCells('A1:I1');
+      const sumTitleCell = summarySheet.getCell('A1');
+      sumTitleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • MASTER ROLL LEDGER SUMMARY REPORT - ${modeTitle}`;
+      sumTitleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
+      sumTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      summarySheet.getRow(1).height = 36;
+
+      summarySheet.mergeCells('A2:I2');
+      const sumSubCell = summarySheet.getCell('A2');
+      sumSubCell.value = `SELECTED ORDERS: ${selectedMasterExportOrderIds.length} | FILTER OPTION: ${selectedOption.toUpperCase()} | ${printDateMasterStr}`;
+      sumSubCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+      sumSubCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      summarySheet.getRow(2).height = 22;
+
+      for (let col = 1; col <= 9; col++) {
+        summarySheet.getRow(1).getCell(col).border = thickBlackBorder;
+        summarySheet.getRow(2).getCell(col).border = thickBlackBorder;
+      }
+
+      summarySheet.getRow(3).height = 10; // blank row space
+
+      // --- TOP METRICS CARDS (Rows 4 & 5) ---
+      // Metric 1: Total Net Wt (kgs) [A4:C4 & A5:C5]
+      summarySheet.mergeCells('A4:C4');
+      summarySheet.mergeCells('A5:C5');
+      const m1Label = summarySheet.getCell('A4');
+      m1Label.value = 'TOTAL NET WT (KGS)';
+      m1Label.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+      m1Label.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      const m1Val = summarySheet.getCell('A5');
+      m1Val.value = overallTotalNetWt;
+      m1Val.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      m1Val.alignment = { horizontal: 'center', vertical: 'middle' };
+      m1Val.numFmt = '#,##0.00';
+
+      // Metric 2: Total No of Rolls [D4:F4 & D5:F5]
+      summarySheet.mergeCells('D4:F4');
+      summarySheet.mergeCells('D5:F5');
+      const m2Label = summarySheet.getCell('D4');
+      m2Label.value = 'TOTAL NO OF ROLLS';
+      m2Label.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+      m2Label.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      const m2Val = summarySheet.getCell('D5');
+      m2Val.value = overallTotalRolls;
+      m2Val.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      m2Val.alignment = { horizontal: 'center', vertical: 'middle' };
+      m2Val.numFmt = '#,##0';
+
+      // Metric 3: Total Meters [G4:I4 & G5:I5]
+      summarySheet.mergeCells('G4:I4');
+      summarySheet.mergeCells('G5:I5');
+      const m3Label = summarySheet.getCell('G4');
+      m3Label.value = 'TOTAL METERS';
+      m3Label.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+      m3Label.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      const m3Val = summarySheet.getCell('G5');
+      m3Val.value = overallTotalMeters;
+      m3Val.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      m3Val.alignment = { horizontal: 'center', vertical: 'middle' };
+      m3Val.numFmt = '#,##0';
+
+      summarySheet.getRow(4).height = 20;
+      summarySheet.getRow(5).height = 30;
+
+      // Apply borders to metric card cells A4:I5
+      for (let col = 1; col <= 9; col++) {
+        summarySheet.getRow(4).getCell(col).border = thickBlackBorder;
+        summarySheet.getRow(5).getCell(col).border = thickBlackBorder;
+      }
+
+      summarySheet.getRow(6).height = 12; // blank row space
+
+      // Table Headers (Row 7)
+      const summaryHeaders = [
+        'S No',
+        'Quality',
+        'Size',
+        'GSM',
+        'DENIER',
+        'No of rolls',
+        'Roll nos list',
+        'Total net weight (kgs)',
+        'Total Meters'
+      ];
+
+      const sumHeaderRow = summarySheet.getRow(7);
+      sumHeaderRow.height = 28;
+      summaryHeaders.forEach((h, idx) => {
+        const cell = sumHeaderRow.getCell(idx + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+      });
+
+      let sumR = 8;
+      let sumTotRolls = 0;
+      let sumTotNetWt = 0;
+      let sumTotMeters = 0;
+
+      summaryList.forEach((group, index) => {
+        const r = summarySheet.getRow(sumR);
+        r.height = 22;
+
+        sumTotRolls += group.noOfRolls;
+        sumTotNetWt += group.totalNetWeight;
+        sumTotMeters += group.totalMeters;
+
+        const rowVals = [
+          index + 1,
+          group.quality,
+          group.size,
+          group.gsm || '—',
+          group.denier || '—',
+          group.noOfRolls,
+          group.rollNosListStr,
+          group.totalNetWeight,
+          group.totalMeters
+        ];
+
+        rowVals.forEach((val, colIdx) => {
+          const cell = r.getCell(colIdx + 1);
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+          cell.border = thickBlackBorder;
+
+          if (colIdx === 0) { // S No
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else if (colIdx === 1) { // Quality
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          } else if (colIdx >= 2 && colIdx <= 4) { // Size, GSM, Denier
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else if (colIdx === 5) { // No of rolls
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.numFmt = '#,##0';
+          } else if (colIdx === 6) { // Roll nos list
+            cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+          } else if (colIdx === 7) { // Total net weight
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.numFmt = '#,##0.00';
+          } else if (colIdx === 8) { // Total Meters
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.numFmt = '#,##0';
+          }
+        });
+
+        sumR++;
+      });
+
+      // Summary Grand Total Row
+      const sumTotalsRow = summarySheet.getRow(sumR);
+      sumTotalsRow.height = 26;
+      for (let c = 1; c <= 9; c++) {
+        const cell = sumTotalsRow.getCell(c);
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.border = thickBlackBorder;
+      }
+
+      sumTotalsRow.getCell(1).value = 'GRAND TOTAL';
+      sumTotalsRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+      sumTotalsRow.getCell(6).value = sumTotRolls;
+      sumTotalsRow.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' };
+      sumTotalsRow.getCell(6).numFmt = '#,##0';
+      sumTotalsRow.getCell(8).value = sumTotNetWt;
+      sumTotalsRow.getCell(8).alignment = { horizontal: 'right', vertical: 'middle' };
+      sumTotalsRow.getCell(8).numFmt = '#,##0.00';
+      sumTotalsRow.getCell(9).value = sumTotMeters;
+      sumTotalsRow.getCell(9).alignment = { horizontal: 'right', vertical: 'middle' };
+      sumTotalsRow.getCell(9).numFmt = '#,##0';
+
+      // Column Auto-Widths for Summary Sheet
+      summarySheet.columns.forEach((col, idx) => {
+        const colNum = idx + 1;
+        if (colNum === 7) { // Roll nos list column
+          col.width = 45;
+        } else {
+          let maxLen = summaryHeaders[idx] ? summaryHeaders[idx].length : 10;
+          col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+            if (rowNumber >= 7) {
+              const val = cell.value ? String(cell.value) : '';
+              if (val.length > maxLen) maxLen = val.length;
+            }
+          });
+          col.width = Math.min(Math.max(maxLen + 3, 10), 35);
+        }
       });
 
       const dateStr = new Date().toISOString().split('T')[0];
@@ -3622,7 +4479,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="loom-main-content">
         
         {/* ================= LEFT COLUMN: CARBON BLACK ACTIVE ORDER CONSOLE ================= */}
-        <div className="lg:col-span-4 flex flex-col gap-5">
+        <div className="lg:col-span-4 xl:col-span-3 flex flex-col gap-5">
           
           <div className="bg-zinc-950 text-zinc-100 rounded-3xl border border-zinc-800 shadow-xl p-5 md:p-6" id="loom-create-parent-console">
             <div className="border-b border-zinc-800 pb-3.5 mb-4 flex items-center justify-between">
@@ -3718,7 +4575,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         </div>
 
         {/* ================= RIGHT COLUMN: STUNNING LEDGER SHEET VIEW (OPTION A) ================= */}
-        <div className="lg:col-span-8 flex flex-col min-h-[500px]" id="loom-orders-schedule-ledger">
+        <div className="lg:col-span-8 xl:col-span-9 flex flex-col min-h-[500px]" id="loom-orders-schedule-ledger">
           
           {/* Advanced Controls Card */}
           <div className="bg-white rounded-3xl border border-zinc-200 p-4 mb-4 shadow-3xs" id="loom-search-box">
@@ -3834,16 +4691,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           {/* Payroll Ledger Style Grid layout (Option A) */}
           <div className="bg-white rounded-3xl border border-zinc-200 shadow-md overflow-hidden flex-1 flex flex-col">
             {/* Desktop View Table */}
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden md:block overflow-x-auto w-full">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-zinc-950 text-zinc-200 border-b border-zinc-800">
                     <th className="py-3.5 px-4 text-[10.5px] font-black uppercase tracking-wider">Order No / ID</th>
-                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-center w-[95px]">Total Specs</th>
-                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-right whitespace-nowrap w-[125px]">Target Weight (KG)</th>
-                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider w-[125px]">Completion Progress</th>
-                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-center w-[85px]">Status</th>
-                    <th className="py-3.5 px-4 text-[10.5px] font-black uppercase tracking-wider text-right w-[125px]">Actions</th>
+                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-center">Total Specs</th>
+                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-right whitespace-nowrap">Target Weight (KG)</th>
+                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider">Completion Progress</th>
+                    <th className="py-3.5 px-3 text-[10.5px] font-black uppercase tracking-wider text-center">Status</th>
+                    <th className="py-3.5 px-4 text-[10.5px] font-black uppercase tracking-wider text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200">
@@ -3882,15 +4739,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                         Completed: 'bg-emerald-50 text-emerald-800 border border-emerald-200 font-extrabold'
                       };
 
-                      // Format display date neatly (e.g. "23 Jun 2026")
-                      let displayDate = order.date;
-                      try {
-                        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                        const [yr, mo, dy] = order.date.split('-');
-                        if (yr && mo && dy) {
-                          displayDate = `${dy} ${months[parseInt(mo, 10) - 1]} ${yr}`;
-                        }
-                      } catch (e) {}
+                      // Format display date neatly (e.g. "23-JUN-2026")
+                      const displayDate = formatDateDDMMMYYYY(order.date);
 
                       return (
                         <tr 
@@ -4028,14 +4878,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                     Completed: 'bg-emerald-50 text-emerald-800 border border-emerald-200 font-extrabold'
                   };
 
-                  let displayDate = order.date;
-                  try {
-                    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                    const [yr, mo, dy] = order.date.split('-');
-                    if (yr && mo && dy) {
-                      displayDate = `${dy} ${months[parseInt(mo, 10) - 1]} ${yr}`;
-                    }
-                  } catch (e) {}
+                  const displayDate = formatDateDDMMMYYYY(order.date);
 
                   return (
                     <div key={order.id} className="p-4 flex flex-col gap-3 hover:bg-zinc-50/50 transition-colors">
@@ -6174,8 +7017,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
       {/* POP-UP WINDOW: MASTER ROLL LEDGER DIRECTORY MODAL */}
       {isMasterLedgerOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-1.5 sm:p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
-          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-[98vw] 2xl:max-w-[1920px] shadow-2xl overflow-hidden flex flex-col max-h-[96vh] sm:max-h-[93vh]">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-1 sm:p-2.5 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-[99vw] xl:max-w-[100vw] shadow-2xl overflow-hidden flex flex-col max-h-[98vh] sm:max-h-[96vh]">
             
             {/* Modal Header */}
             <div className="bg-zinc-900 text-white px-3.5 py-3 sm:px-6 sm:py-4 flex justify-between items-center border-b border-zinc-800 shrink-0">
@@ -6436,318 +7279,363 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   </div>
 
                   {/* DESKTOP / TABLET RESPONSIVE TABLE VIEW */}
-                  <div className="hidden sm:block overflow-auto max-h-[65vh] rounded-2xl border border-zinc-200 shadow-3xs bg-white">
-                    <table className="w-full text-left border-collapse min-w-[1000px] xl:min-w-0 text-xs">
+                  <div className="hidden sm:block overflow-x-hidden overflow-y-auto max-h-[68vh] rounded-2xl border border-zinc-200 shadow-3xs bg-white">
+                    <table className="w-full text-left border-collapse text-[10px] xl:text-[10.5px]">
                       <thead className="sticky top-0 z-20 bg-zinc-900 shadow-xs">
-                        <tr className="bg-zinc-900 text-white text-[10px] font-black uppercase tracking-wider border-b border-zinc-800">
+                        <tr className="bg-zinc-900 text-white text-[9.5px] xl:text-[10px] font-black uppercase tracking-wider border-b border-zinc-800">
                           {/* 1. Roll Number */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('rollNo')}
-                            className={`py-2.5 px-2.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 font-mono text-yellow-400 ${
+                            className={`py-1.5 px-1.5 sm:px-2 cursor-pointer select-none transition-colors hover:bg-zinc-800 font-mono text-yellow-400 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'rollNo' ? 'bg-zinc-800' : ''
                             }`}
                             title="Click to sort by Roll Number"
                           >
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 sm:gap-1">
                               <span>Roll Number</span>
                               {masterLedgerSortKey === 'rollNo' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
                           {/* 2. Size */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('size')}
-                            className={`py-2.5 px-2 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'size' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Size"
                           >
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 sm:gap-1">
                               <span>Size</span>
                               {masterLedgerSortKey === 'size' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
                           {/* 3. GSM */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('gsm')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'gsm' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by GSM"
                           >
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 sm:gap-1">
                               <span>GSM</span>
                               {masterLedgerSortKey === 'gsm' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
                           {/* GSM [CALC] */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('gsmCalculated')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'gsmCalculated' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by GSM [CALC] (AVG WT [CALC] / SIZE)"
                           >
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 sm:gap-1">
                               <span>GSM [CALC]</span>
                               {masterLedgerSortKey === 'gsmCalculated' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
                           {/* 4. Denier */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('denier')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'denier' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Denier"
                           >
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 sm:gap-1">
                               <span>Denier</span>
                               {masterLedgerSortKey === 'denier' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
                           {/* 5. AVG WT */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('fabricWeight')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'fabricWeight' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by AVG WT"
                           >
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 sm:gap-1">
                               <span>AVG WT</span>
                               {masterLedgerSortKey === 'fabricWeight' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
                           {/* Average Weight (calc) (grams) */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('avgWtCalculated')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'avgWtCalculated' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Average Weight (calc)"
                           >
-                            <div className="flex items-center gap-1">
-                              <span>Avg Wt [calc] (grams)</span>
+                            <div className="flex items-center gap-0.5 sm:gap-1">
+                              <span>Avg Wt [calc]</span>
                               {masterLedgerSortKey === 'avgWtCalculated' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
                           {/* Gross Weight (kg) */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('grossWt')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'grossWt' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Gross Weight"
                           >
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 sm:gap-1">
                               <span>Gross Wt</span>
                               {masterLedgerSortKey === 'grossWt' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
                           {/* Core Weight (kg) */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('coreWt')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'coreWt' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Core Weight"
                           >
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 sm:gap-1">
                               <span>Core Wt</span>
                               {masterLedgerSortKey === 'coreWt' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
                           {/* Net Weight (kg) */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('netWt')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'netWt' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Net Weight"
                           >
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 sm:gap-1">
                               <span>Net Wt</span>
                               {masterLedgerSortKey === 'netWt' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
                           {/* Meters */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('meters')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'meters' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Meters"
                           >
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 sm:gap-1">
                               <span>Meters</span>
                               {masterLedgerSortKey === 'meters' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
-                          {/* Strength */}
-                          <th
-                            onClick={() => handleMasterLedgerSort('strength')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'strength' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
-                            }`}
-                            title="Click to sort by Strength"
-                          >
-                            <div className="flex items-center gap-1">
-                              <span>Strength</span>
-                              {masterLedgerSortKey === 'strength' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
-                              ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
-                              )}
-                            </div>
+                          {/* WARP HEADER GROUP */}
+                          <th colSpan={2} className="py-1 px-1.5 text-center bg-amber-950 text-yellow-300 font-black border-r border-b border-zinc-800 tracking-wider">
+                            WARP
                           </th>
 
-                          {/* Elongation (%) */}
-                          <th
-                            onClick={() => handleMasterLedgerSort('elongation')}
-                            className={`py-2.5 px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'elongation' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
-                            }`}
-                            title="Click to sort by Elongation (%)"
-                          >
-                            <div className="flex items-center gap-1">
-                              <span>Elongation (%)</span>
-                              {masterLedgerSortKey === 'elongation' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
-                              ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
-                              )}
-                            </div>
+                          {/* WEFT HEADER GROUP */}
+                          <th colSpan={2} className="py-1 px-1.5 text-center bg-amber-950 text-yellow-300 font-black border-r border-b border-zinc-800 tracking-wider">
+                            WEFT
                           </th>
 
-                          {/* 6. Weave Quality */}
+                          {/* Weave Quality */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('quality')}
-                            className={`py-2.5 px-2 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'quality' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Weave Quality"
                           >
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 sm:gap-1">
                               <span>Quality</span>
                               {masterLedgerSortKey === 'quality' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
-                          {/* 7. Dispatch Status */}
+                          {/* Dispatch Status */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('dispatchStatus')}
-                            className={`py-2.5 px-2 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 border-r border-zinc-800 ${
                               masterLedgerSortKey === 'dispatchStatus' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Dispatch Status"
                           >
-                            <div className="flex items-center gap-1">
-                              <span>Dispatch Status</span>
+                            <div className="flex items-center gap-0.5 sm:gap-1">
+                              <span>Status</span>
                               {masterLedgerSortKey === 'dispatchStatus' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
-                          {/* 8. Remarks */}
+                          {/* Remarks */}
                           <th
+                            rowSpan={2}
                             onClick={() => handleMasterLedgerSort('remarks')}
-                            className={`py-2.5 px-2 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                            className={`py-1.5 px-1 sm:px-1.5 cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
+                              !viewOnly ? 'border-r border-zinc-800' : ''
+                            } ${
                               masterLedgerSortKey === 'remarks' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
                             }`}
                             title="Click to sort by Remarks"
                           >
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 sm:gap-1">
                               <span>Remarks</span>
                               {masterLedgerSortKey === 'remarks' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-yellow-400 shrink-0 stroke-[2.5]" />
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={11} className="text-yellow-400 shrink-0 stroke-[2.5]" />
                               ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                                <ArrowUpDown size={10} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
                               )}
                             </div>
                           </th>
 
-                          {/* 9. Order Ref & Actions */}
+                          {/* Actions Column (Order Ref removed) */}
+                          {!viewOnly && (
+                            <th
+                              rowSpan={2}
+                              className="py-1.5 px-1 text-center text-amber-400 font-bold select-none"
+                            >
+                              Actions
+                            </th>
+                          )}
+                        </tr>
+
+                        {/* SUB-HEADER ROW FOR WARP AND WEFT */}
+                        <tr className="bg-zinc-900 text-white text-[9px] font-black uppercase tracking-wider border-b border-zinc-800">
+                          {/* Warp Sub-headers */}
                           <th
-                            onClick={() => handleMasterLedgerSort('orderNo')}
-                            className={`py-2.5 px-2.5 text-right cursor-pointer select-none transition-colors hover:bg-zinc-800 ${
-                              masterLedgerSortKey === 'orderNo' ? 'text-yellow-400 bg-zinc-800' : 'text-white'
+                            onClick={() => handleMasterLedgerSort('warpStrength')}
+                            className={`py-1.5 px-1 text-center cursor-pointer select-none border-r border-zinc-800 transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'warpStrength' ? 'text-yellow-300 bg-zinc-800' : 'text-amber-200'
                             }`}
-                            title="Click to sort by Order Ref"
+                            title="Click to sort by Warp Strength"
                           >
-                            <div className="flex items-center justify-end gap-1">
-                              <span>Order Ref & Actions</span>
-                              {masterLedgerSortKey === 'orderNo' ? (
-                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={12} className="text-amber-400 shrink-0 stroke-[2.5]" /> : <ArrowDown size={12} className="text-amber-400 shrink-0 stroke-[2.5]" />
-                              ) : (
-                                <ArrowUpDown size={11} className="text-zinc-500 hover:text-zinc-300 shrink-0 opacity-70" />
+                            <div className="flex items-center justify-center gap-0.5">
+                              <span>Strength (kgs)</span>
+                              {masterLedgerSortKey === 'warpStrength' && (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-300" /> : <ArrowDown size={11} className="text-yellow-300" />
+                              )}
+                            </div>
+                          </th>
+                          <th
+                            onClick={() => handleMasterLedgerSort('warpElongation')}
+                            className={`py-1.5 px-1 text-center cursor-pointer select-none border-r border-zinc-800 transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'warpElongation' ? 'text-yellow-300 bg-zinc-800' : 'text-amber-200'
+                            }`}
+                            title="Click to sort by Warp Elongation"
+                          >
+                            <div className="flex items-center justify-center gap-0.5">
+                              <span>Elongation (%)</span>
+                              {masterLedgerSortKey === 'warpElongation' && (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-300" /> : <ArrowDown size={11} className="text-yellow-300" />
+                              )}
+                            </div>
+                          </th>
+
+                          {/* Weft Sub-headers */}
+                          <th
+                            onClick={() => handleMasterLedgerSort('weftStrength')}
+                            className={`py-1.5 px-1 text-center cursor-pointer select-none border-r border-zinc-800 transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'weftStrength' ? 'text-yellow-300 bg-zinc-800' : 'text-amber-200'
+                            }`}
+                            title="Click to sort by Weft Strength"
+                          >
+                            <div className="flex items-center justify-center gap-0.5">
+                              <span>Strength (kgs)</span>
+                              {masterLedgerSortKey === 'weftStrength' && (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-300" /> : <ArrowDown size={11} className="text-yellow-300" />
+                              )}
+                            </div>
+                          </th>
+                          <th
+                            onClick={() => handleMasterLedgerSort('weftElongation')}
+                            className={`py-1.5 px-1 text-center cursor-pointer select-none border-r border-zinc-800 transition-colors hover:bg-zinc-800 ${
+                              masterLedgerSortKey === 'weftElongation' ? 'text-yellow-300 bg-zinc-800' : 'text-amber-200'
+                            }`}
+                            title="Click to sort by Weft Elongation"
+                          >
+                            <div className="flex items-center justify-center gap-0.5">
+                              <span>Elongation (%)</span>
+                              {masterLedgerSortKey === 'weftElongation' && (
+                                masterLedgerSortOrder === 'asc' ? <ArrowUp size={11} className="text-yellow-300" /> : <ArrowDown size={11} className="text-yellow-300" />
                               )}
                             </div>
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-zinc-100 text-xs">
+                      <tbody className="divide-y divide-zinc-100 text-[11px]">
                         {masterRollLedgerData
                           .filter(item => {
                             // Filter by Dispatch Status tab
@@ -6780,8 +7668,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 return gsmCalcStr.includes(q);
                               })() ||
                               String(item.meters).includes(q) ||
-                              String(item.strength).toLowerCase().includes(q) ||
-                              String(item.elongation).toLowerCase().includes(q)
+                              String(item.warpStrength || item.strength || '').toLowerCase().includes(q) ||
+                              String(item.warpElongation || item.elongation || '').toLowerCase().includes(q) ||
+                              String(item.weftStrength || '').toLowerCase().includes(q) ||
+                              String(item.weftElongation || '').toLowerCase().includes(q)
                             );
                           })
                           .map((item) => {
@@ -6791,197 +7681,219 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               return (
                                 <tr key={item.id} className="bg-amber-50/90 border-2 border-amber-400 animate-fade-in">
                                   {/* Col 1: Roll Number */}
-                                  <td className="py-2.5 px-3">
+                                  <td className="py-2 px-1.5">
                                     <input
                                       type="text"
                                       value={masterEditRollNo}
                                       onChange={(e) => setMasterEditRollNo(e.target.value)}
-                                      className="w-28 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-black text-amber-950 uppercase focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      className="w-20 bg-white border border-amber-500 rounded px-1.5 py-0.5 text-[11px] font-mono font-black text-amber-950 uppercase focus:outline-none focus:ring-1 focus:ring-amber-500"
                                       placeholder="Roll #"
                                     />
                                   </td>
                                   {/* Col 2: Size */}
-                                  <td className="py-2.5 px-2">
+                                  <td className="py-2 px-1">
                                     <input
                                       type="text"
                                       value={masterEditSize}
                                       onChange={(e) => setMasterEditSize(e.target.value)}
-                                      className="w-24 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      className="w-16 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-semibold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
                                       placeholder="Size"
                                     />
                                   </td>
                                   {/* Col 3: GSM */}
-                                  <td className="py-2.5 px-2">
+                                  <td className="py-2 px-1">
                                     <input
                                       type="number"
                                       value={masterEditGsm}
                                       onChange={(e) => setMasterEditGsm(e.target.value)}
-                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      className="w-12 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-mono font-bold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
                                       placeholder="GSM"
                                     />
                                   </td>
                                   {/* GSM [CALC] */}
-                                  <td className="py-2.5 px-2">
+                                  <td className="py-2 px-1">
                                     {(() => {
                                       const sz = parseFloat(String(masterEditSize || '').replace(/[^0-9.]/g, '')) || 0;
                                       const avg = parseFloat(masterEditAvgWtCalculated) || 0;
                                       const gCalc = (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : '-';
                                       return (
-                                        <span className="text-xs font-mono font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded block text-center min-w-[60px]">
+                                        <span className="text-[10px] font-mono font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1 py-0.5 rounded block text-center min-w-[45px]">
                                           {gCalc}
                                         </span>
                                       );
                                     })()}
                                   </td>
                                   {/* Col 4: Denier */}
-                                  <td className="py-2.5 px-2">
+                                  <td className="py-2 px-1">
                                     <input
                                       type="number"
                                       value={masterEditDenier}
                                       onChange={(e) => setMasterEditDenier(e.target.value)}
-                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      className="w-12 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-mono font-bold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
                                       placeholder="Denier"
                                     />
                                   </td>
                                   {/* Col 5: Fabric Weight */}
-                                  <td className="py-2.5 px-2">
+                                  <td className="py-2 px-1">
                                     <input
                                       type="number"
                                       step="0.01"
                                       value={masterEditFabricWeight}
                                       onChange={(e) => setMasterEditFabricWeight(e.target.value)}
-                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      className="w-14 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-mono font-bold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
                                       placeholder="Weight"
                                     />
                                   </td>
-                                  {/* Average Weight (calc) (grams) */}
-                                  <td className="py-2.5 px-2">
+                                  {/* Average Weight (calc) */}
+                                  <td className="py-2 px-1">
                                     <input
                                       type="number"
                                       step="0.0001"
                                       value={masterEditAvgWtCalculated}
                                       onChange={(e) => setMasterEditAvgWtCalculated(e.target.value)}
-                                      className="w-24 bg-emerald-50 border border-emerald-400 rounded-lg px-2 py-1 text-xs font-mono font-black text-emerald-950 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                      className="w-16 bg-emerald-50 border border-emerald-400 rounded px-1 py-0.5 text-[11px] font-mono font-black text-emerald-950 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                       placeholder="Avg Calc"
                                     />
                                   </td>
                                   {/* Gross Weight (kg) */}
-                                  <td className="py-2.5 px-2">
+                                  <td className="py-2 px-1">
                                     <input
                                       type="number"
                                       step="0.01"
                                       value={masterEditGrossWt}
                                       onChange={(e) => handleMasterEditGrossChange(e.target.value)}
-                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                                      placeholder="Gross Wt"
+                                      className="w-14 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-mono font-bold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                      placeholder="Gross"
                                     />
                                   </td>
                                   {/* Core Weight (kg) */}
-                                  <td className="py-2.5 px-2">
+                                  <td className="py-2 px-1">
                                     <input
                                       type="number"
                                       step="0.01"
                                       value={masterEditCoreWt}
                                       onChange={(e) => handleMasterEditCoreChange(e.target.value)}
-                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                                      placeholder="Core Wt"
+                                      className="w-14 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-mono font-bold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                      placeholder="Core"
                                     />
                                   </td>
                                   {/* Net Weight (kg) */}
-                                  <td className="py-2.5 px-2">
+                                  <td className="py-2 px-1">
                                     <input
                                       type="number"
                                       step="0.01"
                                       value={masterEditNetWt}
                                       onChange={(e) => handleMasterEditNetChange(e.target.value)}
-                                      className="w-20 bg-indigo-50 border border-indigo-400 rounded-lg px-2 py-1 text-xs font-mono font-black text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                      placeholder="Net Wt"
+                                      className="w-14 bg-indigo-50 border border-indigo-400 rounded px-1 py-0.5 text-[11px] font-mono font-black text-indigo-950 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                      placeholder="Net"
                                     />
                                   </td>
                                   {/* Meters */}
-                                  <td className="py-2.5 px-2">
+                                  <td className="py-2 px-1">
                                     <input
                                       type="number"
                                       step="1"
                                       value={masterEditMeters}
                                       onChange={(e) => handleMasterEditMetersChange(e.target.value)}
-                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                                      placeholder="Meters"
+                                      className="w-14 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-mono font-bold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                      placeholder="Mtr"
                                     />
                                   </td>
-                                  {/* Strength */}
-                                  <td className="py-2.5 px-1.5">
+                                  {/* Warp Strength */}
+                                  <td className="py-2 px-1">
                                     <input
                                       type="text"
-                                      value={masterEditStrength}
-                                      onChange={(e) => setMasterEditStrength(e.target.value)}
-                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                                      placeholder="Strength"
+                                      value={masterEditWarpStrength}
+                                      onChange={(e) => setMasterEditWarpStrength(e.target.value)}
+                                      className="w-14 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-semibold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                      placeholder="Warp Str"
                                     />
                                   </td>
-                                  {/* Elongation (%) */}
-                                  <td className="py-2.5 px-1.5">
+                                  {/* Warp Elongation (%) */}
+                                  <td className="py-2 px-1">
                                     <input
                                       type="text"
-                                      value={masterEditElongation}
-                                      onChange={(e) => setMasterEditElongation(e.target.value)}
-                                      className="w-20 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                                      placeholder="Elongation %"
+                                      value={masterEditWarpElongation}
+                                      onChange={(e) => setMasterEditWarpElongation(e.target.value)}
+                                      className="w-14 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-semibold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                      placeholder="Warp %"
                                     />
                                   </td>
-                                  {/* Col 11: Weave Quality */}
-                                  <td className="py-2.5 px-2">
+                                  {/* Weft Strength */}
+                                  <td className="py-2 px-1">
+                                    <input
+                                      type="text"
+                                      value={masterEditWeftStrength}
+                                      onChange={(e) => setMasterEditWeftStrength(e.target.value)}
+                                      className="w-14 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-semibold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                      placeholder="Weft Str"
+                                    />
+                                  </td>
+                                  {/* Weft Elongation (%) */}
+                                  <td className="py-2 px-1">
+                                    <input
+                                      type="text"
+                                      value={masterEditWeftElongation}
+                                      onChange={(e) => setMasterEditWeftElongation(e.target.value)}
+                                      className="w-14 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-semibold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                      placeholder="Weft %"
+                                    />
+                                  </td>
+                                  {/* Weave Quality */}
+                                  <td className="py-2 px-1">
                                     <input
                                       type="text"
                                       value={masterEditQuality}
                                       onChange={(e) => setMasterEditQuality(e.target.value)}
-                                      className="w-28 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      className="w-20 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-semibold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
                                       placeholder="Quality"
                                     />
                                   </td>
-                                  {/* Col 12: Dispatch Status */}
-                                  <td className="py-2.5 px-2">
+                                  {/* Dispatch Status */}
+                                  <td className="py-2 px-1">
                                     <select
                                       value={masterEditDispatchStatus}
                                       onChange={(e) => setMasterEditDispatchStatus(e.target.value as 'Dispatched' | 'Not Dispatched')}
-                                      className="w-32 bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-black text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      className="w-24 bg-white border border-amber-500 rounded px-1 py-0.5 text-[10px] font-black text-zinc-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
                                     >
                                       <option value="Not Dispatched">Not Dispatched</option>
                                       <option value="Dispatched">Dispatched</option>
                                     </select>
                                   </td>
-                                  {/* Col 13: Remarks */}
-                                  <td className="py-2.5 px-2">
+                                  {/* Remarks */}
+                                  <td className="py-2 px-1">
                                     <input
                                       type="text"
                                       value={masterEditRemarks}
                                       onChange={(e) => setMasterEditRemarks(e.target.value)}
-                                      className="w-full min-w-[120px] bg-white border border-amber-500 rounded-lg px-2 py-1 text-xs font-medium text-zinc-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                      className="w-20 bg-white border border-amber-500 rounded px-1 py-0.5 text-[11px] font-medium text-zinc-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
                                       placeholder="Remarks..."
                                     />
                                   </td>
-                                  {/* Col 14: Actions */}
-                                  <td className="py-2.5 px-3 text-right">
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSaveMasterRollEdit(item)}
-                                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-3xs transition-all cursor-pointer"
-                                        title="Save roll details"
-                                      >
-                                        <Check size={13} className="stroke-[3]" />
-                                        <span>Save</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={handleCancelEditMasterRoll}
-                                        className="bg-zinc-200 hover:bg-zinc-300 text-zinc-800 font-bold text-[11px] px-2 py-1 rounded-lg transition-all cursor-pointer"
-                                        title="Cancel edit"
-                                      >
-                                        <X size={13} />
-                                      </button>
-                                    </div>
-                                  </td>
+                                  {/* Actions */}
+                                  {!viewOnly && (
+                                    <td className="py-2 px-1 text-center">
+                                      <div className="flex items-center justify-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSaveMasterRollEdit(item)}
+                                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] px-2 py-0.5 rounded flex items-center gap-0.5 shadow-3xs transition-all cursor-pointer"
+                                          title="Save roll details"
+                                        >
+                                          <Check size={11} className="stroke-[3]" />
+                                          <span>Save</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={handleCancelEditMasterRoll}
+                                          className="bg-zinc-200 hover:bg-zinc-300 text-zinc-800 font-bold text-[10px] px-1.5 py-0.5 rounded transition-all cursor-pointer"
+                                          title="Cancel edit"
+                                        >
+                                          <X size={11} />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  )}
                                 </tr>
                               );
                             }
@@ -6989,21 +7901,21 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             return (
                               <tr key={item.id} className="hover:bg-amber-50/40 transition-colors">
                                 {/* 1. Roll Number */}
-                                <td className="py-2.5 px-3.5 font-mono">
-                                  <span className="bg-amber-100 text-amber-950 font-black px-2.5 py-1 rounded-lg border border-amber-300/80 text-xs inline-block shadow-3xs">
+                                <td className="py-1.5 px-1.5 font-mono whitespace-nowrap">
+                                  <span className="bg-amber-100 text-amber-950 font-black px-1.5 py-0.5 rounded border border-amber-300/80 text-[10.5px] inline-block shadow-3xs">
                                     {item.rollNo}
                                   </span>
                                 </td>
                                 {/* 2. Size */}
-                                <td className="py-2.5 px-3 font-semibold text-zinc-800">
+                                <td className="py-1.5 px-1 font-semibold text-zinc-800 whitespace-nowrap">
                                   {item.size || <span className="text-zinc-300 italic">-</span>}
                                 </td>
                                 {/* 3. GSM */}
-                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-700">
+                                <td className="py-1.5 px-1 font-mono font-bold text-zinc-700 whitespace-nowrap">
                                   {item.gsm ? `${item.gsm}` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
                                 {/* GSM [CALC] */}
-                                <td className="py-2.5 px-3 font-mono font-black text-amber-900">
+                                <td className="py-1.5 px-1 font-mono font-black text-amber-900 whitespace-nowrap">
                                   {(() => {
                                     const sz = parseFloat(String(item.size || '').replace(/[^0-9.]/g, '')) || 0;
                                     const avg = Number(item.avgWtCalculated) || 0;
@@ -7011,52 +7923,60 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                   })()}
                                 </td>
                                 {/* 4. Denier */}
-                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-700">
+                                <td className="py-1.5 px-1 font-mono font-bold text-zinc-700 whitespace-nowrap">
                                   {item.denier ? `${item.denier}` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
                                 {/* 5. Fabric Weight */}
-                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-700">
+                                <td className="py-1.5 px-1 font-mono font-bold text-zinc-700 whitespace-nowrap">
                                   {item.fabricWeight ? `${item.fabricWeight}` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
-                                {/* 9. Average Weight (calc) */}
-                                <td className="py-2.5 px-3 font-mono font-black text-emerald-800">
+                                {/* Average Weight (calc) */}
+                                <td className="py-1.5 px-1 font-mono font-black text-emerald-800 whitespace-nowrap">
                                   {item.avgWtCalculated ? `${item.avgWtCalculated}` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
-                                {/* 6. Gross Weight */}
-                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-800">
+                                {/* Gross Weight */}
+                                <td className="py-1.5 px-1 font-mono font-bold text-zinc-800 whitespace-nowrap">
                                   {item.grossWt ? `${item.grossWt}` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
-                                {/* 7. Core Weight */}
-                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-600">
+                                {/* Core Weight */}
+                                <td className="py-1.5 px-1 font-mono font-bold text-zinc-600 whitespace-nowrap">
                                   {item.coreWt ? `${item.coreWt}` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
-                                {/* 8. Net Weight */}
-                                <td className="py-2.5 px-3 font-mono font-black text-indigo-900">
+                                {/* Net Weight */}
+                                <td className="py-1.5 px-1 font-mono font-black text-indigo-900 whitespace-nowrap">
                                   {item.netWt ? `${item.netWt}` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
-                                {/* 10. Meters */}
-                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-800">
+                                {/* Meters */}
+                                <td className="py-1.5 px-1 font-mono font-bold text-zinc-800 whitespace-nowrap">
                                   {item.meters ? `${item.meters}` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
-                                {/* Strength */}
-                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-800">
-                                  {item.strength ? `${item.strength}` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                {/* Warp Strength */}
+                                <td className="py-1.5 px-1 font-mono font-bold text-zinc-800 text-center whitespace-nowrap bg-amber-50/20">
+                                  {item.warpStrength || item.strength ? (item.warpStrength || item.strength) : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
-                                {/* Elongation (%) */}
-                                <td className="py-2.5 px-3 font-mono font-bold text-zinc-800">
-                                  {item.elongation ? `${item.elongation}%` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                {/* Warp Elongation (%) */}
+                                <td className="py-1.5 px-1 font-mono font-bold text-zinc-800 text-center whitespace-nowrap bg-amber-50/20">
+                                  {item.warpElongation || item.elongation ? `${item.warpElongation || item.elongation}%` : <span className="text-zinc-300 font-normal italic">-</span>}
                                 </td>
-                                {/* 11. Weave Quality */}
-                                <td className="py-2.5 px-3 font-semibold text-zinc-900">
+                                {/* Weft Strength */}
+                                <td className="py-1.5 px-1 font-mono font-bold text-zinc-800 text-center whitespace-nowrap bg-amber-50/20">
+                                  {item.weftStrength ? item.weftStrength : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* Weft Elongation (%) */}
+                                <td className="py-1.5 px-1 font-mono font-bold text-zinc-800 text-center whitespace-nowrap bg-amber-50/20">
+                                  {item.weftElongation ? `${item.weftElongation}%` : <span className="text-zinc-300 font-normal italic">-</span>}
+                                </td>
+                                {/* Weave Quality */}
+                                <td className="py-1.5 px-1 font-semibold text-zinc-900 whitespace-nowrap">
                                   {item.quality || <span className="text-zinc-300 italic">-</span>}
                                 </td>
-                                {/* 12. Dispatch Status Dropdown */}
-                                <td className="py-2.5 px-3">
+                                {/* Dispatch Status Dropdown */}
+                                <td className="py-1.5 px-1 whitespace-nowrap">
                                   <select
                                     value={item.dispatchStatus}
                                     onChange={(e) => handleUpdateRollDispatchStatus(item, e.target.value as 'Dispatched' | 'Not Dispatched')}
                                     disabled={viewOnly}
-                                    className={`text-xs font-black px-2.5 py-1 rounded-xl border transition-all cursor-pointer focus:outline-none focus:ring-2 ${
+                                    className={`text-[9.5px] font-black px-1.5 py-0.5 rounded-lg border transition-all cursor-pointer focus:outline-none focus:ring-1 ${
                                       item.dispatchStatus === 'Dispatched'
                                         ? 'bg-emerald-100 text-emerald-950 border-emerald-300 focus:ring-emerald-500 shadow-3xs'
                                         : 'bg-zinc-100 text-zinc-700 border-zinc-250 hover:border-amber-400 focus:ring-amber-500'
@@ -7066,46 +7986,41 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                     <option value="Dispatched">Dispatched</option>
                                   </select>
                                 </td>
-                                {/* 13. Remarks */}
-                                <td className="py-2.5 px-3 text-zinc-600 text-xs max-w-[150px] truncate">
+                                {/* Remarks */}
+                                <td className="py-1.5 px-1 text-zinc-600 text-[10px] max-w-[120px] truncate">
                                   {item.remarks ? (
                                     <span className="font-medium">{item.remarks}</span>
                                   ) : (
-                                    <span className="text-zinc-300 italic text-[11px]">No remarks</span>
+                                    <span className="text-zinc-300 italic text-[9.5px]">No remarks</span>
                                   )}
                                 </td>
-                                {/* 14. Order Ref & Actions */}
-                                <td className="py-2.5 px-3.5 text-right">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <span className="bg-zinc-100 text-zinc-600 font-mono font-bold text-[10px] px-2 py-0.5 rounded border border-zinc-200">
-                                      Ord #{item.orderNo} (Sub #{item.subOrderIdx + 1})
-                                    </span>
-                                    {!viewOnly && (
-                                      <>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleStartEditMasterRoll(item)}
-                                          className="p-1.5 text-zinc-500 hover:text-amber-600 hover:bg-amber-100/60 rounded-lg transition-all cursor-pointer"
-                                          title="Edit roll details"
-                                        >
-                                          <Edit size={14} />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDeleteMasterRoll(item)}
-                                          className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
-                                          title="Delete roll"
-                                        >
-                                          <Trash2 size={14} />
-                                        </button>
-                                      </>
-                                    )}
-                                  </div>
-                                </td>
+                                {/* Actions Column (Order Ref removed) */}
+                                {!viewOnly && (
+                                  <td className="py-1.5 px-1 text-center whitespace-nowrap">
+                                    <div className="flex items-center justify-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleStartEditMasterRoll(item)}
+                                        className="p-1 text-zinc-500 hover:text-amber-600 hover:bg-amber-100/60 rounded transition-all cursor-pointer"
+                                        title="Edit roll details"
+                                      >
+                                        <Edit size={13} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteMasterRoll(item)}
+                                        className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-all cursor-pointer"
+                                        title="Delete roll"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                )}
                               </tr>
                             );
                           })}
-                      </tbody>
+                       </tbody>
                     </table>
                   </div>
 
@@ -7135,6 +8050,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           <option value="coreWt">Core Weight</option>
                           <option value="netWt">Net Weight</option>
                           <option value="meters">Meters</option>
+                          <option value="warpStrength">Warp Strength</option>
+                          <option value="warpElongation">Warp Elongation</option>
+                          <option value="weftStrength">Weft Strength</option>
+                          <option value="weftElongation">Weft Elongation</option>
                           <option value="quality">Weave Quality</option>
                           <option value="dispatchStatus">Dispatch Status</option>
                           <option value="remarks">Remarks</option>
@@ -7174,7 +8093,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           String(item.coreWt).includes(q) ||
                           String(item.netWt).includes(q) ||
                           String(item.avgWtCalculated).includes(q) ||
-                          String(item.meters).includes(q)
+                          String(item.meters).includes(q) ||
+                          String(item.warpStrength || item.strength || '').toLowerCase().includes(q) ||
+                          String(item.warpElongation || item.elongation || '').toLowerCase().includes(q) ||
+                          String(item.weftStrength || '').toLowerCase().includes(q) ||
+                          String(item.weftElongation || '').toLowerCase().includes(q)
                         );
                       })
                       .map((item) => {
@@ -7300,23 +8223,43 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                   />
                                 </div>
                                 <div>
-                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Strength</label>
+                                  <label className="text-[9px] font-bold text-amber-900 uppercase block">Warp Strength (kgs)</label>
                                   <input
                                     type="text"
-                                    value={masterEditStrength}
-                                    onChange={(e) => setMasterEditStrength(e.target.value)}
+                                    value={masterEditWarpStrength}
+                                    onChange={(e) => setMasterEditWarpStrength(e.target.value)}
                                     className="w-full bg-white border border-amber-400 rounded px-2 py-1 text-xs"
-                                    placeholder="Strength"
+                                    placeholder="Warp Strength"
                                   />
                                 </div>
                                 <div>
-                                  <label className="text-[9px] font-bold text-zinc-500 uppercase block">Elongation (%)</label>
+                                  <label className="text-[9px] font-bold text-amber-900 uppercase block">Warp Elongation (%)</label>
                                   <input
                                     type="text"
-                                    value={masterEditElongation}
-                                    onChange={(e) => setMasterEditElongation(e.target.value)}
+                                    value={masterEditWarpElongation}
+                                    onChange={(e) => setMasterEditWarpElongation(e.target.value)}
                                     className="w-full bg-white border border-amber-400 rounded px-2 py-1 text-xs"
-                                    placeholder="Elongation %"
+                                    placeholder="Warp Elongation %"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-amber-900 uppercase block">Weft Strength (kgs)</label>
+                                  <input
+                                    type="text"
+                                    value={masterEditWeftStrength}
+                                    onChange={(e) => setMasterEditWeftStrength(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 text-xs"
+                                    placeholder="Weft Strength"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-bold text-amber-900 uppercase block">Weft Elongation (%)</label>
+                                  <input
+                                    type="text"
+                                    value={masterEditWeftElongation}
+                                    onChange={(e) => setMasterEditWeftElongation(e.target.value)}
+                                    className="w-full bg-white border border-amber-400 rounded px-2 py-1 text-xs"
+                                    placeholder="Weft Elongation %"
                                   />
                                 </div>
                                 <div>
@@ -7378,9 +8321,15 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               <span className="bg-amber-100 text-amber-950 font-black font-mono px-2.5 py-0.5 rounded-md border border-amber-300 text-xs">
                                 Roll #: {item.rollNo}
                               </span>
-                              <span className="text-[10px] font-mono font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded">
-                                Order #{item.orderNo}
-                              </span>
+                              {item.orderNo && item.orderNo !== 'LOOM_RUNNING_DAY_SHIFT' ? (
+                                <span className="text-[10px] font-mono font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded">
+                                  Order #{item.orderNo}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                                  Unassigned
+                                </span>
+                              )}
                             </div>
 
                             <div className="grid grid-cols-2 gap-1.5 text-xs pt-1 border-t border-zinc-100">
@@ -7397,9 +8346,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                               <div><span className="text-zinc-400 text-[10px]">Gross Wt:</span> <strong className="text-zinc-800 font-mono">{item.grossWt || '-'} kg</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">Core Wt:</span> <strong className="text-zinc-800 font-mono">{item.coreWt || '-'} kg</strong></div>
                               <div><span className="text-zinc-400 text-[10px]">Net Wt:</span> <strong className="text-indigo-900 font-mono font-black">{item.netWt || '-'} kg</strong></div>
-                              <div className="col-span-2"><span className="text-zinc-400 text-[10px]">Meters:</span> <strong className="text-zinc-800 font-mono">{item.meters || '-'} m</strong></div>
-                              <div><span className="text-zinc-400 text-[10px]">Strength:</span> <strong className="text-zinc-800 font-mono">{item.strength || '-'}</strong></div>
-                              <div><span className="text-zinc-400 text-[10px]">Elongation:</span> <strong className="text-zinc-800 font-mono">{item.elongation ? `${item.elongation}%` : '-'}</strong></div>
+                              <div><span className="text-zinc-400 text-[10px]">Meters:</span> <strong className="text-zinc-800 font-mono">{item.meters || '-'} m</strong></div>
+                              <div><span className="text-amber-700 text-[10px] font-bold">Warp Str:</span> <strong className="text-zinc-800 font-mono">{item.warpStrength || item.strength || '-'}</strong></div>
+                              <div><span className="text-amber-700 text-[10px] font-bold">Warp Elong:</span> <strong className="text-zinc-800 font-mono">{item.warpElongation || item.elongation ? `${item.warpElongation || item.elongation}%` : '-'}</strong></div>
+                              <div><span className="text-amber-700 text-[10px] font-bold">Weft Str:</span> <strong className="text-zinc-800 font-mono">{item.weftStrength || '-'}</strong></div>
+                              <div><span className="text-amber-700 text-[10px] font-bold">Weft Elong:</span> <strong className="text-zinc-800 font-mono">{item.weftElongation ? `${item.weftElongation}%` : '-'}</strong></div>
                               <div className="col-span-2"><span className="text-zinc-400 text-[10px]">Quality:</span> <strong className="text-zinc-900">{item.quality || '-'}</strong></div>
                               <div className="col-span-2 flex items-center justify-between pt-1 border-t border-zinc-100">
                                 <span className="text-zinc-500 text-[10px] font-bold flex items-center gap-1">
