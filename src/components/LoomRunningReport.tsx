@@ -1166,6 +1166,173 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
         col.width = Math.min(Math.max(maxLen + 3, 10), 40);
       });
 
+      // ==========================================
+      // WORKSHEET 2: operator average meters
+      // ==========================================
+      const wsAvg = workbook.addWorksheet('operator average meters');
+      wsAvg.views = [{ showGridLines: true }];
+
+      // Aggregated per-operator calculations
+      const opSummaryMap: Record<string, { operatorName: string; totalMeters: number; totalLooms: number }> = {};
+      modalOperatorLedger.forEach((item) => {
+        const name = item.operatorName.trim();
+        if (!opSummaryMap[name]) {
+          opSummaryMap[name] = { operatorName: item.operatorName, totalMeters: 0, totalLooms: 0 };
+        }
+        opSummaryMap[name].totalMeters += item.totalMeters;
+        opSummaryMap[name].totalLooms += item.loomCount;
+      });
+
+      const operatorAverageList = Object.values(opSummaryMap).map((op) => {
+        const avgMeters = op.totalLooms > 0 ? parseFloat((op.totalMeters / op.totalLooms).toFixed(2)) : 0;
+        return {
+          operatorName: op.operatorName,
+          totalMeters: op.totalMeters,
+          totalLooms: op.totalLooms,
+          averageMeters: avgMeters
+        };
+      }).sort((a, b) => a.operatorName.localeCompare(b.operatorName));
+
+      let overallTotalMeters = 0;
+      let overallTotalLooms = 0;
+      operatorAverageList.forEach(op => {
+        overallTotalMeters += op.totalMeters;
+        overallTotalLooms += op.totalLooms;
+      });
+      const overallTotalAverage = overallTotalLooms > 0 ? parseFloat((overallTotalMeters / overallTotalLooms).toFixed(2)) : 0;
+
+      // 1. BANNER HEADER (Row 1)
+      wsAvg.mergeCells('A1:D1');
+      const avgTitleCell = wsAvg.getCell('A1');
+      avgTitleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • OPERATOR AVERAGE METERS REPORT';
+      avgTitleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      avgTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      wsAvg.getRow(1).height = 40;
+      for (let col = 1; col <= 4; col++) wsAvg.getRow(1).getCell(col).border = thickBlackBorder;
+
+      // 2. SUB-BANNER DATE RANGE & SHIFT & OPERATOR (Row 2)
+      wsAvg.mergeCells('A2:D2');
+      const avgSubCell = wsAvg.getCell('A2');
+      avgSubCell.value = `OPERATOR: ${opLabel} • SELECTED DATE RANGE: ${periodLabel} • SHIFT: ${shiftLabel}`;
+      avgSubCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+      avgSubCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      wsAvg.getRow(2).height = 24;
+      for (let col = 1; col <= 4; col++) wsAvg.getRow(2).getCell(col).border = thickBlackBorder;
+
+      // 3. KPI METRICS SUMMARY BANNER (Row 4 to 6)
+      wsAvg.getRow(3).height = 10; // Spacer
+
+      wsAvg.mergeCells('A4:D4');
+      const avgMHeaderCell = wsAvg.getCell('A4');
+      avgMHeaderCell.value = 'OPERATOR AVERAGE METERS METRICS';
+      avgMHeaderCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+      avgMHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      wsAvg.getRow(4).height = 22;
+      for (let col = 1; col <= 4; col++) wsAvg.getRow(4).getCell(col).border = thickBlackBorder;
+
+      // KPI row (Row 5 & 6)
+      wsAvg.mergeCells('C5:D5');
+      wsAvg.mergeCells('C6:D6');
+
+      wsAvg.getCell('A5').value = 'SELECTED DATE RANGE';
+      wsAvg.getCell('A6').value = periodLabel;
+
+      wsAvg.getCell('B5').value = 'TOTAL METERS';
+      wsAvg.getCell('B6').value = `${overallTotalMeters.toLocaleString()} m`;
+
+      wsAvg.getCell('C5').value = 'TOTAL AVERAGE OF METERS (TOTAL METERS / TOTAL LOOMS)';
+      wsAvg.getCell('C6').value = `${overallTotalAverage.toLocaleString()} m/loom (${overallTotalMeters.toLocaleString()} m / ${overallTotalLooms} looms)`;
+
+      wsAvg.getRow(5).height = 18;
+      for (let col = 1; col <= 4; col++) {
+        const c = wsAvg.getRow(5).getCell(col);
+        c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = thickBlackBorder;
+      }
+
+      wsAvg.getRow(6).height = 24;
+      for (let col = 1; col <= 4; col++) {
+        const c = wsAvg.getRow(6).getCell(col);
+        c.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = thickBlackBorder;
+      }
+
+      // 4. DATA TABLE HEADERS (Row 8)
+      wsAvg.getRow(7).height = 12; // Spacer
+      const avgHeaders = ['Loom Operator Name', 'Total Meters (m)', 'Total Looms', 'Average Meters (m)'];
+      const avgHeaderRow = wsAvg.getRow(8);
+      avgHeaderRow.height = 28;
+      avgHeaders.forEach((h, idx) => {
+        const cell = avgHeaderRow.getCell(idx + 1);
+        cell.value = h;
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+      });
+
+      // 5. DATA ROWS
+      let avgCurrentR = 9;
+      operatorAverageList.forEach((op) => {
+        const r = wsAvg.getRow(avgCurrentR);
+        r.height = 22;
+
+        const rowValues = [
+          op.operatorName,
+          op.totalMeters,
+          op.totalLooms,
+          op.averageMeters
+        ];
+
+        rowValues.forEach((val, colIdx) => {
+          const cell = r.getCell(colIdx + 1);
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          cell.border = thickBlackBorder;
+
+          if (colIdx === 1 || colIdx === 3) {
+            cell.numFmt = '#,##0.00';
+          } else if (colIdx === 2) {
+            cell.numFmt = '#,##0';
+          }
+        });
+
+        avgCurrentR++;
+      });
+
+      // 6. TOTALS ROW
+      const avgTotalsRow = wsAvg.getRow(avgCurrentR);
+      avgTotalsRow.height = 26;
+      for (let c = 1; c <= 4; c++) {
+        const cell = avgTotalsRow.getCell(c);
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+      }
+
+      avgTotalsRow.getCell(1).value = 'TOTALS';
+      avgTotalsRow.getCell(2).value = overallTotalMeters;
+      avgTotalsRow.getCell(2).numFmt = '#,##0.00';
+      avgTotalsRow.getCell(3).value = overallTotalLooms;
+      avgTotalsRow.getCell(3).numFmt = '#,##0';
+      avgTotalsRow.getCell(4).value = overallTotalAverage;
+      avgTotalsRow.getCell(4).numFmt = '#,##0.00';
+
+      // 7. COLUMN WIDTHS (Auto-adjusted to fit data)
+      wsAvg.columns.forEach((col, idx) => {
+        let maxLen = avgHeaders[idx] ? avgHeaders[idx].length : 12;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= 8) {
+            const val = cell.value ? String(cell.value) : '';
+            const lines = val.split('\n');
+            lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+          }
+        });
+        col.width = Math.min(Math.max(maxLen + 4, 12), 45);
+      });
+
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = window.URL.createObjectURL(blob);

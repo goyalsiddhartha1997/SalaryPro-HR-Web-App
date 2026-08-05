@@ -26,7 +26,10 @@ import {
   Download,
   UserPlus,
   Sun,
-  Moon
+  Moon,
+  Filter,
+  UserCheck,
+  UserX
 } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import { doc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
@@ -1086,9 +1089,47 @@ export default function AttendanceImport({
     return Array.from(new Set(previewData.filter(row => !row.existsInDb).map(row => row.employeeId || row.id)));
   }, [previewData]);
 
+  // Top filter state: 'all' | 'active' | 'inactive' (default is 'active')
+  const [employeeStatusFilter, setEmployeeStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
+
+  // Compute status counts for all valid registered employees (excluding EMP_TEMP_)
+  const validRegisteredEmployees = useMemo(() => {
+    return employees.filter(emp => !emp.id.toUpperCase().startsWith('EMP_TEMP_'));
+  }, [employees]);
+
+  const statusCounts = useMemo(() => {
+    let active = 0;
+    let inactive = 0;
+    validRegisteredEmployees.forEach(emp => {
+      if (emp.activeStatus === 'INACTIVE') {
+        inactive++;
+      } else {
+        active++;
+      }
+    });
+    return { all: validRegisteredEmployees.length, active, inactive };
+  }, [validRegisteredEmployees]);
+
   // Order faults first, or filter only faults, auto-repaired, shift warnings & new additions
   const sortedAndFilteredPreviewData = useMemo(() => {
     let list = [...previewData];
+
+    // Filter preview list by selected employee status filter
+    if (employeeStatusFilter !== 'all') {
+      list = list.filter(row => {
+        const emp = employees.find(e => e.id === row.employeeId);
+        if (emp) {
+          const status = emp.activeStatus || 'ACTIVE';
+          if (employeeStatusFilter === 'active') return status === 'ACTIVE';
+          if (employeeStatusFilter === 'inactive') return status === 'INACTIVE';
+        } else {
+          if (employeeStatusFilter === 'active') return true;
+          if (employeeStatusFilter === 'inactive') return false;
+        }
+        return true;
+      });
+    }
+
     if (showOnlyFaults || showOnlyAutoRepaired || showOnlyShiftWarning || showOnlyNewEntrants) {
       list = list.filter(row => {
         const cleanPunches = getCleanPunches(row.punches);
@@ -1142,11 +1183,16 @@ export default function AttendanceImport({
       });
     }
     return list;
-  }, [previewData, showOnlyFaults, showOnlyAutoRepaired, showOnlyShiftWarning, showOnlyNewEntrants, employees, importShift, dayShiftRules, nightShiftRules]);
+  }, [previewData, showOnlyFaults, showOnlyAutoRepaired, showOnlyShiftWarning, showOnlyNewEntrants, employees, importShift, dayShiftRules, nightShiftRules, employeeStatusFilter]);
 
-  // Memoize registered/active employees whose ID is entered into ledger (non-temp)
+  // Memoize registered/active employees whose ID is entered into ledger (filtered by employeeStatusFilter)
   const activeEmployees = useMemo(() => {
-    const list = employees.filter(emp => !emp.id.toUpperCase().startsWith('EMP_TEMP_'));
+    const list = validRegisteredEmployees.filter(emp => {
+      const status = emp.activeStatus || 'ACTIVE';
+      if (employeeStatusFilter === 'active') return status === 'ACTIVE';
+      if (employeeStatusFilter === 'inactive') return status === 'INACTIVE';
+      return true; // 'all'
+    });
     list.sort((a, b) => {
       const numA = parseInt(a.id, 10);
       const numB = parseInt(b.id, 10);
@@ -1156,7 +1202,17 @@ export default function AttendanceImport({
       return a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: 'base' });
     });
     return list;
-  }, [employees]);
+  }, [validRegisteredEmployees, employeeStatusFilter]);
+
+  // Reset selected employee filters if the selected employee is filtered out
+  useEffect(() => {
+    if (filterEmployeeId && !activeEmployees.some(e => e.id === filterEmployeeId)) {
+      setFilterEmployeeId('');
+    }
+    if (exportEmployeeId && !activeEmployees.some(e => e.id === exportEmployeeId)) {
+      setExportEmployeeId('');
+    }
+  }, [activeEmployees, filterEmployeeId, exportEmployeeId]);
 
   // State variables for dynamic presence comparison and details modal
   const [compDate1, setCompDate1] = useState<string>('2026-05-25');
@@ -2870,32 +2926,100 @@ export default function AttendanceImport({
   return (
     <div className="space-y-6">
       
-      {/* 2-Way Segmented Sub-Tab Switcher */}
-      <div className="flex bg-slate-100 rounded-2xl p-1 max-w-lg shadow-inner select-none print:hidden">
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('view')}
-          className={`flex-1 py-2.5 text-center text-xs font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer ${
-            activeSubTab === 'view'
-              ? 'bg-white text-slate-900 shadow-sm font-black'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Clock size={14} className={activeSubTab === 'view' ? 'text-teal-600 animate-pulse' : ''} />
-          <span>View Daily Logs finder</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('upload')}
-          className={`flex-1 py-2.5 text-center text-xs font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer ${
-            activeSubTab === 'upload'
-              ? 'bg-white text-slate-900 shadow-sm font-black'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Upload size={14} className={activeSubTab === 'upload' ? 'text-teal-600' : ''} />
-          <span>Upload & Sync Logs (CSV)</span>
-        </button>
+      {/* Dynamic Filter Section Bar: Employee Status Filter (All/Active/Inactive) & Sub-Tab Switcher */}
+      <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 shadow-3xs flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 select-none print:hidden">
+        {/* Left: Filter Header & Employee Status Filter Pills */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full lg:w-auto">
+          <div>
+            <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+              <Filter size={14} className="text-emerald-600" />
+              Attendance Filters
+            </h4>
+            <p className="text-[11px] text-slate-400 font-medium hidden sm:block">Filter attendance logs by employee status</p>
+          </div>
+          {/* Employee Status Filter Buttons */}
+          <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl shadow-3xs w-full sm:w-auto overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setEmployeeStatusFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                employeeStatusFilter === 'all'
+                  ? 'bg-slate-800 text-white shadow-3xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <Users size={13} />
+              <span>All Staff</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                employeeStatusFilter === 'all' ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-600'
+              }`}>
+                {statusCounts.all}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setEmployeeStatusFilter('active')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                employeeStatusFilter === 'active'
+                  ? 'bg-emerald-600 text-white shadow-3xs'
+                  : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50'
+              }`}
+            >
+              <UserCheck size={13} />
+              <span>Active</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                employeeStatusFilter === 'active' ? 'bg-emerald-700 text-emerald-100' : 'bg-emerald-100 text-emerald-800'
+              }`}>
+                {statusCounts.active}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setEmployeeStatusFilter('inactive')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                employeeStatusFilter === 'inactive'
+                  ? 'bg-rose-600 text-white shadow-3xs'
+                  : 'text-slate-600 hover:text-rose-800 hover:bg-rose-50'
+              }`}
+            >
+              <UserX size={13} />
+              <span>Inactive</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                employeeStatusFilter === 'inactive' ? 'bg-rose-700 text-rose-100' : 'bg-rose-100 text-rose-800'
+              }`}>
+                {statusCounts.inactive}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* Right: Sub-Tab Switcher */}
+        <div className="flex bg-slate-200/70 rounded-xl p-1 w-full lg:w-auto shadow-inner select-none shrink-0">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('view')}
+            className={`flex-1 sm:flex-initial px-4 py-2 text-center text-xs font-black uppercase tracking-wider rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              activeSubTab === 'view'
+                ? 'bg-white text-slate-900 shadow-3xs font-black'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Clock size={14} className={activeSubTab === 'view' ? 'text-teal-600 animate-pulse' : ''} />
+            <span>View Daily Logs finder</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('upload')}
+            className={`flex-1 sm:flex-initial px-4 py-2 text-center text-xs font-black uppercase tracking-wider rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              activeSubTab === 'upload'
+                ? 'bg-white text-slate-900 shadow-3xs font-black'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Upload size={14} className={activeSubTab === 'upload' ? 'text-teal-600' : ''} />
+            <span>Upload & Sync Logs (CSV)</span>
+          </button>
+        </div>
       </div>
 
       {/* ==================== SUB-TAB 1: ATTENDANCE HISTORY FINDER & INSPECTOR ==================== */}
