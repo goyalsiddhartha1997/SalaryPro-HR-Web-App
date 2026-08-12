@@ -89,8 +89,8 @@ export default function Dashboard({
     let totalAdvancePayment = 0;
     let totalFoodBalance = 0;
 
-    const currentMonth = ledgerMonth || 6;
-    const currentYear = ledgerYear || 2026;
+    const currentMonth = ledgerMonth || (new Date().getMonth() + 1);
+    const currentYear = ledgerYear || new Date().getFullYear();
     const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
     let totalSalaryAmount = 0;
     let totalDailyOwed = 0;
@@ -613,7 +613,7 @@ export default function Dashboard({
                     {modalType === 'payroll' ? 'Corporate Net Payroll Reconciliation' : 'Comprehensive Deductions Audit Sheet'}
                   </h3>
                   <p className="text-xs text-slate-400 font-medium">
-                    Ledger Period: {monthsList[(ledgerMonth || 6) - 1]} {ledgerYear || 2026}
+                    Ledger Period: {monthsList[(ledgerMonth || (new Date().getMonth() + 1)) - 1]} {ledgerYear || new Date().getFullYear()}
                   </p>
                 </div>
               </div>

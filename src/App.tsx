@@ -168,22 +168,18 @@ export default function App() {
 
 
 
-  // Month / Year run state for the Ledger
+  // Month / Year run state for the Ledger - dynamically defaulted to the system date's current month & year
   const [ledgerMonth, setLedgerMonth] = useState<number>(() => {
     try {
-      const cached = localStorage.getItem('salarypro_ledger_month');
-      return cached ? Number(cached) : (new Date().getMonth() + 1); // Default to current month
-    } catch {
-      return new Date().getMonth() + 1;
-    }
+      localStorage.removeItem('salarypro_ledger_month');
+    } catch {}
+    return new Date().getMonth() + 1; // Always default to current system month (1-12)
   });
   const [ledgerYear, setLedgerYear] = useState<number>(() => {
     try {
-      const cached = localStorage.getItem('salarypro_ledger_year');
-      return cached ? Number(cached) : new Date().getFullYear(); // Default to current year
-    } catch {
-      return new Date().getFullYear();
-    }
+      localStorage.removeItem('salarypro_ledger_year');
+    } catch {}
+    return new Date().getFullYear(); // Always default to current system year
   });
 
   // Streaming states for all device punches and monthly overrides
@@ -655,14 +651,6 @@ export default function App() {
     return () => unsubAuth();
   }, []);
 
-  // Persist ledger range selections
-  useEffect(() => {
-    localStorage.setItem('salarypro_ledger_month', String(ledgerMonth));
-  }, [ledgerMonth]);
-
-  useEffect(() => {
-    localStorage.setItem('salarypro_ledger_year', String(ledgerYear));
-  }, [ledgerYear]);
 
   const hasEditingRights = useMemo(() => {
     return loggedInEmail === 'sandydalhousie@gmail.com';
@@ -815,7 +803,7 @@ export default function App() {
   const [isSignUpMode, setIsSignUpMode] = useState(false);
   const [customLoginLoading, setCustomLoginLoading] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'payroll' | 'calendar' | 'attendance' | 'performance' | 'advance' | 'gatepass' | 'overtime' | 'looms' | 'inventory' | 'loom-production' | 'loom-running' | 'tape-production'>(() => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'payroll' | 'calendar' | 'attendance' | 'performance' | 'advance' | 'gatepass' | 'overtime' | 'looms' | 'inventory' | 'loom-production' | 'loom-running' | 'tape-production' | 'tape-running'>(() => {
     const email = (localStorage.getItem('salarypro_logged_in_email') || '').toLowerCase();
     if (email === 'hr@fortuneflexipack.com' || email === 'accounts@fortuneflexipack.com') {
       return 'advance';
@@ -831,6 +819,7 @@ export default function App() {
     localStorage.setItem('salarypro_sunday_paid_rule', sundayPaidRule);
   }, [sundayPaidRule]);
   const [alertMsg, setAlertMsg] = useState<{ type: 'success' | 'info' | 'warn'; text: string } | null>(null);
+  const [popupDialog, setPopupDialog] = useState<{ type: 'success' | 'info' | 'warn'; text: string } | null>(null);
   
   // Guard restricted custom logins (hr@ and accounts@) to allowed tabs
   useEffect(() => {
@@ -848,6 +837,7 @@ export default function App() {
         'loom-production',
         'loom-running',
         'tape-production',
+        'tape-running',
         'inventory'
       ];
       if (!allowedAccountsTabs.includes(activeTab)) {
@@ -890,12 +880,44 @@ export default function App() {
       
       const totalDaysInMonth = new Date(ledgerYear, ledgerMonth, 0).getDate();
       let calculatedWorkingDays = totalDaysInMonth;
+
+      const mStart = `${ledgerYear}-${String(ledgerMonth).padStart(2, '0')}-01`;
+      const mEnd = `${ledgerYear}-${String(ledgerMonth).padStart(2, '0')}-${String(totalDaysInMonth).padStart(2, '0')}`;
+      let effStart = mStart;
+      if (emp.joiningDate && emp.joiningDate.trim() !== '' && emp.joiningDate.trim() > mStart) {
+        effStart = emp.joiningDate.trim();
+      }
+      let effEnd = mEnd;
+      if (emp.resignDate && emp.resignDate.trim() !== '' && emp.resignDate.trim() < mEnd) {
+        effEnd = emp.resignDate.trim();
+      }
+      if (effStart > effEnd) {
+        calculatedWorkingDays = 0;
+      } else if (effStart > mStart || effEnd < mEnd) {
+        const startDateObj = new Date(effStart);
+        const endDateObj = new Date(effEnd);
+        const diffTime = endDateObj.getTime() - startDateObj.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        calculatedWorkingDays = Math.max(0, Math.min(totalDaysInMonth, diffDays));
+      }
+
       let calculatedAbsentDays = 0;
       let partialDaysList: { date: string; minutes: number }[] = [];
 
       let sundayOTDays = 0;
 
-      if (activeDatesArr.length > 0) {
+      // Filter uploaded active dates for this employee's active tenure (joining date & resign date)
+      const empActiveDatesArr = activeDatesArr.filter(date => {
+        if (emp.joiningDate && emp.joiningDate.trim() !== '' && date < emp.joiningDate.trim()) {
+          return false;
+        }
+        if (emp.resignDate && emp.resignDate.trim() !== '' && date > emp.resignDate.trim()) {
+          return false;
+        }
+        return true;
+      });
+
+      if (empActiveDatesArr.length > 0) {
         // Count absent days from biometric punch logs
         const empPunches = allPunchLogs[emp.id] || {};
 
@@ -936,7 +958,7 @@ export default function App() {
           }
         };
 
-        activeDatesArr.forEach(date => {
+        empActiveDatesArr.forEach(date => {
           const clean = getAdjustedPunches(date);
           const hasPunches = clean.length > 0;
           if (hasPunches) {
@@ -989,7 +1011,7 @@ export default function App() {
       const finalAdvanceDate = monthOverrides.advanceDate !== undefined ? monthOverrides.advanceDate : emp.advanceDate;
       const finalFoodDate = monthOverrides.foodDate !== undefined ? monthOverrides.foodDate : emp.foodDate;
 
-      const elapsedDays = activeDatesArr.length > 0 ? activeDatesArr.length : undefined;
+      const elapsedDays = activeDatesArr.length > 0 ? empActiveDatesArr.length : undefined;
 
       return {
         ...emp,
@@ -1015,7 +1037,7 @@ export default function App() {
 
   // Compute calculated row fields dynamically on active dataset changes
   const computedEmployees = useMemo(() => {
-    const list = syncedEmployees.map(emp => calculateSalary(emp, sundayPaidRule));
+    const list = syncedEmployees.map(emp => calculateSalary(emp, sundayPaidRule, ledgerMonth, ledgerYear));
     list.sort((a, b) => {
       // Keep empty temp/placeholder rows at the bottom
       const isTempA = a.id.startsWith('EMP_TEMP_') || !(a.name || '').trim();
@@ -1082,6 +1104,7 @@ export default function App() {
   // Helper trigger alert
   const triggerAlert = (type: 'success' | 'info' | 'warn', text: string) => {
     setAlertMsg({ type, text });
+    setPopupDialog({ type, text });
     setTimeout(() => {
       setAlertMsg(null);
     }, 4000);
@@ -1153,6 +1176,8 @@ export default function App() {
         if (emp.shift !== undefined) sanitized.shift = emp.shift;
         if (emp.advancePayment !== undefined) sanitized.advancePayment = Number(emp.advancePayment) || 0;
         if (emp.foodBalance !== undefined) sanitized.foodBalance = Number(emp.foodBalance) || 0;
+        if (emp.joiningDate !== undefined) sanitized.joiningDate = emp.joiningDate;
+        if (emp.resignDate !== undefined) sanitized.resignDate = emp.resignDate;
 
         batch.set(doc(db, 'employees', emp.id), sanitized, { merge: true });
       });
@@ -1235,6 +1260,8 @@ export default function App() {
       updatedFields.documents !== undefined ||
       updatedFields.contractor !== undefined ||
       updatedFields.activeStatus !== undefined ||
+      updatedFields.joiningDate !== undefined ||
+      updatedFields.resignDate !== undefined ||
       updatedFields.id !== undefined;
 
     const isMonthlyFieldOnly = isMonthlyField && !hasProfileFields;
@@ -1415,6 +1442,8 @@ export default function App() {
     if (targetEmployee.documents !== undefined) sanitized.documents = targetEmployee.documents;
     if (targetEmployee.advancePayment !== undefined) sanitized.advancePayment = Number(targetEmployee.advancePayment) || 0;
     if (targetEmployee.foodBalance !== undefined) sanitized.foodBalance = Number(targetEmployee.foodBalance) || 0;
+    if (targetEmployee.joiningDate !== undefined) sanitized.joiningDate = targetEmployee.joiningDate;
+    if (targetEmployee.resignDate !== undefined) sanitized.resignDate = targetEmployee.resignDate;
 
     try {
       if (isIdChange) {
@@ -1896,6 +1925,8 @@ export default function App() {
           if (updatedEmp.documents !== undefined) sanitized.documents = updatedEmp.documents;
           if (updatedEmp.advancePayment !== undefined) sanitized.advancePayment = Number(updatedEmp.advancePayment) || 0;
           if (updatedEmp.foodBalance !== undefined) sanitized.foodBalance = Number(updatedEmp.foodBalance) || 0;
+          if (updatedEmp.joiningDate !== undefined) sanitized.joiningDate = updatedEmp.joiningDate;
+          if (updatedEmp.resignDate !== undefined) sanitized.resignDate = updatedEmp.resignDate;
 
           batch.set(doc(db, 'employees', emp.id), sanitized, { merge: true });
           return updatedEmp;
@@ -2949,6 +2980,31 @@ export default function App() {
           </div>
         </div>
 
+        {/* Prominent Centered Pop Up Dialog Modal */}
+        {popupDialog && (
+          <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 select-none animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 text-center border border-slate-100 relative overflow-hidden">
+              <div className={`h-2 -mx-6 -top-6 relative mb-5 ${popupDialog.type === 'success' ? 'bg-emerald-500' : popupDialog.type === 'warn' ? 'bg-amber-500' : 'bg-sky-500'}`} />
+              
+              <div className={`w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center ${popupDialog.type === 'success' ? 'bg-emerald-50 text-emerald-600' : popupDialog.type === 'warn' ? 'bg-amber-50 text-amber-600' : 'bg-sky-50 text-sky-600'}`}>
+                {popupDialog.type === 'success' ? <CheckCircle size={30} /> : popupDialog.type === 'warn' ? <AlertCircle size={30} /> : <Info size={30} />}
+              </div>
+
+              <h3 className="text-base font-extrabold text-slate-800 uppercase tracking-wider mb-2">Notification</h3>
+              <p className="text-sm font-semibold text-slate-700 leading-relaxed mb-6 px-2">
+                {popupDialog.text}
+              </p>
+
+              <button
+                onClick={() => setPopupDialog(null)}
+                className="w-full py-3 bg-slate-900 hover:bg-slate-800 active:scale-98 text-white font-extrabold rounded-2xl shadow-lg transition-all cursor-pointer text-sm"
+              >
+                OK, Got It
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Floating notifications */}
         {alertMsg && (
           <div className="fixed bottom-6 right-6 z-50 animate-bounce cursor-pointer max-w-sm select-none" onClick={() => setAlertMsg(null)}>
@@ -3105,6 +3161,7 @@ export default function App() {
                   setLedgerYear={setLedgerYear}
                   sundayPaidRule={sundayPaidRule}
                   setSundayPaidRule={setSundayPaidRule}
+                  triggerAlert={triggerAlert}
                 />
               </div>
             </div>

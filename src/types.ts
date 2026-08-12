@@ -13,6 +13,9 @@ export interface Employee {
   absentHours: number;
   absentMinutes: number;
   
+  joiningDate?: string;
+  resignDate?: string;
+  
   // Custom interactive HR profile fields matching SalaryPro design
   role?: string;
   department?: string;

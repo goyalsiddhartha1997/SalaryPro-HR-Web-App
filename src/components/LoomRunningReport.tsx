@@ -41,7 +41,8 @@ import {
   Search,
   ChevronDown,
   User,
-  Users
+  Users,
+  Maximize2
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
@@ -210,6 +211,200 @@ function OperatorSelect({ value, onChange, employees }: OperatorSelectProps) {
   );
 }
 
+interface SummaryOperatorSelectProps {
+  value: string;
+  onChange: (val: string) => void;
+  pLoomEmployees: Employee[];
+  availableOperatorNames: string[];
+}
+
+function SummaryOperatorSelect({
+  value,
+  onChange,
+  pLoomEmployees,
+  availableOperatorNames,
+}: SummaryOperatorSelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredEmployees = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const sorted = [...pLoomEmployees].sort((a, b) =>
+      (a.name || '').trim().localeCompare((b.name || '').trim(), undefined, { sensitivity: 'base', numeric: true })
+    );
+    if (!q) return sorted;
+    return sorted.filter(
+      (emp) =>
+        (emp.name || '').toLowerCase().includes(q) ||
+        (emp.id || '').toString().toLowerCase().includes(q)
+    );
+  }, [pLoomEmployees, searchQuery]);
+
+  const filteredOperatorNames = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const sorted = [...availableOperatorNames].sort((a, b) =>
+      a.trim().localeCompare(b.trim(), undefined, { sensitivity: 'base', numeric: true })
+    );
+    if (!q) return sorted;
+    return sorted.filter((name) => name.toLowerCase().includes(q));
+  }, [availableOperatorNames, searchQuery]);
+
+  const selectedDisplayLabel = useMemo(() => {
+    if (value === 'ALL') return '✨ All Operators';
+    if (pLoomEmployees.length > 0) {
+      const matched = pLoomEmployees.find(
+        (e) => e.name === value || e.id === value
+      );
+      if (matched) return `Code ${matched.id} - ${matched.name}`;
+    }
+    return value;
+  }, [value, pLoomEmployees]);
+
+  return (
+    <div ref={containerRef} className="relative inline-block text-left">
+      <button
+        type="button"
+        onClick={() => {
+          const next = !isOpen;
+          setIsOpen(next);
+          if (next) {
+            setSearchQuery('');
+            setTimeout(() => searchInputRef.current?.focus(), 50);
+          }
+        }}
+        className="flex items-center justify-between gap-2 bg-white border border-indigo-200 hover:border-indigo-400 rounded-xl px-2.5 py-1 shadow-2xs ring-2 ring-indigo-500/10 focus:outline-none text-xs font-black text-slate-900 cursor-pointer max-w-[280px] transition-all"
+        id="btn-summary-operator-select"
+      >
+        <div className="flex items-center gap-1.5 min-w-0 truncate">
+          <Users size={14} className="text-indigo-600 shrink-0" />
+          <span className="text-[10px] font-black uppercase text-indigo-500 shrink-0">Operator:</span>
+          <span className="truncate">{selectedDisplayLabel}</span>
+        </div>
+        <ChevronDown size={13} className={`text-slate-400 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-600' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 mt-1 w-72 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+          <div className="p-2 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
+            <Search size={13} className="text-slate-400 shrink-0 ml-1" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search code or operator name..."
+              className="w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none font-semibold"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="text-slate-400 hover:text-slate-600 p-0.5 rounded-full"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          <div className="max-h-60 overflow-y-auto p-1 text-xs divide-y divide-slate-50">
+            <button
+              type="button"
+              onClick={() => {
+                onChange('ALL');
+                setIsOpen(false);
+                setSearchQuery('');
+              }}
+              className={`w-full text-left px-3 py-2 rounded-lg font-bold flex items-center justify-between transition-colors ${
+                value === 'ALL'
+                  ? 'bg-indigo-50 text-indigo-700 font-extrabold'
+                  : 'text-slate-700 hover:bg-slate-100/80'
+              }`}
+            >
+              <span>✨ All Operators</span>
+              {value === 'ALL' && <Check size={14} className="text-indigo-600 shrink-0 ml-1" />}
+            </button>
+
+            {pLoomEmployees.length > 0 ? (
+              filteredEmployees.length > 0 ? (
+                filteredEmployees.map((emp) => {
+                  const isSelected = value === emp.name || value === emp.id;
+                  return (
+                    <button
+                      key={emp.id}
+                      type="button"
+                      onClick={() => {
+                        onChange(emp.name);
+                        setIsOpen(false);
+                        setSearchQuery('');
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded-lg font-medium flex items-center justify-between transition-colors ${
+                        isSelected
+                          ? 'bg-indigo-50 text-indigo-700 font-bold'
+                          : 'text-slate-700 hover:bg-slate-100/80'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0 truncate">
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-bold shrink-0">
+                          Code {emp.id}
+                        </span>
+                        <span className="truncate">{emp.name}</span>
+                      </div>
+                      {isSelected && <Check size={14} className="text-indigo-600 shrink-0 ml-1" />}
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="p-3 text-center text-slate-400 italic text-[11px]">
+                  No matching operator found
+                </div>
+              )
+            ) : filteredOperatorNames.length > 0 ? (
+              filteredOperatorNames.map((opName) => {
+                const isSelected = value === opName;
+                return (
+                  <button
+                    key={opName}
+                    type="button"
+                    onClick={() => {
+                      onChange(opName);
+                      setIsOpen(false);
+                      setSearchQuery('');
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-lg font-medium flex items-center justify-between transition-colors ${
+                      isSelected
+                        ? 'bg-indigo-50 text-indigo-700 font-bold'
+                        : 'text-slate-700 hover:bg-slate-100/80'
+                    }`}
+                  >
+                    <span className="truncate">👤 {opName}</span>
+                    {isSelected && <Check size={14} className="text-indigo-600 shrink-0 ml-1" />}
+                  </button>
+                );
+              })
+            ) : (
+              <div className="p-3 text-center text-slate-400 italic text-[11px]">
+                No matching operator found
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LoomRunningReport({ triggerAlert, viewOnly = false }: LoomRunningReportProps) {
   // --- STATE FOR FIRESTORE STREAMING ---
   const [reports, setReports] = useState<LoomRunningReport[]>([]);
@@ -342,6 +537,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
   const [isExtracting, setIsExtracting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
+  const [expandedReport, setExpandedReport] = useState<LoomRunningReport | null>(null);
   // --- SUMMARY WINDOW MODAL STATES ---
   const [showSummaryMenuModal, setShowSummaryMenuModal] = useState(false);
   const [selectedSummaryType, setSelectedSummaryType] = useState<string | null>(null);
@@ -888,7 +1084,32 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
     }
   };
 
-  // --- AVAILABLE OPERATORS FOR SUMMARY DROPDOWN ---
+  // --- EMPLOYEES WITH DESIGNATION "P-Loom Opr." FOR LOOM OPERATOR SUMMARY ---
+  const pLoomEmployees = useMemo(() => {
+    return employees
+      .filter((emp) => {
+        if (!emp.name || emp.name.trim() === '') return false;
+        const desg = (emp.designation || emp.role || '').trim().toLowerCase();
+        if (!desg) return false;
+        return (
+          desg === 'p-loom opr.' ||
+          desg === 'p-loom opr' ||
+          desg.includes('p-loom') ||
+          desg === 'loom opr.' ||
+          desg === 'loom opr' ||
+          desg === 'loom operator' ||
+          desg.includes('loom opr') ||
+          desg.includes('loom operator')
+        );
+      })
+      .sort((a, b) => {
+        const nameA = (a.name || '').trim();
+        const nameB = (b.name || '').trim();
+        return nameA.localeCompare(nameB, undefined, { sensitivity: 'base', numeric: true });
+      });
+  }, [employees]);
+
+  // --- AVAILABLE OPERATORS FOR SUMMARY DROPDOWN (FALLBACK) ---
   const availableOperatorNames = useMemo(() => {
     const set = new Set<string>();
 
@@ -927,8 +1148,23 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
         const opName = (row.operatorName || '').trim();
         if (!opName) return;
 
-        if (sumSelectedOperator !== 'ALL' && opName.toLowerCase() !== sumSelectedOperator.toLowerCase()) {
-          return;
+        if (sumSelectedOperator !== 'ALL') {
+          const sel = sumSelectedOperator.trim().toLowerCase();
+          const op = opName.toLowerCase();
+
+          const selEmp = pLoomEmployees.find(
+            (e) => e.name.trim().toLowerCase() === sel || e.id.toString().trim().toLowerCase() === sel
+          );
+          const empNameStr = selEmp ? selEmp.name.trim().toLowerCase() : sel;
+          const empIdStr = selEmp ? selEmp.id.toString().trim().toLowerCase() : '';
+
+          const matches =
+            op === empNameStr ||
+            op.includes(empNameStr) ||
+            empNameStr.includes(op) ||
+            (empIdStr !== '' && (op === empIdStr || op.includes(empIdStr)));
+
+          if (!matches) return;
         }
 
         const meters = typeof row.totalMeters === 'number' ? row.totalMeters : parseFloat(row.totalMeters as any) || 0;
@@ -1859,10 +2095,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
             netWt = parseFloat((grossWt - coreWt).toFixed(2));
           }
 
-          let avgWtCalculated = parseFloat(avgWtCalculatedRaw) || 0;
-          if (!avgWtCalculated && netWt > 0 && totalMeters > 0) {
-            avgWtCalculated = parseFloat(((netWt * 1000) / totalMeters).toFixed(2));
-          }
+          const avgWtCalculated = parseFloat(avgWtCalculatedRaw) || 0;
 
           const gsmCalculated = parseFloat(gsmCalculatedRaw) || 0;
 
@@ -1976,31 +2209,12 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
       }
     }
 
-    // Auto-calculate Net Wt, Avg Wt [calculated], and GSM [calculated]
+    // Auto-calculate Net Wt
     if (field === 'grossWt' || field === 'coreWt') {
       const g = typeof updatedRow.grossWt === 'number' ? updatedRow.grossWt : parseFloat(updatedRow.grossWt as any) || 0;
       const c = typeof updatedRow.coreWt === 'number' ? updatedRow.coreWt : parseFloat(updatedRow.coreWt as any) || 0;
       if (g > 0 || c > 0) {
         updatedRow.netWt = parseFloat(Math.max(0, g - c).toFixed(3));
-      }
-    }
-
-    const n = typeof updatedRow.netWt === 'number' ? updatedRow.netWt : parseFloat(updatedRow.netWt as any) || 0;
-    const m = (typeof updatedRow.totalMeters === 'number' ? updatedRow.totalMeters : parseFloat(updatedRow.totalMeters as any) || 0) || (typeof updatedRow.rollMeters === 'number' ? updatedRow.rollMeters : parseFloat(updatedRow.rollMeters as any) || 0);
-
-    if (m > 0 && n > 0) {
-      // Avg Wt [Calc] in grams: Net Wt (kg) * 1000 / meters
-      updatedRow.avgWtCalculated = parseFloat(((n * 1000) / m).toFixed(2));
-
-      // GSM [Calc]: Net Wt (g) / Area (m * width_in_meters)
-      const sizeStr = String(updatedRow.size || '');
-      const sizeMatch = sizeStr.match(/[\d.]+/);
-      const sizeNum = sizeMatch ? parseFloat(sizeMatch[0]) : 0;
-      if (sizeNum > 0) {
-        const area = m * (sizeNum * 0.0254);
-        if (area > 0) {
-          updatedRow.gsmCalculated = parseFloat(((n * 1000) / area).toFixed(1));
-        }
       }
     }
 
@@ -2901,28 +3115,39 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                       );
                     })()}
                   </div>
-                  {!viewOnly && (
-                    <div className="flex gap-2 mt-2 sm:mt-0">
-                      <button
-                        type="button"
-                        onClick={() => handleEditClick(report)}
-                        className="px-3 py-1.5 bg-slate-50 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 rounded-xl text-xs font-extrabold uppercase inline-flex items-center gap-1 border border-slate-200/80 transition-colors cursor-pointer"
-                        title="Edit Report"
-                      >
-                        <Edit2 size={13} />
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteReport(report.id, formatDateLabel(report.date))}
-                        className="px-3 py-1.5 bg-slate-50 hover:bg-red-50 text-slate-600 hover:text-red-700 rounded-xl text-xs font-extrabold uppercase inline-flex items-center gap-1 border border-slate-200/80 transition-colors cursor-pointer"
-                        title="Delete Report"
-                      >
-                        <Trash2 size={13} />
-                        Delete
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 mt-2 sm:mt-0">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedReport(report)}
+                      className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-extrabold uppercase inline-flex items-center gap-1 border border-indigo-200/80 transition-colors cursor-pointer shadow-2xs"
+                      title="Expand Table View"
+                    >
+                      <Maximize2 size={13} />
+                      Expand
+                    </button>
+                    {!viewOnly && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleEditClick(report)}
+                          className="px-3 py-1.5 bg-slate-50 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 rounded-xl text-xs font-extrabold uppercase inline-flex items-center gap-1 border border-slate-200/80 transition-colors cursor-pointer"
+                          title="Edit Report"
+                        >
+                          <Edit2 size={13} />
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteReport(report.id, formatDateLabel(report.date))}
+                          className="px-3 py-1.5 bg-slate-50 hover:bg-red-50 text-slate-600 hover:text-red-700 rounded-xl text-xs font-extrabold uppercase inline-flex items-center gap-1 border border-slate-200/80 transition-colors cursor-pointer"
+                          title="Delete Report"
+                        >
+                          <Trash2 size={13} />
+                          Delete
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {report.isAllStopped ? (
@@ -3733,7 +3958,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                                 <td className="py-1.5 px-2.5 border-r border-slate-150 w-24 text-center">
                                   <input
                                     type="text"
-                                    value={row.avgWtCalculated === 0 || row.avgWtCalculated === '' || row.avgWtCalculated === undefined || row.avgWtCalculated === null ? '' : row.avgWtCalculated}
+                                    value={row.avgWtCalculated === undefined || row.avgWtCalculated === null ? '' : row.avgWtCalculated}
                                     onChange={(e) => handleUpdatePreviewCell(idx, 'avgWtCalculated', e.target.value)}
                                     placeholder="Avg Calc"
                                     className="w-full bg-transparent border-b border-transparent focus:border-emerald-500 px-1 py-0.5 text-xs text-emerald-700 font-extrabold focus:outline-none focus:bg-white font-mono text-center"
@@ -3743,7 +3968,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                                 <td className="py-1.5 px-2.5 border-r border-slate-150 w-20 text-center">
                                   <input
                                     type="text"
-                                    value={row.gsmCalculated === 0 || row.gsmCalculated === '' || row.gsmCalculated === undefined || row.gsmCalculated === null ? '' : row.gsmCalculated}
+                                    value={row.gsmCalculated === undefined || row.gsmCalculated === null ? '' : row.gsmCalculated}
                                     onChange={(e) => handleUpdatePreviewCell(idx, 'gsmCalculated', e.target.value)}
                                     placeholder="GSM Calc"
                                     className="w-full bg-transparent border-b border-transparent focus:border-purple-500 px-1 py-0.5 text-xs text-purple-700 font-extrabold focus:outline-none focus:bg-white font-mono text-center"
@@ -4376,24 +4601,13 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                   </select>
                 </div>
 
-                {/* Operator Dropdown Selector */}
-                <div className="flex items-center gap-1.5 bg-white border border-indigo-200 rounded-xl px-2.5 py-1 shadow-2xs ring-2 ring-indigo-500/10">
-                  <Users size={14} className="text-indigo-600 shrink-0" />
-                  <span className="text-[10px] font-black uppercase text-indigo-500">Operator:</span>
-                  <select
-                    value={sumSelectedOperator}
-                    onChange={(e) => setSumSelectedOperator(e.target.value)}
-                    className="text-xs font-black text-slate-900 bg-transparent focus:outline-none cursor-pointer max-w-[180px] truncate"
-                    id="select-summary-operator"
-                  >
-                    <option value="ALL">✨ All Operators</option>
-                    {availableOperatorNames.map((opName) => (
-                      <option key={opName} value={opName}>
-                        👤 {opName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* Operator Dropdown Selector with Search */}
+                <SummaryOperatorSelect
+                  value={sumSelectedOperator}
+                  onChange={(val) => setSumSelectedOperator(val)}
+                  pLoomEmployees={pLoomEmployees}
+                  availableOperatorNames={availableOperatorNames}
+                />
               </div>
 
               {/* Export Excel Button */}
@@ -4413,7 +4627,12 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
               <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
                 <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Selected Operator</span>
                 <span className="font-black text-indigo-900 text-sm truncate block">
-                  {sumSelectedOperator === 'ALL' ? '✨ All Operators' : sumSelectedOperator}
+                  {sumSelectedOperator === 'ALL'
+                    ? '✨ All Operators'
+                    : (() => {
+                        const matched = pLoomEmployees.find(e => e.name === sumSelectedOperator || e.id === sumSelectedOperator);
+                        return matched ? `Code ${matched.id} - ${matched.name}` : sumSelectedOperator;
+                      })()}
                 </span>
                 <span className="text-[10px] text-slate-500 block font-semibold mt-0.5">
                   {modalOperatorTotals.totalEntries} Ledger Record(s)
@@ -4588,6 +4807,220 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* EXPANDED LEDGER TABLE POPUP MODAL */}
+      {expandedReport && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-3 md:p-4 animate-fade-in overflow-hidden">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-[99vw] xl:max-w-[98vw] max-h-[96vh] h-[96vh] flex flex-col overflow-hidden">
+            
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3 shrink-0 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-600/30 rounded-2xl border border-indigo-500/30 text-indigo-300">
+                  <Maximize2 size={18} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base sm:text-lg font-black text-white tracking-wide uppercase">
+                      Loom Running Report - {formatDateLabel(expandedReport.date)}
+                    </h3>
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider ${
+                      expandedReport.shift === 'NIGHT' ? 'bg-slate-800 text-slate-100 border border-slate-700' : 'bg-amber-100 text-amber-900 border border-amber-300'
+                    }`}>
+                      {expandedReport.shift === 'NIGHT' ? '🌙 Night Shift' : '☀️ Day Shift'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                    Expanded Ledger Table • {expandedReport.rows?.length || 0} Loom Entries
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {/* Matched prod metrics if available */}
+                {(() => {
+                  const repShift = (expandedReport.shift || 'day').toLowerCase().trim();
+                  const matchedProd = loomProductions.find(p => 
+                    p.date === expandedReport.date && 
+                    (p.shift || 'day').toLowerCase().trim().includes(repShift)
+                  );
+                  if (matchedProd) {
+                    return (
+                      <div className="hidden sm:flex items-center gap-2 text-xs">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black uppercase bg-rose-950/80 text-rose-300 border border-rose-800">
+                          <Flame size={12} className="text-rose-400" />
+                          Wastage: {matchedProd.wastage != null ? matchedProd.wastage : 0} KG
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black uppercase bg-emerald-950/80 text-emerald-300 border border-emerald-800">
+                          <Sparkles size={12} className="text-emerald-400" />
+                          Production: {matchedProd.production != null ? matchedProd.production.toLocaleString() : 0} M
+                        </span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
+                <button
+                  type="button"
+                  onClick={() => setExpandedReport(null)}
+                  className="w-9 h-9 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer border border-slate-700"
+                  title="Close Expanded View"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body - ONLY vertical scroll, NO horizontal scroll */}
+            <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-3 bg-slate-50/50 relative">
+              {expandedReport.isAllStopped ? (
+                <div className="bg-rose-50 border border-rose-200 rounded-2xl p-8 my-8 text-center max-w-xl mx-auto">
+                  <AlertTriangle size={32} className="text-rose-600 mx-auto mb-3" />
+                  <h4 className="text-base font-black uppercase text-rose-900 tracking-wide">
+                    Loom Plant Shut Down / Stopped for the Day
+                  </h4>
+                  <p className="text-xs text-rose-700 font-semibold mt-1">
+                    No looms were running on this date/shift.
+                  </p>
+                  {expandedReport.remarks && (
+                    <p className="mt-4 p-3 bg-white border border-rose-200 rounded-xl text-xs text-slate-800">
+                      {expandedReport.remarks}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="w-full border border-slate-200 rounded-2xl shadow-xs bg-white relative">
+                  <table className="w-full text-left border-collapse table-auto text-[9.5px] sm:text-[10.5px] xl:text-[11px]">
+                    <thead className="sticky top-0 z-30 bg-slate-900 text-slate-100 font-black uppercase tracking-tight select-none shadow-sm">
+                      <tr className="bg-slate-900 border-b border-slate-800">
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-center">Loom</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-left min-w-[75px]">Operator</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-center">Mesh</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-right">Meters</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-left min-w-[70px]">Quality</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-center">Size</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-center">GSM</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-center">Denier</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-center">Avg Wt</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-center">Roll No</th>
+                        <th colSpan={2} className="py-1 px-1 border-r border-b border-slate-800 bg-amber-950 text-amber-200 text-center font-black">WARP</th>
+                        <th colSpan={2} className="py-1 px-1 border-r border-b border-slate-800 bg-amber-950 text-amber-200 text-center font-black">WEFT</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-right">Roll Mtr</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-right">Gr Wt</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-right">Cr Wt</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-right">Net Wt</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-right">Calc Avg</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-center">Calc GSM</th>
+                        <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 bg-slate-900 text-center">Status</th>
+                        <th rowSpan={2} className="py-2 px-1 bg-slate-900 text-center">Remarks</th>
+                      </tr>
+                      <tr className="bg-slate-900 text-slate-100 text-[8px] sm:text-[9px] font-black uppercase tracking-tight border-b border-slate-800">
+                        <th className="py-1 px-0.5 text-center border-r border-slate-800 bg-amber-950 text-amber-200">Str</th>
+                        <th className="py-1 px-0.5 text-center border-r border-slate-800 bg-amber-950 text-amber-200">Elo</th>
+                        <th className="py-1 px-0.5 text-center border-r border-slate-800 bg-amber-950 text-amber-200">Str</th>
+                        <th className="py-1 px-0.5 text-center border-r border-slate-800 bg-amber-950 text-amber-200">Elo</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-150 font-bold text-slate-800">
+                      {expandedReport.rows.map((row, rIdx) => (
+                        <tr key={rIdx} className="hover:bg-indigo-50/20 transition-colors">
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-slate-900 font-black text-center">
+                            {String(row.loomNo || '').replace(/loom/gi, '').replace(/#/g, '').replace(/-/g, '').trim()}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 font-semibold text-slate-800 truncate max-w-[90px]" title={row.operatorName || ''}>
+                            {row.operatorName || '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-center font-semibold text-slate-800">
+                            {row.mesh || '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-right font-mono font-black text-emerald-700 whitespace-nowrap">
+                            {row.totalMeters ? row.totalMeters.toLocaleString() : '0'}m
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 max-w-[100px] truncate" title={row.quality || ''}>
+                            {row.quality || '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-center font-semibold">
+                            {row.size || '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-center font-mono">
+                            {row.gsm ? `${row.gsm}` : '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-center font-mono text-indigo-900">
+                            {row.denier || '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-center font-mono">
+                            {row.average ? `${row.average}g` : '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-center font-mono font-bold text-slate-900">
+                            {row.rollNo || '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-center font-mono text-amber-900 font-bold bg-amber-50/20">
+                            {row.warpStrength || '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-center font-mono text-amber-900 font-bold bg-amber-50/20">
+                            {row.warpElongation ? `${row.warpElongation}%` : '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-center font-mono text-amber-900 font-bold bg-amber-50/20">
+                            {row.weftStrength || '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-center font-mono text-amber-900 font-bold bg-amber-50/20">
+                            {row.weftElongation ? `${row.weftElongation}%` : '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-right font-mono font-bold text-slate-800">
+                            {row.rollMeters != null ? row.rollMeters : '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-right font-mono font-bold text-slate-800">
+                            {row.grossWt != null ? row.grossWt : '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-right font-mono text-slate-600">
+                            {row.coreWt != null ? row.coreWt : '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-right font-mono font-black text-indigo-700">
+                            {row.netWt != null ? row.netWt : '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-right font-mono font-black text-emerald-700">
+                            {row.avgWtCalculated != null ? row.avgWtCalculated : '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-center font-mono font-black text-purple-700">
+                            {row.gsmCalculated != null ? row.gsmCalculated : '-'}
+                          </td>
+                          <td className="py-1.5 px-1 border-r border-slate-150 text-center whitespace-nowrap">
+                            <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                              row.runningStatus === 'Running'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-150'
+                                : 'bg-red-50 text-red-700 border border-red-150'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${row.runningStatus === 'Running' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+                              {row.runningStatus}
+                            </span>
+                          </td>
+                          <td className="py-1.5 px-1 text-center text-[10px] text-slate-600 max-w-[90px] truncate" title={row.remarks || ''}>
+                            {row.remarks || ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-2.5 bg-slate-100 border-t border-slate-200 flex justify-between items-center text-xs font-bold text-slate-600 shrink-0">
+              <span className="text-slate-700 font-extrabold">Total Entries: {expandedReport.rows?.length || 0} Looms</span>
+              <button
+                type="button"
+                onClick={() => setExpandedReport(null)}
+                className="px-5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-xs"
+              >
+                Close Window
+              </button>
+            </div>
+
           </div>
         </div>
       )}

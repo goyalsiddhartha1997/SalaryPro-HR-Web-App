@@ -816,7 +816,8 @@ export default function AttendanceImport({
     if (ledgerYear && ledgerMonth) {
       return `${ledgerYear}-${String(ledgerMonth).padStart(2, '0')}-01`;
     }
-    return '2026-06-01';
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
   });
 
   const [exportToDate, setExportToDate] = useState<string>(() => {
@@ -828,7 +829,8 @@ export default function AttendanceImport({
       const lastDay = new Date(ledgerYear, ledgerMonth, 0).getDate();
       return `${ledgerYear}-${String(ledgerMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     }
-    return '2026-06-05';
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   });
 
   const [highlightAutoPunches, setHighlightAutoPunches] = useState<boolean>(false);

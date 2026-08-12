@@ -404,6 +404,7 @@ interface ExcelTableProps {
   onOpenRecycleBin?: () => void;
   sundayPaidRule?: 'totalMonthDays' | '26Days';
   setSundayPaidRule?: React.Dispatch<React.SetStateAction<'totalMonthDays' | '26Days'>>;
+  triggerAlert?: (type: 'success' | 'info' | 'warn', text: string) => void;
 }
 
 export default function ExcelTable({
@@ -418,13 +419,14 @@ export default function ExcelTable({
   onUndo,
   onPushUndo,
   viewOnly = false,
-  ledgerMonth = 5,
+  ledgerMonth = new Date().getMonth() + 1,
   setLedgerMonth = () => {},
-  ledgerYear = 2026,
+  ledgerYear = new Date().getFullYear(),
   setLedgerYear = () => {},
   onOpenRecycleBin,
   sundayPaidRule = 'totalMonthDays',
-  setSundayPaidRule
+  setSundayPaidRule,
+  triggerAlert
 }: ExcelTableProps) {
   // Search & Filter state
   const [filterOpts, setFilterOpts] = useState<FilterOptions>({
@@ -700,6 +702,28 @@ export default function ExcelTable({
       return;
     }
 
+    if (field === ('joiningDate' as keyof Employee)) {
+      const oldVal = employees.find(e => e.id === id)?.joiningDate || '';
+      if (value && value !== oldVal) {
+        triggerAlert?.('info', "Now you have set joining date so salary will be calculated from this date for this employee.");
+      } else if (!value && oldVal) {
+        triggerAlert?.('info', "Joining date cleared. Salary calculation reset to full period.");
+      }
+      onUpdateEmployee(id, { joiningDate: value });
+      return;
+    }
+
+    if (field === ('resignDate' as keyof Employee)) {
+      const oldVal = employees.find(e => e.id === id)?.resignDate || '';
+      if (value && value !== oldVal) {
+        triggerAlert?.('info', "Employee's balance is nil and all dues have been paid.");
+      } else if (!value && oldVal) {
+        triggerAlert?.('info', "Resign date cleared. Employee salary calculation restored as per standard rules.");
+      }
+      onUpdateEmployee(id, { resignDate: value });
+      return;
+    }
+
     if (field === 'department') {
       const trimmedVal = value.trim();
       onUpdateEmployee(id, { department: trimmedVal });
@@ -770,8 +794,8 @@ export default function ExcelTable({
     };
 
     const monthNames = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
-    const currentMonthLabel = monthNames[(ledgerMonth || 5) - 1] || 'MAY';
-    const currentYearLabel = ledgerYear || 2026;
+    const currentMonthLabel = monthNames[(ledgerMonth || (new Date().getMonth() + 1)) - 1] || monthNames[new Date().getMonth()];
+    const currentYearLabel = ledgerYear || new Date().getFullYear();
     const sundayRuleLabel = sundayPaidRule === '26Days' ? '26 Days Rule' : 'Total Month Days';
 
     // 1. TOP TITLE HEADER ROW (Row 2)
@@ -1597,6 +1621,18 @@ export default function ExcelTable({
                 </div>
               </th>
 
+              <th className="w-36 px-2.5 border-r border-slate-200 bg-sky-50/70 font-bold text-slate-600 text-[11px]">
+                <div className="flex items-center justify-between px-1">
+                  <span>Joining Date</span>
+                </div>
+              </th>
+
+              <th className="w-36 px-2.5 border-r border-slate-200 bg-rose-50/50 font-bold text-slate-600 text-[11px]">
+                <div className="flex items-center justify-between px-1">
+                  <span>Resign Date</span>
+                </div>
+              </th>
+
               <th className="w-36 px-2.5 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 text-[11px]">
                 <div className="flex items-center justify-between px-1 relative">
                   <span>Department</span>
@@ -1934,6 +1970,48 @@ export default function ExcelTable({
                       <option value="ACTIVE" className="text-emerald-800 font-bold">ACTIVE</option>
                       <option value="INACTIVE" className="text-rose-700 font-bold">INACTIVE</option>
                     </select>
+                  </td>
+
+                  <td className="p-0.5 border-r border-slate-150 align-middle text-center bg-sky-50/30">
+                    <div className="flex items-center justify-between gap-0.5 px-0.5">
+                      <input 
+                        type="date"
+                        value={emp.joiningDate || ''}
+                        onChange={(e) => handleCellBlur(emp.id, 'joiningDate' as any, e.target.value)}
+                        disabled={viewOnly}
+                        className="w-full h-7 border-0 bg-transparent text-center font-semibold text-[10.5px] rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer text-slate-700 p-0"
+                      />
+                      {emp.joiningDate && !viewOnly && (
+                        <button
+                          onClick={() => handleCellBlur(emp.id, 'joiningDate' as any, '')}
+                          className="text-slate-400 hover:text-rose-600 text-[10px] font-bold px-1 py-0.5 hover:bg-rose-50 rounded cursor-pointer shrink-0"
+                          title="Clear Joining Date"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </td>
+
+                  <td className="p-0.5 border-r border-slate-150 align-middle text-center bg-rose-50/20">
+                    <div className="flex items-center justify-between gap-0.5 px-0.5">
+                      <input 
+                        type="date"
+                        value={emp.resignDate || ''}
+                        onChange={(e) => handleCellBlur(emp.id, 'resignDate' as any, e.target.value)}
+                        disabled={viewOnly}
+                        className="w-full h-7 border-0 bg-transparent text-center font-semibold text-[10.5px] rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer text-slate-700 p-0"
+                      />
+                      {emp.resignDate && !viewOnly && (
+                        <button
+                          onClick={() => handleCellBlur(emp.id, 'resignDate' as any, '')}
+                          className="text-slate-400 hover:text-rose-600 text-[10px] font-bold px-1 py-0.5 hover:bg-rose-50 rounded cursor-pointer shrink-0"
+                          title="Clear Resign Date"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                   </td>
 
                   <td className="bg-sky-50 text-slate-800 text-left align-middle border-r border-slate-150 px-1 pr-2">
@@ -2514,6 +2592,50 @@ function MobileEmployeeCard({
                 <option value="ACTIVE">ACTIVE</option>
                 <option value="INACTIVE">INACTIVE</option>
               </select>
+            </div>
+
+            <div className="space-y-1 col-span-2 sm:col-span-1">
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Joining Date</label>
+                {emp.joiningDate && !viewOnly && (
+                  <button
+                    type="button"
+                    onClick={() => handleCellBlur(emp.id, 'joiningDate' as any, '')}
+                    className="text-[9px] text-rose-600 hover:text-rose-800 font-bold underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <input
+                type="date"
+                value={emp.joiningDate || ''}
+                onChange={(e) => handleCellBlur(emp.id, 'joiningDate' as any, e.target.value)}
+                disabled={viewOnly}
+                className="w-full h-9 px-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-medium focus:outline-hidden focus:ring-1 focus:ring-blue-400 disabled:opacity-65 text-xs"
+              />
+            </div>
+
+            <div className="space-y-1 col-span-2 sm:col-span-1">
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Resign Date</label>
+                {emp.resignDate && !viewOnly && (
+                  <button
+                    type="button"
+                    onClick={() => handleCellBlur(emp.id, 'resignDate' as any, '')}
+                    className="text-[9px] text-rose-600 hover:text-rose-800 font-bold underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <input
+                type="date"
+                value={emp.resignDate || ''}
+                onChange={(e) => handleCellBlur(emp.id, 'resignDate' as any, e.target.value)}
+                disabled={viewOnly}
+                className="w-full h-9 px-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-medium focus:outline-hidden focus:ring-1 focus:ring-blue-400 disabled:opacity-65 text-xs"
+              />
             </div>
 
             <div className="space-y-1 col-span-2 sm:col-span-1">

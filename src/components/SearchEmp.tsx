@@ -51,8 +51,8 @@ export default function SearchEmp({
   const [minAbsences, setMinAbsences] = useState<string>('');
   const [maxAbsences, setMaxAbsences] = useState<string>('');
 
-  const [internalMonth, setInternalMonth] = useState(6);
-  const [internalYear, setInternalYear] = useState(2026);
+  const [internalMonth, setInternalMonth] = useState(() => new Date().getMonth() + 1);
+  const [internalYear, setInternalYear] = useState(() => new Date().getFullYear());
   
   const localLedgerMonth = ledgerMonth !== undefined ? ledgerMonth : internalMonth;
   const localLedgerYear = ledgerYear !== undefined ? ledgerYear : internalYear;

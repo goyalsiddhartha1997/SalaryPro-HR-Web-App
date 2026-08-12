@@ -6,7 +6,12 @@
 import { Employee, ComputedEmployee } from './types';
 
 // Let's create a functional helper that validates and computes all required salaries
-export function calculateSalary(emp: Employee, sundayPaidRule: 'totalMonthDays' | '26Days' = 'totalMonthDays'): ComputedEmployee {
+export function calculateSalary(
+  emp: Employee, 
+  sundayPaidRule: 'totalMonthDays' | '26Days' = 'totalMonthDays',
+  ledgerMonth?: number,
+  ledgerYear?: number
+): ComputedEmployee {
   const errorMessages: string[] = [];
   
   // Real-time validations
@@ -81,6 +86,63 @@ export function calculateSalary(emp: Employee, sundayPaidRule: 'totalMonthDays' 
     rawBaseMonthly = (emp.elapsedDays !== undefined && emp.elapsedDays > 0) ? (rawDailyRate * emp.elapsedDays) : safeSalary;
   }
 
+  // Handle Joining Date & Resign Date proration if set
+  const curYear = ledgerYear || new Date().getFullYear();
+  const curMonth = ledgerMonth || (new Date().getMonth() + 1);
+  const totalDaysInMonth = new Date(curYear, curMonth, 0).getDate();
+
+  let effStartDay = 1;
+  let effEndDay = totalDaysInMonth;
+  let isBeforeJoining = false;
+  let isAfterResign = false;
+
+  if (emp.joiningDate && emp.joiningDate.trim() !== '') {
+    const parts = emp.joiningDate.trim().split('-');
+    if (parts.length === 3) {
+      const jYear = Number(parts[0]);
+      const jMonth = Number(parts[1]);
+      const jDay = Number(parts[2]);
+      if (jYear && jMonth && jDay) {
+        if (jYear > curYear || (jYear === curYear && jMonth > curMonth)) {
+          isBeforeJoining = true;
+        } else if (jYear === curYear && jMonth === curMonth) {
+          effStartDay = Math.max(1, Math.min(totalDaysInMonth, jDay));
+        }
+      }
+    }
+  }
+
+  if (emp.resignDate && emp.resignDate.trim() !== '') {
+    const parts = emp.resignDate.trim().split('-');
+    if (parts.length === 3) {
+      const rYear = Number(parts[0]);
+      const rMonth = Number(parts[1]);
+      const rDay = Number(parts[2]);
+      if (rYear && rMonth && rDay) {
+        if (rYear < curYear || (rYear === curYear && rMonth < curMonth)) {
+          isAfterResign = true;
+        } else if (rYear === curYear && rMonth === curMonth) {
+          effEndDay = Math.max(1, Math.min(totalDaysInMonth, rDay));
+        }
+      }
+    }
+  }
+
+  if (isBeforeJoining || isAfterResign || effStartDay > effEndDay) {
+    rawBaseMonthly = 0;
+  } else if (effStartDay > 1 || effEndDay < totalDaysInMonth) {
+    const tenureDays = effEndDay - effStartDay + 1;
+    if (emp.elapsedDays !== undefined && emp.elapsedDays > 0) {
+      rawBaseMonthly = rawDailyRate * Math.min(emp.elapsedDays, tenureDays);
+    } else {
+      if (salaryType === 'daily') {
+        rawBaseMonthly = rawDailyRate * tenureDays;
+      } else {
+        rawBaseMonthly = (safeSalary / calculationDivisor) * tenureDays;
+      }
+    }
+  }
+
   const rawHourlyRate = rawDailyRate / safeHours;
   
   const rawDeductionFullDay = rawDailyRate * safeFullAbs;
@@ -103,7 +165,12 @@ export function calculateSalary(emp: Employee, sundayPaidRule: 'totalMonthDays' 
   const rawSundayOTAmount = isSundayOTEligible ? (sundayOTDays * rawDailyRate) : 0;
 
   const rawTotalDeduction = rawDeductionFullDay + rawDeductionHourly + rawDeductionPartialDay + advance + food;
-  const rawFinalPayable = Math.max(0, rawBaseMonthly + rawSundayOTAmount - rawTotalDeduction);
+  let rawFinalPayable = Math.max(0, rawBaseMonthly + rawSundayOTAmount - rawTotalDeduction);
+
+  // If resign date is set for employee, final payable salary balance is 0
+  if (emp.resignDate && emp.resignDate.trim() !== '') {
+    rawFinalPayable = 0;
+  }
 
   return {
     ...emp,

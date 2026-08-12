@@ -108,9 +108,13 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       });
       // Sort primarily by date descending, then shift descending (night before day)
       dataList.sort((a, b) => {
-        const dateComp = b.date.localeCompare(a.date);
+        const dateA = a.date || '';
+        const dateB = b.date || '';
+        const dateComp = dateB.localeCompare(dateA);
         if (dateComp !== 0) return dateComp;
-        return b.shift.localeCompare(a.shift);
+        const shiftA = a.shift || '';
+        const shiftB = b.shift || '';
+        return shiftB.localeCompare(shiftA);
       });
       setReports(dataList);
       setLoadingReports(false);
@@ -183,16 +187,42 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
       const wast = log.wastage || 0;
       totalWastage += wast;
 
-      const catUpper = category.toUpperCase();
-      const nameUpper = itemName.toUpperCase();
+      const catUpper = (category || '').toUpperCase();
+      const nameUpper = (itemName || '').toUpperCase();
 
-      if (catUpper.includes('PP') || catUpper.includes('POLYPROPYLENE') || nameUpper.includes('PP ')) {
+      if (
+        catUpper.includes('PP') ||
+        catUpper.includes('POLYPROPYLENE') ||
+        nameUpper.includes('PP ') ||
+        nameUpper === 'PP' ||
+        nameUpper.startsWith('PP-') ||
+        nameUpper.startsWith('PP_')
+      ) {
         ppSum += qty;
-      } else if (catUpper.includes('FILLER') || catUpper.includes('CALCIUM') || nameUpper.includes('CALCIUM') || catUpper.includes('CC')) {
+      } else if (
+        catUpper.includes('FILLER') ||
+        catUpper.includes('CALCIUM') ||
+        catUpper.includes('CC') ||
+        nameUpper.includes('CALCIUM') ||
+        nameUpper.includes('FILLER') ||
+        nameUpper.includes('CC') ||
+        nameUpper === 'CC' ||
+        nameUpper.startsWith('CC ') ||
+        nameUpper.startsWith('CC-')
+      ) {
         ccSum += qty;
-      } else if (catUpper.includes('LDPE') || catUpper.includes('LD') || nameUpper.includes('LDPE')) {
+      } else if (
+        catUpper.includes('LDPE') ||
+        catUpper.includes('LD') ||
+        nameUpper.includes('LDPE') ||
+        nameUpper.includes('LD') ||
+        nameUpper === 'LD'
+      ) {
         ldSum += qty;
-      } else if (catUpper.includes('TPT') || nameUpper.includes('TPT')) {
+      } else if (
+        catUpper.includes('TPT') ||
+        nameUpper.includes('TPT')
+      ) {
         tptSum += qty;
       } else {
         const key = (category && category.toUpperCase() !== 'OTHERS') ? category : itemName;
@@ -224,32 +254,19 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
     };
   };
 
-  // Determines dynamic end-date limit based on "10 AM daily" rule
-  const getLedgerEndLimit = () => {
-    const now = new Date();
-    const hours = now.getHours();
-    const limitDate = new Date();
-    
-    if (hours < 10) {
-      // Before 10 AM, up to day-before-yesterday
-      limitDate.setDate(now.getDate() - 2);
-    } else {
-      // At or after 10 AM, up to yesterday
-      limitDate.setDate(now.getDate() - 1);
-    }
-    return limitDate.toISOString().split('T')[0];
-  };
+  // Helper to check if a date is past the 10:00 AM cutoff on the next day
+  const isPast10AmCutoff = (dateStr: string): boolean => {
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return true;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    const day = parseInt(parts[2], 10);
+    if (isNaN(year) || isNaN(month) || isNaN(day)) return true;
 
-  // Generates sequence of dates from YYYY-MM-DD to YYYY-MM-DD
-  const generateDateRange = (startStr: string, endStr: string) => {
-    const dates: string[] = [];
-    const current = new Date(startStr);
-    const end = new Date(endStr);
-    while (current <= end) {
-      dates.push(current.toISOString().split('T')[0]);
-      current.setDate(current.getDate() + 1);
-    }
-    return dates;
+    // Cutoff is 10:00 AM local time on the day AFTER dateStr
+    const deadline = new Date(year, month - 1, day + 1, 10, 0, 0, 0);
+    const now = new Date();
+    return now >= deadline;
   };
 
   // Run the automatic ledger synchronization
@@ -259,14 +276,36 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
     const syncMissingOrChangedLedgers = async () => {
       setIsSyncing(true);
       try {
-        const startLimit = "2026-07-01";
-        const endLimit = getLedgerEndLimit();
-        if (endLimit < startLimit) {
-          setIsSyncing(false);
-          return;
+        const todayStr = new Date().toISOString().split('T')[0];
+        const dateSet = new Set<string>();
+
+        // Include dates from start limit to today
+        const current = new Date("2026-07-01");
+        const todayObj = new Date(todayStr);
+        while (current <= todayObj) {
+          dateSet.add(current.toISOString().split('T')[0]);
+          current.setDate(current.getDate() + 1);
         }
 
-        const datesToSync = generateDateRange(startLimit, endLimit);
+        // Include any dates that have raw material usage logs
+        rawMaterials.forEach(item => {
+          if (item.logs) {
+            item.logs.forEach(log => {
+              if (log.type === 'use_stock' && log.date) {
+                dateSet.add(log.date);
+              }
+            });
+          }
+        });
+
+        // Include any dates present in existing production reports
+        reports.forEach(r => {
+          if (r.date) {
+            dateSet.add(r.date);
+          }
+        });
+
+        const datesToSync = Array.from(dateSet).sort();
         const reportMap = new Map<string, TapePlantProductionReport>();
         reports.forEach(r => {
           reportMap.set(r.id, r);
@@ -278,36 +317,99 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
           for (const shift of ['day', 'night'] as const) {
             const docId = `${date}-${shift}`;
             const existing = reportMap.get(docId);
+            const isManualOverride = existing?.isAutoGenerated === false;
             
             // Calculate the current calculated state based on raw material logs
             const calculated = calculateMaterialsForShift(date, shift);
 
-            const payload: TapePlantProductionReport = {
-              id: docId,
-              date,
-              shift,
-              usage: calculated.usageText,
-              wastage: calculated.totalWastage,
-              isStopped: calculated.isStopped,
-              isAutoGenerated: true,
-              remarks: existing?.remarks || '',
-              createdAt: existing ? (existing.createdAt || new Date().toISOString()) : new Date().toISOString()
-            };
+            if (!calculated.isStopped) {
+              // Raw material HAS been logged for this shift
+              if (isManualOverride) {
+                // If user previously manually marked it as plant stopped, but raw material was newly deducted, update to running
+                if (existing.isStopped) {
+                  const payload: TapePlantProductionReport = {
+                    ...existing,
+                    isStopped: false,
+                    usage: calculated.usageText,
+                    wastage: calculated.totalWastage,
+                  };
+                  await setDoc(doc(db, 'tapePlantProductions', docId), payload);
+                  updatedCount++;
+                }
+                // Otherwise, preserve user's manual override for usage, wastage, manpower, remarks
+              } else {
+                // Auto-generated or missing record
+                const payload: TapePlantProductionReport = {
+                  id: docId,
+                  date,
+                  shift,
+                  usage: calculated.usageText,
+                  wastage: calculated.totalWastage,
+                  isStopped: false,
+                  isAutoGenerated: true,
+                  remarks: existing?.remarks || '',
+                  createdAt: existing?.createdAt || new Date().toISOString(),
+                  operatorsCount: existing?.operatorsCount ?? 0,
+                  windermenCount: existing?.windermenCount ?? 0,
+                  helpersCount: existing?.helpersCount ?? 0,
+                };
 
-            if (!existing) {
-              // Missing document entirely - auto-create
-              await setDoc(doc(db, 'tapePlantProductions', docId), payload);
-              updatedCount++;
-            } else if (existing.isAutoGenerated) {
-              // Existing document is auto-generated - verify if it needs update/re-sync
-              const isDiff = 
-                existing.usage !== calculated.usageText || 
-                existing.wastage !== calculated.totalWastage || 
-                existing.isStopped !== calculated.isStopped;
+                const isDiff = !existing || 
+                  existing.usage !== calculated.usageText || 
+                  existing.wastage !== calculated.totalWastage || 
+                  existing.isStopped !== false;
 
-              if (isDiff) {
-                await setDoc(doc(db, 'tapePlantProductions', docId), payload);
-                updatedCount++;
+                if (isDiff) {
+                  await setDoc(doc(db, 'tapePlantProductions', docId), payload);
+                  updatedCount++;
+                }
+              }
+            } else {
+              // NO raw material usage logged for this shift
+              const pastCutoff = isPast10AmCutoff(date);
+
+              if (pastCutoff) {
+                // Only auto-create or keep Plant Stopped entry if past 10:00 AM on the day after date
+                if (isManualOverride) {
+                  // User manually set this entry -> preserve user's manual override
+                  continue;
+                }
+
+                const payload: TapePlantProductionReport = {
+                  id: docId,
+                  date,
+                  shift,
+                  usage: calculated.usageText,
+                  wastage: 0,
+                  isStopped: true,
+                  isAutoGenerated: true,
+                  remarks: existing?.remarks || '',
+                  createdAt: existing?.createdAt || new Date().toISOString(),
+                  operatorsCount: existing?.operatorsCount ?? 0,
+                  windermenCount: existing?.windermenCount ?? 0,
+                  helpersCount: existing?.helpersCount ?? 0,
+                };
+
+                const isDiff = !existing ||
+                  existing.usage !== calculated.usageText ||
+                  existing.isStopped !== true;
+
+                if (isDiff) {
+                  await setDoc(doc(db, 'tapePlantProductions', docId), payload);
+                  updatedCount++;
+                }
+              } else {
+                // NOT past 10:00 AM on the next day yet.
+                if (isManualOverride) {
+                  // Manual override exists -> preserve user's manual entry
+                  continue;
+                }
+
+                // If premature auto-generated entry exists, clean it up from Firestore
+                if (existing) {
+                  await deleteDoc(doc(db, 'tapePlantProductions', docId));
+                  updatedCount++;
+                }
               }
             }
           }
@@ -364,9 +466,15 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
     return `${ops} Ops, ${winders} Windermen, ${helpers} Helpers`;
   };
 
+  const formatDateLabel = (dateStr?: string) => {
+    return formatDateDDMMMYYYY(dateStr);
+  };
+
   // --- FILTERED REPORTS DATA ---
   const filteredReports = useMemo(() => {
     return reports.filter(r => {
+      if (!r || !r.date) return false;
+
       // Date filtering
       let dateMatch = true;
       if (filterMode === 'month') {
@@ -379,22 +487,28 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
           dateMatch = false;
         }
       } else if (filterMode === 'range') {
-        dateMatch = r.date >= rangeStartDate && r.date <= rangeEndDate;
+        const start = rangeStartDate || '0000-00-00';
+        const end = rangeEndDate || '9999-99-99';
+        dateMatch = r.date >= start && r.date <= end;
       }
 
       if (!dateMatch) return false;
 
       // Shift filtering
       if (filterShift !== 'all') {
-        return (r.shift || 'day') === filterShift;
+        return (r.shift || 'day').toLowerCase() === filterShift.toLowerCase();
       }
 
       return true;
     }).sort((a, b) => {
       // Sorted chronologically ascending for the ledger report
-      const dateComp = a.date.localeCompare(b.date);
+      const dateA = a.date || '';
+      const dateB = b.date || '';
+      const dateComp = dateA.localeCompare(dateB);
       if (dateComp !== 0) return dateComp;
-      return a.shift.localeCompare(b.shift);
+      const shiftA = a.shift || '';
+      const shiftB = b.shift || '';
+      return shiftA.localeCompare(shiftB);
     });
   }, [reports, filterMode, selectedMonth, selectedYear, rangeStartDate, rangeEndDate, filterShift]);
 
@@ -919,10 +1033,6 @@ export default function TapePlantProduction({ triggerAlert, viewOnly = false }: 
     } finally {
       setIsExporting(false);
     }
-  };
-
-  const formatDateLabel = (dateStr?: string) => {
-    return formatDateDDMMMYYYY(dateStr);
   };
 
   const monthsList = [

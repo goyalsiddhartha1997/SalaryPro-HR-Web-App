@@ -184,8 +184,8 @@ export default function EmployeeProfileDetails({
   viewOnly = false,
   allPunchLogs = {},
   setAllPunchLogs,
-  ledgerMonth = 5,
-  ledgerYear = 2026,
+  ledgerMonth = new Date().getMonth() + 1,
+  ledgerYear = new Date().getFullYear(),
   triggerAlert,
   sundayPaidRule = 'totalMonthDays',
   setSundayPaidRule
@@ -207,6 +207,8 @@ export default function EmployeeProfileDetails({
   const [editedMonthlySalary, setEditedMonthlySalary] = useState<number>(0);
   const [editedContractor, setEditedContractor] = useState('');
   const [editedActiveStatus, setEditedActiveStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
+  const [editedJoiningDate, setEditedJoiningDate] = useState('');
+  const [editedResignDate, setEditedResignDate] = useState('');
 
   // Interactive local states for Notes & Documents
   const [newNote, setNewNote] = useState('');
@@ -504,10 +506,22 @@ export default function EmployeeProfileDetails({
     setEditedMonthlySalary(employee.monthlySalary || 0);
     setEditedContractor(employee.contractor || '');
     setEditedActiveStatus(employee.activeStatus || 'ACTIVE');
+    setEditedJoiningDate(employee.joiningDate || '');
+    setEditedResignDate(employee.resignDate || '');
     setIsEditingProfile(true);
   };
 
   const handleSaveProfile = () => {
+    const oldJoining = employee.joiningDate || '';
+    const oldResign = employee.resignDate || '';
+
+    if (editedJoiningDate.trim() && editedJoiningDate !== oldJoining) {
+      triggerAlert?.('info', "Now you have set joining date so salary will be calculated from this date for this employee.");
+    }
+    if (editedResignDate.trim() && editedResignDate !== oldResign) {
+      triggerAlert?.('info', "Employee's balance is nil and all dues have been paid.");
+    }
+
     onUpdateEmployee(employee.id, {
       name: editedName,
       role: editedRole || editedDesignation,
@@ -524,7 +538,9 @@ export default function EmployeeProfileDetails({
       sundayPaid: editedSundayPaid,
       monthlySalary: editedMonthlySalary,
       contractor: editedContractor,
-      activeStatus: editedActiveStatus
+      activeStatus: editedActiveStatus,
+      joiningDate: editedJoiningDate,
+      resignDate: editedResignDate
     });
     setIsEditingProfile(false);
   };
@@ -633,8 +649,21 @@ export default function EmployeeProfileDetails({
   const uploadedDaysInThisMonth = useMemo(() => {
     return allUploadedDates.filter(d => d.startsWith(monthPrefix));
   }, [allUploadedDates, monthPrefix]);
+
+  // Employee-specific uploaded dates filtered for their active tenure (joiningDate and resignDate)
+  const empUploadedDaysInThisMonth = useMemo(() => {
+    return uploadedDaysInThisMonth.filter(d => {
+      if (employee.joiningDate && employee.joiningDate.trim() !== '' && d < employee.joiningDate.trim()) {
+        return false;
+      }
+      if (employee.resignDate && employee.resignDate.trim() !== '' && d > employee.resignDate.trim()) {
+        return false;
+      }
+      return true;
+    });
+  }, [uploadedDaysInThisMonth, employee.joiningDate, employee.resignDate]);
   
-  const uploadedFullAbsencesCount = uploadedDaysInThisMonth.filter(d => {
+  const uploadedFullAbsencesCount = empUploadedDaysInThisMonth.filter(d => {
     const dayPunches = getAdjustedPunchesForDate(d);
     if (dayPunches.length === 0) {
       const dateObj = new Date(d);
@@ -653,7 +682,7 @@ export default function EmployeeProfileDetails({
     return false;
   }).length;
 
-  const uploadedPartialDays = uploadedDaysInThisMonth.filter(d => {
+  const uploadedPartialDays = empUploadedDaysInThisMonth.filter(d => {
     const dayPunches = getAdjustedPunchesForDate(d);
     if (dayPunches.length > 0) {
       const minutes = getWorkMinutes(dayPunches);
@@ -683,6 +712,31 @@ export default function EmployeeProfileDetails({
   const workingDays = new Date(calendarYear, calendarMonth + 1, 0).getDate();
   const workingHoursPerDay = employee.workingHours || 8;
   const isDailyBasis = employee.salaryType === 'daily';
+
+  // Calculate employee's active tenure working days in this month
+  const tenureWorkingDays = useMemo(() => {
+    const totalDaysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+    const mStart = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-01`;
+    const mEnd = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(totalDaysInMonth).padStart(2, '0')}`;
+    
+    let effStart = mStart;
+    if (employee.joiningDate && employee.joiningDate.trim() !== '' && employee.joiningDate.trim() > mStart) {
+      effStart = employee.joiningDate.trim();
+    }
+    
+    let effEnd = mEnd;
+    if (employee.resignDate && employee.resignDate.trim() !== '' && employee.resignDate.trim() < mEnd) {
+      effEnd = employee.resignDate.trim();
+    }
+    
+    if (effStart > effEnd) return 0;
+    
+    const startDateObj = new Date(effStart);
+    const endDateObj = new Date(effEnd);
+    const diffTime = endDateObj.getTime() - startDateObj.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    return Math.max(0, Math.min(totalDaysInMonth, diffDays));
+  }, [calendarYear, calendarMonth, employee.joiningDate, employee.resignDate]);
   
   const isSundayPaid = employee.sundayPaid === 'Paid';
   const calculationDivisor = (sundayPaidRule === '26Days' && isSundayPaid) ? 26 : (workingDays > 0 ? workingDays : 26);
@@ -690,15 +744,15 @@ export default function EmployeeProfileDetails({
   const dynamicDailyRate = isDailyBasis ? baseSalary : (baseSalary > 0 && calculationDivisor > 0 ? baseSalary/calculationDivisor : 0);
   const dynamicHourlyRate = dynamicDailyRate > 0 && workingHoursPerDay > 0 ? dynamicDailyRate / workingHoursPerDay : 0;
   
-  const elapsedDays = uploadedDaysInThisMonth.length > 0 ? uploadedDaysInThisMonth.length : workingDays;
+  const elapsedDays = uploadedDaysInThisMonth.length > 0 ? empUploadedDaysInThisMonth.length : tenureWorkingDays;
   const grossMonthlyBasis = isDailyBasis 
     ? (baseSalary * elapsedDays) 
-    : (uploadedDaysInThisMonth.length > 0 ? (dynamicDailyRate * elapsedDays) : baseSalary);
+    : (uploadedDaysInThisMonth.length > 0 ? (dynamicDailyRate * elapsedDays) : (dynamicDailyRate * tenureWorkingDays));
 
   // Calculate live Sunday OT days based on punches
   let liveSundayOTDays = 0;
   if (uploadedDaysInThisMonth.length > 0) {
-    uploadedDaysInThisMonth.forEach(d => {
+    empUploadedDaysInThisMonth.forEach(d => {
       const dayPunches = getAdjustedPunchesForDate(d);
       if (dayPunches.length > 0) {
         const dateObj = new Date(d);
@@ -853,6 +907,14 @@ export default function EmployeeProfileDetails({
     if (!isCurrent) return false;
     if (isFutureMonth) return false;
     const cellDateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+    
+    // Pre-joining and post-resignation dates are not absent
+    if (employee.joiningDate && employee.joiningDate.trim() !== '' && cellDateStr < employee.joiningDate.trim()) {
+      return false;
+    }
+    if (employee.resignDate && employee.resignDate.trim() !== '' && cellDateStr > employee.resignDate.trim()) {
+      return false;
+    }
     
     // 1. If this month features ANY uploaded biometric logs, rely strictly and exclusively on those logs
     if (uploadedDaysInThisMonth.length > 0) {
@@ -1178,11 +1240,53 @@ export default function EmployeeProfileDetails({
                   {employee.contractor || ''}
                 </span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span className="text-slate-400 font-medium">Active Status</span>
                 <span className={`font-bold px-2 py-0.5 rounded uppercase ${employee.activeStatus === 'INACTIVE' ? 'text-rose-700 bg-rose-50' : 'text-emerald-700 bg-emerald-50'}`}>
                   {employee.activeStatus || 'ACTIVE'}
                 </span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-medium">Joining Date</span>
+                <div className="flex items-center gap-1.5">
+                  <span className={`font-bold px-2 py-0.5 rounded text-[11px] ${employee.joiningDate ? 'text-sky-800 bg-sky-50 border border-sky-100' : 'text-slate-400 bg-slate-50'}`}>
+                    {employee.joiningDate ? employee.joiningDate : '— Not Set'}
+                  </span>
+                  {employee.joiningDate && !viewOnly && (
+                    <button
+                      onClick={() => {
+                        onUpdateEmployee(employee.id, { joiningDate: '' });
+                        triggerAlert?.('info', "Joining date cleared. Salary calculation reset to full period.");
+                      }}
+                      className="text-slate-400 hover:text-rose-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-slate-200 hover:border-rose-200 hover:bg-rose-50 cursor-pointer"
+                      title="Clear Joining Date"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-medium">Resign Date</span>
+                <div className="flex items-center gap-1.5">
+                  <span className={`font-bold px-2 py-0.5 rounded text-[11px] ${employee.resignDate ? 'text-rose-800 bg-rose-50 border border-rose-100' : 'text-slate-400 bg-slate-50'}`}>
+                    {employee.resignDate ? employee.resignDate : '— Not Set'}
+                  </span>
+                  {employee.resignDate && !viewOnly && (
+                    <button
+                      onClick={() => {
+                        onUpdateEmployee(employee.id, { resignDate: '' });
+                        triggerAlert?.('info', "Resign date cleared. Employee salary calculation restored as per standard rules.");
+                      }}
+                      className="text-slate-400 hover:text-rose-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-slate-200 hover:border-rose-200 hover:bg-rose-50 cursor-pointer"
+                      title="Clear Resign Date"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -2379,6 +2483,48 @@ export default function EmployeeProfileDetails({
                   <option value="ACTIVE" className="text-emerald-800 font-bold">ACTIVE</option>
                   <option value="INACTIVE" className="text-rose-700 font-bold">INACTIVE</option>
                 </select>
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-slate-400">Joining Date</label>
+                  {editedJoiningDate && (
+                    <button
+                      type="button"
+                      onClick={() => setEditedJoiningDate('')}
+                      className="text-[10px] text-rose-600 hover:text-rose-800 font-bold cursor-pointer underline"
+                    >
+                      Clear Date
+                    </button>
+                  )}
+                </div>
+                <input 
+                  type="date" 
+                  value={editedJoiningDate} 
+                  onChange={(e) => setEditedJoiningDate(e.target.value)}
+                  className="w-full bg-slate-50 border-0 focus:ring-1 focus:ring-teal-500 rounded-xl p-2 text-slate-800 font-semibold"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-slate-400">Resign Date</label>
+                  {editedResignDate && (
+                    <button
+                      type="button"
+                      onClick={() => setEditedResignDate('')}
+                      className="text-[10px] text-rose-600 hover:text-rose-800 font-bold cursor-pointer underline"
+                    >
+                      Clear Date
+                    </button>
+                  )}
+                </div>
+                <input 
+                  type="date" 
+                  value={editedResignDate} 
+                  onChange={(e) => setEditedResignDate(e.target.value)}
+                  className="w-full bg-slate-50 border-0 focus:ring-1 focus:ring-teal-500 rounded-xl p-2 text-slate-800 font-semibold"
+                />
               </div>
 
             </div>
