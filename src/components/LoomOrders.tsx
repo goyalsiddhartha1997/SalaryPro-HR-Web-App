@@ -42,6 +42,7 @@ import {
   Table,
   Download,
   RotateCcw,
+  RotateCw,
   Truck,
   PackageCheck,
   PackageX,
@@ -158,8 +159,131 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [masterLedgerSearchQuery, setMasterLedgerSearchQuery] = useState<string>('');
   const [masterLedgerDispatchFilter, setMasterLedgerDispatchFilter] = useState<'all' | 'not_dispatched' | 'dispatched'>('all');
   const [editingMasterRollId, setEditingMasterRollId] = useState<string | null>(null);
+  const [showMasterRollEditModal, setShowMasterRollEditModal] = useState<boolean>(false);
+  const [masterRollModalTarget, setMasterRollModalTarget] = useState<any | null>(null);
   const masterLedgerFileInputRef = useRef<HTMLInputElement | null>(null);
   const dispatchLedgerFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // --- MASTER ROLL LEDGER UNDO / REDO HISTORY STATES ---
+  interface MasterLedgerHistoryEntry {
+    id: string;
+    timestamp: number;
+    actionName: string;
+    summary: string;
+    details: string[];
+    affectedOrdersBefore: LoomOrder[];
+    affectedOrdersAfter: LoomOrder[];
+  }
+
+  const [ledgerUndoStack, setLedgerUndoStack] = useState<MasterLedgerHistoryEntry[]>([]);
+  const [ledgerRedoStack, setLedgerRedoStack] = useState<MasterLedgerHistoryEntry[]>([]);
+
+  // Pop-up Notification modal state for Undo / Redo
+  const [ledgerNotificationModal, setLedgerNotificationModal] = useState<{
+    isOpen: boolean;
+    mode: 'undo' | 'redo';
+    actionName: string;
+    summary: string;
+    details: string[];
+  }>({
+    isOpen: false,
+    mode: 'undo',
+    actionName: '',
+    summary: '',
+    details: [],
+  });
+
+  const pushLedgerHistory = (entry: Omit<MasterLedgerHistoryEntry, 'id' | 'timestamp'>) => {
+    const newEntry: MasterLedgerHistoryEntry = {
+      ...entry,
+      id: 'hist-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+      timestamp: Date.now(),
+    };
+    setLedgerUndoStack(prev => [...prev, newEntry]);
+    setLedgerRedoStack([]); // Clear redo stack on new action
+  };
+
+  const handleLedgerUndo = async () => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+    if (ledgerUndoStack.length === 0) {
+      triggerAlert('warn', 'No actions available to undo in Master Roll Ledger.');
+      return;
+    }
+
+    const lastEntry = ledgerUndoStack[ledgerUndoStack.length - 1];
+    const newUndoStack = ledgerUndoStack.slice(0, -1);
+
+    try {
+      // Revert affected orders in Firestore
+      for (const restoredOrd of lastEntry.affectedOrdersBefore) {
+        const orderRef = doc(db, 'loomOrders', restoredOrd.id);
+        await setDoc(orderRef, restoredOrd);
+      }
+
+      setLedgerUndoStack(newUndoStack);
+      setLedgerRedoStack(prev => [...prev, lastEntry]);
+
+      // Pop-up notification modal
+      setLedgerNotificationModal({
+        isOpen: true,
+        mode: 'undo',
+        actionName: lastEntry.actionName,
+        summary: `Undone: ${lastEntry.summary}`,
+        details: lastEntry.details.length > 0 
+          ? lastEntry.details.map(d => `Reverted: ${d}`)
+          : ['All roll modifications reverted to previous state.']
+      });
+
+      triggerAlert('info', `Undone: ${lastEntry.summary}`);
+    } catch (err) {
+      console.error("Failed to perform undo in Master Roll Ledger", err);
+      triggerAlert('warn', 'Failed to perform undo.');
+    }
+  };
+
+  const handleLedgerRedo = async () => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+    if (ledgerRedoStack.length === 0) {
+      triggerAlert('warn', 'No actions available to redo in Master Roll Ledger.');
+      return;
+    }
+
+    const lastEntry = ledgerRedoStack[ledgerRedoStack.length - 1];
+    const newRedoStack = ledgerRedoStack.slice(0, -1);
+
+    try {
+      // Re-apply affected orders in Firestore
+      for (const reappliedOrd of lastEntry.affectedOrdersAfter) {
+        const orderRef = doc(db, 'loomOrders', reappliedOrd.id);
+        await setDoc(orderRef, reappliedOrd);
+      }
+
+      setLedgerRedoStack(newRedoStack);
+      setLedgerUndoStack(prev => [...prev, lastEntry]);
+
+      // Pop-up notification modal
+      setLedgerNotificationModal({
+        isOpen: true,
+        mode: 'redo',
+        actionName: lastEntry.actionName,
+        summary: `Redone: ${lastEntry.summary}`,
+        details: lastEntry.details.length > 0 
+          ? lastEntry.details.map(d => `Reapplied: ${d}`)
+          : ['All roll modifications re-applied to updated state.']
+      });
+
+      triggerAlert('info', `Redone: ${lastEntry.summary}`);
+    } catch (err) {
+      console.error("Failed to perform redo in Master Roll Ledger", err);
+      triggerAlert('warn', 'Failed to perform redo.');
+    }
+  };
 
   // --- DISPATCH ENTRY MODAL STATES ---
   const [showDispatchEntryModal, setShowDispatchEntryModal] = useState<boolean>(false);
@@ -1374,6 +1498,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           copyMetric('rollStrength');
           copyMetric('rollElongation');
           copyMetric('rollRemarks');
+          copyMetric('rollSize');
+          copyMetric('rollQuality');
+          copyMetric('rollGsm');
+          copyMetric('rollDenier');
+          copyMetric('rollFabricWeight');
           copyMetric('rollDispatchStatus');
           copyMetric('rollDispatchDetails');
 
@@ -1450,6 +1579,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       if (targetRow.rollStrength) { const m = { ...targetRow.rollStrength }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollStrength = m; }
       if (targetRow.rollElongation) { const m = { ...targetRow.rollElongation }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollElongation = m; }
       if (targetRow.rollRemarks) { const m = { ...targetRow.rollRemarks }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollRemarks = m; }
+      if (targetRow.rollSize) { const m = { ...targetRow.rollSize }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollSize = m; }
+      if (targetRow.rollQuality) { const m = { ...targetRow.rollQuality }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollQuality = m; }
+      if (targetRow.rollGsm) { const m = { ...targetRow.rollGsm }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollGsm = m; }
+      if (targetRow.rollDenier) { const m = { ...targetRow.rollDenier }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollDenier = m; }
+      if (targetRow.rollFabricWeight) { const m = { ...targetRow.rollFabricWeight }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollFabricWeight = m; }
       if (targetRow.rollDispatchStatus) { const m = { ...targetRow.rollDispatchStatus }; Object.keys(m).forEach(k => { if (!activeRollSet.has(k)) delete m[k]; }); targetRow.rollDispatchStatus = m; }
       if (targetRow.dispatchedRolls) { targetRow.dispatchedRolls = targetRow.dispatchedRolls.filter(r => activeRollSet.has(r)); }
 
@@ -1985,10 +2119,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               orderDate: order.date,
               subOrderIdx: subIdx,
               rollNoIdx: rIdx,
-              size: row.size || '',
-              gsm: row.gsm || 0,
-              denier: row.denier || 0,
-              fabricWeight: row.fabricWeight || 0,
+              size: (row.rollSize && row.rollSize[trimmed] !== undefined && row.rollSize[trimmed] !== '') ? row.rollSize[trimmed] : (row.size || ''),
+              gsm: (row.rollGsm && row.rollGsm[trimmed] !== undefined && row.rollGsm[trimmed] !== 0) ? row.rollGsm[trimmed] : (row.gsm || 0),
+              denier: (row.rollDenier && row.rollDenier[trimmed] !== undefined && row.rollDenier[trimmed] !== 0) ? row.rollDenier[trimmed] : (row.denier || 0),
+              fabricWeight: (row.rollFabricWeight && row.rollFabricWeight[trimmed] !== undefined && row.rollFabricWeight[trimmed] !== 0) ? row.rollFabricWeight[trimmed] : (row.fabricWeight || 0),
               grossWt: (row.rollGrossWt && row.rollGrossWt[trimmed]) ?? 0,
               coreWt: (row.rollCoreWt && row.rollCoreWt[trimmed]) ?? 0,
               netWt: (row.rollNetWt && row.rollNetWt[trimmed]) ?? 0,
@@ -2000,7 +2134,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               weftElongation: wfElongation,
               strength: wStrength,
               elongation: wElongation,
-              quality: row.quality || '',
+              quality: (row.rollQuality && row.rollQuality[trimmed] !== undefined && row.rollQuality[trimmed] !== '') ? row.rollQuality[trimmed] : (row.quality || ''),
               remarks: (row.rollRemarks && row.rollRemarks[trimmed]) || '',
               dispatchStatus: isDispatched ? 'Dispatched' : 'Not Dispatched',
               dispatchDetails: detailsMap[trimmed] || undefined,
@@ -2156,8 +2290,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     }).length;
   }, [masterRollLedgerData, selectedMasterExportOrderIds, masterLedgerExportOption]);
 
-  // Master Ledger Inline Edit Handlers
+  // Master Ledger Edit Handlers (Modal & Inline)
   const handleStartEditMasterRoll = (item: typeof masterRollLedgerData[0]) => {
+    setMasterRollModalTarget(item);
+    setShowMasterRollEditModal(true);
     setEditingMasterRollId(item.id);
     setMasterEditRollNo(item.rollNo);
     setMasterEditSize(item.size);
@@ -2181,6 +2317,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   };
 
   const handleCancelEditMasterRoll = () => {
+    setShowMasterRollEditModal(false);
+    setMasterRollModalTarget(null);
     setEditingMasterRollId(null);
   };
 
@@ -2256,6 +2394,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       return;
     }
 
+    const beforeOrder = JSON.parse(JSON.stringify(targetOrder));
+
     const updatedRows = [...(targetOrder.rows || [])];
     if (!updatedRows[subOrderIdx]) {
       triggerAlert('warn', 'Sub-order row not found.');
@@ -2295,10 +2435,25 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
     try {
       const orderRef = doc(db, 'loomOrders', targetOrder.id);
-      await setDoc(orderRef, {
+      const afterOrder = {
         ...targetOrder,
         rows: updatedRows,
+      };
+      await setDoc(orderRef, afterOrder);
+
+      pushLedgerHistory({
+        actionName: `Dispatch Roll #${rollNo}`,
+        summary: `Dispatched Roll #${rollNo} (Order #${targetOrder.orderNo})`,
+        details: [
+          `Roll No: ${rollNo}`,
+          `Challan No: ${dispatchChallanNo.trim() || 'N/A'}`,
+          `Vehicle No: ${dispatchVehicleNo.trim().toUpperCase() || 'N/A'}`,
+          `Date: ${dispatchDate}`
+        ],
+        affectedOrdersBefore: [beforeOrder],
+        affectedOrdersAfter: [JSON.parse(JSON.stringify(afterOrder))],
       });
+
       triggerAlert('success', `Dispatch data recorded for Roll #${rollNo}!`);
       setShowDispatchEntryModal(false);
       setDispatchModalTargetRoll(null);
@@ -3300,17 +3455,20 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
         const sizeVal = getCol('size');
         if (sizeVal !== undefined && sizeVal !== '' && sizeVal !== '—') {
-          rowObj.size = String(sizeVal).trim();
+          if (!rowObj.rollSize) rowObj.rollSize = {};
+          rowObj.rollSize[item.rollNo] = String(sizeVal).trim();
         }
 
         const gsmVal = getCol('gsm');
         if (gsmVal !== undefined && gsmVal !== '' && gsmVal !== '—') {
-          rowObj.gsm = Number(gsmVal) || rowObj.gsm;
+          if (!rowObj.rollGsm) rowObj.rollGsm = {};
+          rowObj.rollGsm[item.rollNo] = Number(gsmVal) || 0;
         }
 
         const qualityVal = getCol('quality');
         if (qualityVal !== undefined && qualityVal !== '' && qualityVal !== '—') {
-          rowObj.quality = String(qualityVal).trim();
+          if (!rowObj.rollQuality) rowObj.rollQuality = {};
+          rowObj.rollQuality[item.rollNo] = String(qualityVal).trim();
         }
 
         rowObj.rollDispatchStatus[item.rollNo] = 'Dispatched';
@@ -3365,6 +3523,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       return;
     }
 
+    const beforeOrder = JSON.parse(JSON.stringify(targetOrder));
+
     const updatedRows = [...(targetOrder.rows || [])];
     if (!updatedRows[item.subOrderIdx]) {
       triggerAlert('warn', 'Sub-order row not found.');
@@ -3388,14 +3548,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     rollsArray[targetRollIdx] = trimmedNewRollNo;
     targetRow.rollNumbers = sortRollNumbersAscending(rollsArray);
 
-    // Update sub-order row specs
-    targetRow.size = masterEditSize.trim();
-    targetRow.gsm = Number(masterEditGsm) || 0;
-    targetRow.denier = Number(masterEditDenier) || 0;
-    targetRow.fabricWeight = Number(masterEditFabricWeight) || 0;
-    targetRow.quality = masterEditQuality.trim();
-
-    // Store per-roll remarks and per-roll weight/meter maps
+    // Store per-roll maps for all roll attributes
+    const existingRollSize = { ...(targetRow.rollSize || {}) };
+    const existingRollQuality = { ...(targetRow.rollQuality || {}) };
+    const existingRollGsm = { ...(targetRow.rollGsm || {}) };
+    const existingRollDenier = { ...(targetRow.rollDenier || {}) };
+    const existingRollFabricWeight = { ...(targetRow.rollFabricWeight || {}) };
     const existingRollRemarks = { ...(targetRow.rollRemarks || {}) };
     const existingRollGrossWt = { ...(targetRow.rollGrossWt || {}) };
     const existingRollCoreWt = { ...(targetRow.rollCoreWt || {}) };
@@ -3410,6 +3568,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     const existingRollElongation = { ...(targetRow.rollElongation || {}) };
 
     if (item.rollNo !== trimmedNewRollNo) {
+      if (item.rollNo in existingRollSize) delete existingRollSize[item.rollNo];
+      if (item.rollNo in existingRollQuality) delete existingRollQuality[item.rollNo];
+      if (item.rollNo in existingRollGsm) delete existingRollGsm[item.rollNo];
+      if (item.rollNo in existingRollDenier) delete existingRollDenier[item.rollNo];
+      if (item.rollNo in existingRollFabricWeight) delete existingRollFabricWeight[item.rollNo];
       if (item.rollNo in existingRollRemarks) delete existingRollRemarks[item.rollNo];
       if (item.rollNo in existingRollGrossWt) delete existingRollGrossWt[item.rollNo];
       if (item.rollNo in existingRollCoreWt) delete existingRollCoreWt[item.rollNo];
@@ -3424,6 +3587,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       if (item.rollNo in existingRollElongation) delete existingRollElongation[item.rollNo];
     }
 
+    existingRollSize[trimmedNewRollNo] = masterEditSize.trim();
+    existingRollQuality[trimmedNewRollNo] = masterEditQuality.trim();
+    existingRollGsm[trimmedNewRollNo] = Number(masterEditGsm) || 0;
+    existingRollDenier[trimmedNewRollNo] = Number(masterEditDenier) || 0;
+    existingRollFabricWeight[trimmedNewRollNo] = Number(masterEditFabricWeight) || 0;
     existingRollRemarks[trimmedNewRollNo] = masterEditRemarks.trim();
     existingRollGrossWt[trimmedNewRollNo] = Number(masterEditGrossWt) || 0;
     existingRollCoreWt[trimmedNewRollNo] = Number(masterEditCoreWt) || 0;
@@ -3437,6 +3605,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     existingRollStrength[trimmedNewRollNo] = (masterEditWarpStrength || masterEditStrength).trim();
     existingRollElongation[trimmedNewRollNo] = (masterEditWarpElongation || masterEditElongation).trim();
 
+    targetRow.rollSize = existingRollSize;
+    targetRow.rollQuality = existingRollQuality;
+    targetRow.rollGsm = existingRollGsm;
+    targetRow.rollDenier = existingRollDenier;
+    targetRow.rollFabricWeight = existingRollFabricWeight;
     targetRow.rollRemarks = existingRollRemarks;
     targetRow.rollGrossWt = existingRollGrossWt;
     targetRow.rollCoreWt = existingRollCoreWt;
@@ -3475,11 +3648,38 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
     try {
       const orderRef = doc(db, 'loomOrders', targetOrder.id);
-      await setDoc(orderRef, {
+      const afterOrder = {
         ...targetOrder,
         rows: updatedRows
+      };
+      await setDoc(orderRef, afterOrder);
+
+      const details: string[] = [];
+      if (item.rollNo !== trimmedNewRollNo) details.push(`Roll No: "${item.rollNo}" ➔ "${trimmedNewRollNo}"`);
+      if (String(item.size || '').trim() !== masterEditSize.trim()) details.push(`Size: "${item.size || ''}" ➔ "${masterEditSize.trim()}"`);
+      if (String(item.gsm || '') !== masterEditGsm.trim()) details.push(`GSM: "${item.gsm || ''}" ➔ "${masterEditGsm.trim()}"`);
+      if (String(item.denier || '') !== masterEditDenier.trim()) details.push(`Denier: "${item.denier || ''}" ➔ "${masterEditDenier.trim()}"`);
+      if (String(item.fabricWeight || '') !== masterEditFabricWeight.trim()) details.push(`Fabric Weight: "${item.fabricWeight || ''}" ➔ "${masterEditFabricWeight.trim()}"`);
+      if (String(item.avgWtCalculated || '') !== masterEditAvgWtCalculated.trim()) details.push(`Avg Wt [calc]: "${item.avgWtCalculated || ''}" ➔ "${masterEditAvgWtCalculated.trim()}"`);
+      if (String(item.grossWt || '') !== masterEditGrossWt.trim()) details.push(`Gross Wt: "${item.grossWt || ''}" ➔ "${masterEditGrossWt.trim()}" kg`);
+      if (String(item.coreWt || '') !== masterEditCoreWt.trim()) details.push(`Core Wt: "${item.coreWt || ''}" ➔ "${masterEditCoreWt.trim()}" kg`);
+      if (String(item.netWt || '') !== masterEditNetWt.trim()) details.push(`Net Wt: "${item.netWt || ''}" ➔ "${masterEditNetWt.trim()}" kg`);
+      if (String(item.meters || '') !== masterEditMeters.trim()) details.push(`Meters: "${item.meters || ''}" ➔ "${masterEditMeters.trim()}" m`);
+      if (String(item.quality || '').trim() !== masterEditQuality.trim()) details.push(`Quality: "${item.quality || ''}" ➔ "${masterEditQuality.trim()}"`);
+      if (String(item.remarks || '').trim() !== masterEditRemarks.trim()) details.push(`Remarks: "${item.remarks || ''}" ➔ "${masterEditRemarks.trim()}"`);
+      if (item.dispatchStatus !== masterEditDispatchStatus) details.push(`Dispatch Status: "${item.dispatchStatus}" ➔ "${masterEditDispatchStatus}"`);
+
+      pushLedgerHistory({
+        actionName: `Edit Roll #${trimmedNewRollNo}`,
+        summary: `Updated Roll #${trimmedNewRollNo} in Order #${targetOrder.orderNo}`,
+        details: details.length > 0 ? details : [`Updated roll parameters`],
+        affectedOrdersBefore: [beforeOrder],
+        affectedOrdersAfter: [JSON.parse(JSON.stringify(afterOrder))],
       });
+
       setEditingMasterRollId(null);
+      setShowMasterRollEditModal(false);
+      setMasterRollModalTarget(null);
       triggerAlert('success', `Roll "${trimmedNewRollNo}" details updated successfully.`);
     } catch (err) {
       console.error("Failed to save master roll edit", err);
@@ -3499,6 +3699,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
     const targetOrder = orders.find(o => o.id === item.orderId);
     if (!targetOrder) return;
+
+    const beforeOrder = JSON.parse(JSON.stringify(targetOrder));
 
     const updatedRows = [...(targetOrder.rows || [])];
     if (!updatedRows[item.subOrderIdx]) return;
@@ -3524,6 +3726,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       delete updatedMap[item.rollNo];
       targetRow.rollDispatchStatus = updatedMap;
     }
+    if (targetRow.rollSize) { const m = { ...targetRow.rollSize }; delete m[item.rollNo]; targetRow.rollSize = m; }
+    if (targetRow.rollQuality) { const m = { ...targetRow.rollQuality }; delete m[item.rollNo]; targetRow.rollQuality = m; }
+    if (targetRow.rollGsm) { const m = { ...targetRow.rollGsm }; delete m[item.rollNo]; targetRow.rollGsm = m; }
+    if (targetRow.rollDenier) { const m = { ...targetRow.rollDenier }; delete m[item.rollNo]; targetRow.rollDenier = m; }
+    if (targetRow.rollFabricWeight) { const m = { ...targetRow.rollFabricWeight }; delete m[item.rollNo]; targetRow.rollFabricWeight = m; }
     if (targetRow.rollGrossWt) { const m = { ...targetRow.rollGrossWt }; delete m[item.rollNo]; targetRow.rollGrossWt = m; }
     if (targetRow.rollCoreWt) { const m = { ...targetRow.rollCoreWt }; delete m[item.rollNo]; targetRow.rollCoreWt = m; }
     if (targetRow.rollNetWt) { const m = { ...targetRow.rollNetWt }; delete m[item.rollNo]; targetRow.rollNetWt = m; }
@@ -3541,10 +3748,25 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
     try {
       const orderRef = doc(db, 'loomOrders', targetOrder.id);
-      await setDoc(orderRef, {
+      const afterOrder = {
         ...targetOrder,
         rows: updatedRows
+      };
+      await setDoc(orderRef, afterOrder);
+
+      pushLedgerHistory({
+        actionName: `Delete Roll #${item.rollNo}`,
+        summary: `Deleted Roll #${item.rollNo} from Order #${targetOrder.orderNo}`,
+        details: [
+          `Roll No: ${item.rollNo}`,
+          `Order No: #${targetOrder.orderNo}`,
+          `Size: ${item.size || 'N/A'}`,
+          `Net Weight: ${item.netWt || 0} kg`
+        ],
+        affectedOrdersBefore: [beforeOrder],
+        affectedOrdersAfter: [JSON.parse(JSON.stringify(afterOrder))],
       });
+
       triggerAlert('success', `Roll "${item.rollNo}" removed from Order #${item.orderNo}.`);
     } catch (err) {
       console.error("Failed to delete master roll", err);
@@ -3576,6 +3798,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       return;
     }
 
+    const beforeOrder = JSON.parse(JSON.stringify(targetOrder));
+
     const updatedRows = [...(targetOrder.rows || [])];
     if (!updatedRows[ledgerAddSubOrderIdx]) {
       triggerAlert('warn', 'Selected sub-order was not found.');
@@ -3603,6 +3827,19 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       const orderToSave = await claimUnassignedRollsForOrder({ ...targetOrder, rows: updatedRows }, orders);
       const orderRef = doc(db, 'loomOrders', targetOrder.id);
       await setDoc(orderRef, orderToSave);
+
+      pushLedgerHistory({
+        actionName: `Add Roll #${trimmedRollNo}`,
+        summary: `Added new Roll #${trimmedRollNo} to Order #${targetOrder.orderNo}`,
+        details: [
+          `Roll No: ${trimmedRollNo}`,
+          `Order No: #${targetOrder.orderNo}`,
+          `Sub-Order: #${ledgerAddSubOrderIdx + 1}`
+        ],
+        affectedOrdersBefore: [beforeOrder],
+        affectedOrdersAfter: [JSON.parse(JSON.stringify(orderToSave))],
+      });
+
       setLedgerAddRollNo('');
       setIsAddingRollInLedger(false);
       triggerAlert('success', `Added Roll "${trimmedRollNo}" to Order #${targetOrder.orderNo}.`);
@@ -3696,6 +3933,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       }
 
       const orderUpdatesMap = new Map<string, LoomOrder>();
+      const initialOrdersSnapshotMap = new Map<string, LoomOrder>();
       let updatedCount = 0;
       const notFoundRolls: string[] = [];
 
@@ -3719,6 +3957,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         if (!targetOrder) {
           const existingOrder = orders.find(o => o.id === item.orderId);
           if (!existingOrder) return;
+          initialOrdersSnapshotMap.set(item.orderId, JSON.parse(JSON.stringify(existingOrder)));
           targetOrder = JSON.parse(JSON.stringify(existingOrder));
           orderUpdatesMap.set(item.orderId, targetOrder!);
         }
@@ -3726,6 +3965,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         const rowObj = targetOrder!.rows[item.subOrderIdx];
         if (!rowObj) return;
 
+        if (!rowObj.rollSize) rowObj.rollSize = {};
+        if (!rowObj.rollQuality) rowObj.rollQuality = {};
+        if (!rowObj.rollGsm) rowObj.rollGsm = {};
+        if (!rowObj.rollDenier) rowObj.rollDenier = {};
+        if (!rowObj.rollFabricWeight) rowObj.rollFabricWeight = {};
         if (!rowObj.rollGrossWt) rowObj.rollGrossWt = {};
         if (!rowObj.rollCoreWt) rowObj.rollCoreWt = {};
         if (!rowObj.rollNetWt) rowObj.rollNetWt = {};
@@ -3742,19 +3986,19 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         if (!rowObj.dispatchedRolls) rowObj.dispatchedRolls = [];
 
         const sizeVal = getCol('size');
-        if (sizeVal !== undefined && sizeVal !== '') rowObj.size = String(sizeVal).trim();
+        if (sizeVal !== undefined && sizeVal !== '') rowObj.rollSize[item.rollNo] = String(sizeVal).trim();
 
         const gsmVal = getCol('gsm');
-        if (gsmVal !== undefined && gsmVal !== '') rowObj.gsm = Number(gsmVal) || rowObj.gsm;
+        if (gsmVal !== undefined && gsmVal !== '') rowObj.rollGsm[item.rollNo] = Number(gsmVal) || 0;
 
         const denierVal = getCol('denier');
-        if (denierVal !== undefined && denierVal !== '') rowObj.denier = Number(denierVal) || rowObj.denier;
+        if (denierVal !== undefined && denierVal !== '') rowObj.rollDenier[item.rollNo] = Number(denierVal) || 0;
 
         const fabricWtVal = getCol('fabricWeight');
-        if (fabricWtVal !== undefined && fabricWtVal !== '') rowObj.fabricWeight = Number(fabricWtVal) || rowObj.fabricWeight;
+        if (fabricWtVal !== undefined && fabricWtVal !== '') rowObj.rollFabricWeight[item.rollNo] = Number(fabricWtVal) || 0;
 
         const qualityVal = getCol('quality');
-        if (qualityVal !== undefined && qualityVal !== '') rowObj.quality = String(qualityVal).trim();
+        if (qualityVal !== undefined && qualityVal !== '') rowObj.rollQuality[item.rollNo] = String(qualityVal).trim();
 
         const grossWtVal = getCol('grossWt');
         if (grossWtVal !== undefined && grossWtVal !== '') rowObj.rollGrossWt[item.rollNo] = Number(grossWtVal) || 0;
@@ -3823,6 +4067,17 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         const orderRef = doc(db, 'loomOrders', updatedOrder.id);
         await setDoc(orderRef, updatedOrder);
       }
+
+      pushLedgerHistory({
+        actionName: `Excel Import`,
+        summary: `Uploaded Excel updating ${updatedCount} roll(s) across ${orderUpdatesMap.size} order(s)`,
+        details: [
+          `Updated Roll Count: ${updatedCount}`,
+          `Affected Orders: ${orderUpdatesMap.size}`
+        ],
+        affectedOrdersBefore: Array.from(initialOrdersSnapshotMap.values()),
+        affectedOrdersAfter: Array.from(orderUpdatesMap.values()).map(o => JSON.parse(JSON.stringify(o))),
+      });
 
       let msg = `Successfully updated ${updatedCount} roll(s) across ${orderUpdatesMap.size} order(s) from Excel!`;
       if (notFoundRolls.length > 0) {
@@ -4988,7 +5243,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           }}
         >
           <div 
-            className="bg-white rounded-3xl shadow-2xl border border-zinc-200 w-full max-w-[1380px] max-h-[90vh] overflow-hidden flex flex-col animate-scale-up"
+            className="bg-white rounded-3xl shadow-2xl border border-zinc-200 w-full max-w-[98vw] 2xl:max-w-[1760px] max-h-[92vh] overflow-hidden flex flex-col animate-scale-up"
             onClick={(e) => e.stopPropagation()}
           >
             
@@ -5249,19 +5504,19 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                       <table className="w-full text-left border-collapse">
                         <thead className="sticky top-0 z-20 bg-zinc-100 shadow-2xs">
                           <tr className="bg-zinc-100 text-zinc-600 border-b border-zinc-200">
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[40px] bg-zinc-100">#</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[140px] bg-zinc-100">Weave Quality</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[130px] bg-zinc-100">Lamination Type</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[100px] bg-zinc-100">Size</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[70px] bg-zinc-100">GSM</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[75px] bg-zinc-100">Denier</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[85px] bg-zinc-100">Fabric Wt (g)</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[125px] bg-zinc-100">No. of Rolls</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[95px] bg-zinc-100">Target (KG)</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right w-[110px] bg-zinc-100">Completed (KG)</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[100px] bg-zinc-100">Status</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[150px] bg-zinc-100">Remarks</th>
-                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right min-w-[110px] bg-zinc-100">Actions</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center w-[45px] bg-zinc-100">#</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[160px] bg-zinc-100">Weave Quality</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[150px] bg-zinc-100">Lamination Type</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[120px] bg-zinc-100">Size</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center min-w-[95px] bg-zinc-100">GSM</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center min-w-[95px] bg-zinc-100">Denier</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center min-w-[110px] bg-zinc-100">Fabric Wt (g)</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center min-w-[145px] bg-zinc-100">No. of Rolls</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right min-w-[115px] bg-zinc-100">Target (KG)</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right min-w-[125px] bg-zinc-100">Completed (KG)</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-center min-w-[120px] bg-zinc-100">Status</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase min-w-[180px] bg-zinc-100">Remarks</th>
+                            <th className="py-2.5 px-3 text-[9px] font-extrabold uppercase text-right min-w-[140px] bg-zinc-100">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-200">
@@ -5326,7 +5581,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       step="any"
                                       value={inlineGsm}
                                       onChange={(e) => setInlineGsm(e.target.value)}
-                                      className="w-full bg-white border border-zinc-300 rounded-lg px-1.5 py-1 text-xs text-center font-mono font-bold"
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs text-center font-mono font-bold [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                     />
                                   </td>
 
@@ -5337,7 +5592,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       step="any"
                                       value={inlineDenier}
                                       onChange={(e) => setInlineDenier(e.target.value)}
-                                      className="w-full bg-white border border-zinc-300 rounded-lg px-1.5 py-1 text-xs text-center font-mono font-bold"
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs text-center font-mono font-bold [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                     />
                                   </td>
 
@@ -5348,13 +5603,13 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       step="any"
                                       value={inlineFabricWeight}
                                       onChange={(e) => setInlineFabricWeight(e.target.value)}
-                                      className="w-full bg-white border border-zinc-300 rounded-lg px-1.5 py-1 text-xs text-center font-mono font-bold"
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs text-center font-mono font-bold [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                     />
                                   </td>
 
                                   {/* Rolls Input with Plus/Minus buttons */}
                                   <td className="py-2 px-1">
-                                    <div className="flex flex-col items-center gap-1 min-w-[120px]">
+                                    <div className="flex flex-col items-center gap-1 min-w-[130px]">
                                       <div className="flex items-center gap-1 justify-center">
                                         <button
                                           type="button"
@@ -5368,7 +5623,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                           value={inlineNoOfRolls}
                                           onChange={(e) => setInlineNoOfRolls(e.target.value)}
                                           placeholder="Rolls"
-                                          className="w-12 bg-white border border-zinc-300 rounded-lg px-1 py-1 text-xs text-center font-mono font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                          className="w-14 bg-white border border-zinc-300 rounded-lg px-1 py-1 text-xs text-center font-mono font-bold focus:outline-none focus:ring-1 focus:ring-amber-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                         />
                                         <button
                                           type="button"
@@ -5403,7 +5658,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       step="any"
                                       value={inlineTotalQuantity}
                                       onChange={(e) => setInlineTotalQuantity(e.target.value)}
-                                      className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs text-right font-mono font-black"
+                                      className="w-full bg-white border border-zinc-300 rounded-lg px-2 py-1 text-xs text-right font-mono font-black [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                     />
                                   </td>
 
@@ -5414,7 +5669,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                       step="any"
                                       value={inlineProductionCompleted}
                                       onChange={(e) => setInlineProductionCompleted(e.target.value)}
-                                      className="w-full bg-emerald-50 border border-emerald-300 rounded-lg px-2 py-1 text-xs text-right text-emerald-800 font-mono font-black"
+                                      className="w-full bg-emerald-50 border border-emerald-300 rounded-lg px-2 py-1 text-xs text-right text-emerald-800 font-mono font-black [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                     />
                                   </td>
 
@@ -5444,16 +5699,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
                                   {/* Inline Actions */}
                                   <td className="py-2 px-3 text-right">
-                                    <div className="flex items-center justify-end gap-1">
+                                    <div className="flex items-center justify-end gap-1.5">
                                       <button
                                         onClick={() => handleSaveInlineSubOrder(originalIndex, modalOrder)}
-                                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-0.5"
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer"
                                       >
                                         <Check size={11} className="stroke-[2.5]" /> Save
                                       </button>
                                       <button
                                         onClick={() => setEditingRowIndex(null)}
-                                        className="bg-zinc-200 hover:bg-zinc-350 text-zinc-600 px-2 py-1 rounded-md text-[10px] font-bold"
+                                        className="bg-zinc-200 hover:bg-zinc-350 text-zinc-600 px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer"
                                       >
                                         Cancel
                                       </button>
@@ -7125,6 +7380,51 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   </button>
                 </div>
 
+                {/* Undo & Redo Buttons */}
+                {!viewOnly && (
+                  <div className="flex items-center gap-1 bg-zinc-200/80 p-1 rounded-xl border border-zinc-300">
+                    <button
+                      type="button"
+                      onClick={handleLedgerUndo}
+                      disabled={ledgerUndoStack.length === 0}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                        ledgerUndoStack.length > 0
+                          ? 'bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-3xs cursor-pointer border border-amber-600 active:scale-95'
+                          : 'bg-zinc-300 text-zinc-500 cursor-not-allowed opacity-60'
+                      }`}
+                      title={ledgerUndoStack.length > 0 ? `Undo last change: ${ledgerUndoStack[ledgerUndoStack.length - 1].summary}` : 'Undo (No changes to undo)'}
+                    >
+                      <RotateCcw size={14} className="stroke-[2.5]" />
+                      <span>Undo</span>
+                      {ledgerUndoStack.length > 0 && (
+                        <span className="bg-zinc-950 text-amber-400 text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold">
+                          {ledgerUndoStack.length}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleLedgerRedo}
+                      disabled={ledgerRedoStack.length === 0}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                        ledgerRedoStack.length > 0
+                          ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-3xs cursor-pointer border border-blue-700 active:scale-95'
+                          : 'bg-zinc-300 text-zinc-500 cursor-not-allowed opacity-60'
+                      }`}
+                      title={ledgerRedoStack.length > 0 ? `Redo change: ${ledgerRedoStack[ledgerRedoStack.length - 1].summary}` : 'Redo (No changes to redo)'}
+                    >
+                      <RotateCw size={14} className="stroke-[2.5]" />
+                      <span>Redo</span>
+                      {ledgerRedoStack.length > 0 && (
+                        <span className="bg-white text-blue-900 text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold">
+                          {ledgerRedoStack.length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                )}
+
                 {!viewOnly && (
                   <button
                     type="button"
@@ -7565,7 +7865,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                           {!viewOnly && (
                             <th
                               rowSpan={2}
-                              className="py-1.5 px-1 text-center text-amber-400 font-bold select-none"
+                              className="py-2 px-3 text-center text-amber-400 font-bold select-none min-w-[140px] w-[145px]"
                             >
                               Actions
                             </th>
@@ -7996,23 +8296,25 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                                 </td>
                                 {/* Actions Column (Order Ref removed) */}
                                 {!viewOnly && (
-                                  <td className="py-1.5 px-1 text-center whitespace-nowrap">
-                                    <div className="flex items-center justify-center gap-1">
+                                  <td className="py-2 px-2 text-center whitespace-nowrap">
+                                    <div className="flex items-center justify-center gap-2">
                                       <button
                                         type="button"
                                         onClick={() => handleStartEditMasterRoll(item)}
-                                        className="p-1 text-zinc-500 hover:text-amber-600 hover:bg-amber-100/60 rounded transition-all cursor-pointer"
-                                        title="Edit roll details"
+                                        className="h-8 px-2.5 bg-amber-500/15 hover:bg-amber-500/25 active:scale-95 text-amber-900 border border-amber-300/80 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer shadow-3xs"
+                                        title={`Edit Roll #${item.rollNo}`}
                                       >
-                                        <Edit size={13} />
+                                        <Edit size={12} className="stroke-[2.5]" />
+                                        <span>Edit</span>
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => handleDeleteMasterRoll(item)}
-                                        className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-all cursor-pointer"
-                                        title="Delete roll"
+                                        className="h-8 px-2.5 bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer shadow-3xs"
+                                        title={`Delete Roll #${item.rollNo}`}
                                       >
-                                        <Trash2 size={13} />
+                                        <Trash2 size={12} className="stroke-[2.5]" />
+                                        <span>Delete</span>
                                       </button>
                                     </div>
                                   </td>
@@ -8375,20 +8677,20 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                             </div>
 
                             {!viewOnly && (
-                              <div className="flex justify-end gap-2 pt-1 border-t border-zinc-100">
+                              <div className="flex justify-end items-center gap-3 pt-2.5 mt-1 border-t border-zinc-100">
                                 <button
                                   type="button"
                                   onClick={() => handleStartEditMasterRoll(item)}
-                                  className="bg-amber-100 text-amber-900 font-bold text-[11px] px-2.5 py-1 rounded-md flex items-center gap-1"
+                                  className="h-9 px-3.5 bg-amber-100 hover:bg-amber-200 active:scale-95 text-amber-950 border border-amber-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer shadow-3xs"
                                 >
-                                  <Edit size={12} /> Edit
+                                  <Edit size={13} className="stroke-[2.5]" /> Edit Roll
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteMasterRoll(item)}
-                                  className="bg-rose-50 text-rose-700 font-bold text-[11px] px-2.5 py-1 rounded-md flex items-center gap-1"
+                                  className="h-9 px-3.5 bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-700 border border-rose-200 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer shadow-3xs"
                                 >
-                                  <Trash2 size={12} /> Delete
+                                  <Trash2 size={13} className="stroke-[2.5]" /> Delete
                                 </button>
                               </div>
                             )}
@@ -8415,6 +8717,394 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* DEDICATED EDIT MASTER ROLL POP-UP MODAL */}
+      {showMasterRollEditModal && masterRollModalTarget && (
+        <div 
+          className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 bg-zinc-950/80 backdrop-blur-sm animate-fade-in"
+          onClick={handleCancelEditMasterRoll}
+        >
+          <div 
+            className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="bg-zinc-950 text-white px-4 py-3.5 sm:px-6 sm:py-4 flex justify-between items-center border-b border-zinc-800 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 font-black">
+                  <Edit size={18} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base sm:text-lg font-black tracking-tight text-white">
+                      Edit Master Roll
+                    </h3>
+                    <span className="bg-amber-400/20 text-amber-300 font-mono text-xs px-2.5 py-0.5 rounded-md font-black border border-amber-400/30">
+                      Roll #{masterRollModalTarget.rollNo}
+                    </span>
+                  </div>
+                  <p className="text-zinc-400 text-xs mt-0.5">
+                    Order #{masterRollModalTarget.orderNo} {masterRollModalTarget.loomNo ? `• Loom #${masterRollModalTarget.loomNo}` : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelEditMasterRoll}
+                className="text-zinc-400 hover:text-white p-1.5 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-5">
+              {/* Section 1: Identification & Basics */}
+              <div>
+                <h4 className="text-[11px] font-black uppercase tracking-wider text-zinc-400 mb-2.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                  Roll Identification & Status
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Roll Number <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={masterEditRollNo}
+                      onChange={(e) => setMasterEditRollNo(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
+                      placeholder="e.g. 216"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Size (inches)
+                    </label>
+                    <input
+                      type="text"
+                      value={masterEditSize}
+                      onChange={(e) => setMasterEditSize(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
+                      placeholder="e.g. 24"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Dispatch Status
+                    </label>
+                    <select
+                      value={masterEditDispatchStatus}
+                      onChange={(e) => setMasterEditDispatchStatus(e.target.value as any)}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all cursor-pointer"
+                    >
+                      <option value="Not Dispatched">Not Dispatched</option>
+                      <option value="Dispatched">Dispatched</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Quality, GSM & Denier */}
+              <div>
+                <h4 className="text-[11px] font-black uppercase tracking-wider text-zinc-400 mb-2.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                  Fabric Specifications & Weight
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Quality / Weave
+                    </label>
+                    <input
+                      type="text"
+                      value={masterEditQuality}
+                      onChange={(e) => setMasterEditQuality(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
+                      placeholder="e.g. 10x10"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      GSM (g/m²)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={masterEditGsm}
+                      onChange={(e) => setMasterEditGsm(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="e.g. 70"
+                    />
+                  </div>
+                  {/* GSM [CALC] - Placed right after GSM */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-amber-900">
+                        GSM [CALC]
+                      </label>
+                      <span className="text-[10px] text-amber-700 font-semibold">
+                        (Avg Wt / Size)
+                      </span>
+                    </div>
+                    {(() => {
+                      const sz = parseFloat(String(masterEditSize || '').replace(/[^0-9.]/g, '')) || 0;
+                      const avg = parseFloat(masterEditAvgWtCalculated) || 0;
+                      const gCalc = (sz > 0 && avg > 0) ? (avg / sz).toFixed(2) : '-';
+                      return (
+                        <div className="w-full bg-amber-50/80 border border-amber-300 rounded-xl px-3 py-2 text-sm font-mono font-black text-amber-950 flex items-center justify-between shadow-3xs">
+                          <span>{gCalc}</span>
+                          <span className="text-[10px] text-amber-700 uppercase font-black tracking-wider px-1.5 py-0.5 bg-amber-200/60 rounded">
+                            CALC
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Denier
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={masterEditDenier}
+                      onChange={(e) => setMasterEditDenier(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="e.g. 750"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Fabric Wt / AVG WT (g)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={masterEditFabricWeight}
+                      onChange={(e) => setMasterEditFabricWeight(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="e.g. 35.5"
+                    />
+                  </div>
+                  {/* AVG WT [CALC] - Placed right after AVG WT / Fabric Wt */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-emerald-900">
+                        AVG WT [CALC]
+                      </label>
+                      <span className="text-[10px] text-emerald-700 font-semibold">
+                        (Net / Mtr)
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      step="any"
+                      value={masterEditAvgWtCalculated}
+                      onChange={(e) => setMasterEditAvgWtCalculated(e.target.value)}
+                      className="w-full bg-emerald-50/70 border border-emerald-300 focus:border-emerald-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-black text-emerald-950 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="e.g. 35.5"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Gross Wt (kg)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={masterEditGrossWt}
+                      onChange={(e) => {
+                        const newGross = e.target.value;
+                        setMasterEditGrossWt(newGross);
+                        const grossNum = parseFloat(newGross) || 0;
+                        const coreNum = parseFloat(masterEditCoreWt) || 0;
+                        const net = Math.max(0, grossNum - coreNum);
+                        if (grossNum > 0 && coreNum >= 0) {
+                          setMasterEditNetWt(net ? String(parseFloat(net.toFixed(3))) : '');
+                        }
+                        const m = parseFloat(masterEditMeters) || 0;
+                        if (m > 0 && net > 0) {
+                          setMasterEditAvgWtCalculated(String(parseFloat((net / m).toFixed(4))));
+                        }
+                      }}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="e.g. 102.5"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Core / Pipe Wt (kg)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={masterEditCoreWt}
+                      onChange={(e) => {
+                        const newCore = e.target.value;
+                        setMasterEditCoreWt(newCore);
+                        const grossNum = parseFloat(masterEditGrossWt) || 0;
+                        const coreNum = parseFloat(newCore) || 0;
+                        const net = Math.max(0, grossNum - coreNum);
+                        if (grossNum > 0 && coreNum >= 0) {
+                          setMasterEditNetWt(net ? String(parseFloat(net.toFixed(3))) : '');
+                        }
+                        const m = parseFloat(masterEditMeters) || 0;
+                        if (m > 0 && net > 0) {
+                          setMasterEditAvgWtCalculated(String(parseFloat((net / m).toFixed(4))));
+                        }
+                      }}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="e.g. 2.5"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Net Wt (kg)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={masterEditNetWt}
+                      onChange={(e) => {
+                        const newNet = e.target.value;
+                        setMasterEditNetWt(newNet);
+                        const netNum = parseFloat(newNet) || 0;
+                        const m = parseFloat(masterEditMeters) || 0;
+                        if (m > 0 && netNum > 0) {
+                          setMasterEditAvgWtCalculated(String(parseFloat((netNum / m).toFixed(4))));
+                        }
+                      }}
+                      className="w-full bg-emerald-50/60 border border-emerald-300 focus:border-emerald-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-black text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="e.g. 100.0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Length (Meters)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={masterEditMeters}
+                      onChange={(e) => {
+                        const newMeters = e.target.value;
+                        setMasterEditMeters(newMeters);
+                        const m = parseFloat(newMeters) || 0;
+                        const netNum = parseFloat(masterEditNetWt) || 0;
+                        if (m > 0 && netNum > 0) {
+                          setMasterEditAvgWtCalculated(String(parseFloat((netNum / m).toFixed(4))));
+                        }
+                      }}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="e.g. 1500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Strength & Elongation */}
+              <div>
+                <h4 className="text-[11px] font-black uppercase tracking-wider text-zinc-400 mb-2.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                  Tensile Strength & Elongation
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Warp Strength (kgf)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={masterEditWarpStrength}
+                      onChange={(e) => setMasterEditWarpStrength(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="e.g. 85"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Warp Elongation (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={masterEditWarpElongation}
+                      onChange={(e) => setMasterEditWarpElongation(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="e.g. 18.5"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Weft Strength (kgf)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={masterEditWeftStrength}
+                      onChange={(e) => setMasterEditWeftStrength(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="e.g. 82"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
+                      Weft Elongation (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={masterEditWeftElongation}
+                      onChange={(e) => setMasterEditWeftElongation(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="e.g. 19.0"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 4: Remarks */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">
+                  Remarks / Special Instructions
+                </label>
+                <input
+                  type="text"
+                  value={masterEditRemarks}
+                  onChange={(e) => setMasterEditRemarks(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
+                  placeholder="e.g. Inspected, standard tension, roll packing checked"
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-zinc-50 px-4 py-3.5 sm:px-6 sm:py-4 border-t border-zinc-200 flex justify-between items-center shrink-0">
+              <button
+                type="button"
+                onClick={handleCancelEditMasterRoll}
+                className="px-4 py-2.5 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-100 text-zinc-700 font-bold text-xs cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSaveMasterRollEdit(masterRollModalTarget)}
+                className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-zinc-950 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+              >
+                <Check size={15} className="stroke-[3]" />
+                <span>Save Changes</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -9640,6 +10330,84 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-200 hover:bg-zinc-300 text-zinc-800 transition-all cursor-pointer"
               >
                 Close Window
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* UNDO / REDO POP-UP NOTIFICATION MODAL */}
+      {ledgerNotificationModal.isOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-zinc-950/75 backdrop-blur-md animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col">
+            
+            {/* Header */}
+            <div className={`px-5 py-4 text-white flex items-center justify-between border-b ${
+              ledgerNotificationModal.mode === 'undo'
+                ? 'bg-amber-950 border-amber-900'
+                : 'bg-blue-950 border-blue-900'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center border shrink-0 ${
+                  ledgerNotificationModal.mode === 'undo'
+                    ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+                    : 'bg-blue-500/20 border-blue-500/40 text-blue-400'
+                }`}>
+                  {ledgerNotificationModal.mode === 'undo' ? <RotateCcw size={20} className="stroke-[2.5]" /> : <RotateCw size={20} className="stroke-[2.5]" />}
+                </div>
+                <div>
+                  <h4 className={`text-sm font-black uppercase tracking-wider ${
+                    ledgerNotificationModal.mode === 'undo' ? 'text-amber-400' : 'text-blue-400'
+                  }`}>
+                    {ledgerNotificationModal.mode === 'undo' ? 'Undo Action Notification' : 'Redo Action Notification'}
+                  </h4>
+                  <p className="text-[11px] text-zinc-300 font-medium">Master Roll Ledger Directory</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLedgerNotificationModal(prev => ({ ...prev, isOpen: false }))}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4 bg-zinc-50/50">
+              <div className="bg-white p-3.5 rounded-xl border border-zinc-200 shadow-3xs space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Action Name</span>
+                <p className="text-xs font-black text-zinc-900">{ledgerNotificationModal.actionName || ledgerNotificationModal.summary}</p>
+              </div>
+
+              {ledgerNotificationModal.details.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Modifications Reverted / Re-applied</span>
+                  <div className="bg-zinc-100/80 p-3 rounded-xl border border-zinc-200/80 max-h-48 overflow-y-auto space-y-1">
+                    {ledgerNotificationModal.details.map((detail, idx) => (
+                      <div key={idx} className="text-[11.5px] font-medium text-zinc-700 flex items-start gap-2">
+                        <span className={`font-bold ${ledgerNotificationModal.mode === 'undo' ? 'text-amber-500' : 'text-blue-500'}`}>•</span>
+                        <span>{detail}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-zinc-100 px-5 py-3 border-t border-zinc-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setLedgerNotificationModal(prev => ({ ...prev, isOpen: false }))}
+                className={`px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider text-white transition-all shadow-3xs cursor-pointer active:scale-95 ${
+                  ledgerNotificationModal.mode === 'undo'
+                    ? 'bg-amber-600 hover:bg-amber-500 border border-amber-700'
+                    : 'bg-blue-600 hover:bg-blue-500 border border-blue-700'
+                }`}
+              >
+                Acknowledge & Close
               </button>
             </div>
 

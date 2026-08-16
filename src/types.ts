@@ -113,6 +113,11 @@ export interface LoomOrderRow {
   noOfRolls?: number;
   laminationType?: string;
   rollNumbers?: string[]; // Array of unique roll numbers (e.g., ["R-101", "R-102"])
+  rollSize?: Record<string, string>; // Map of roll number to individual roll size
+  rollQuality?: Record<string, string>; // Map of roll number to individual roll quality
+  rollGsm?: Record<string, number>; // Map of roll number to individual roll gsm
+  rollDenier?: Record<string, number>; // Map of roll number to individual roll denier
+  rollFabricWeight?: Record<string, number>; // Map of roll number to individual roll fabric weight
   rollRemarks?: Record<string, string>; // Map of roll number to individual roll remarks
   dispatchedRolls?: string[]; // Array of roll numbers that have been dispatched
   rollDispatchStatus?: Record<string, 'Dispatched' | 'Not Dispatched'>; // Map of roll number to dispatch status
