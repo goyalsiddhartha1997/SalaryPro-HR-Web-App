@@ -2099,16 +2099,17 @@ export default function AttendanceImport({
         const extractedPhone = mappings.phone && rawRow[mappings.phone] ? String(rawRow[mappings.phone]).trim() : '';
         const extractedAddress = mappings.address && rawRow[mappings.address] ? String(rawRow[mappings.address]).trim() : '';
         
-        // Resolve fallbacks
-        const finalRole = extractedRole || extractedDesg || defaultRole;
-        const finalDesg = extractedDesg || extractedRole || defaultRole;
-        const finalDept = extractedDept || defaultDept;
-        let finalShift = extractedShift || defaultShift;
+        // Resolve fallbacks safely preserving existing employee info
+        const existingEmp = employees.find(e => e.id === (row.id || row.employeeId) && !e.id.startsWith('EMP_TEMP_'));
+        const finalRole = extractedRole || extractedDesg || (existingEmp?.role || existingEmp?.designation || defaultRole);
+        const finalDesg = extractedDesg || extractedRole || (existingEmp?.designation || existingEmp?.role || defaultRole);
+        const finalDept = extractedDept || (existingEmp?.department || defaultDept);
+        let finalShift = extractedShift || (existingEmp?.shiftTime || defaultShift);
         if (finalShift === '001') {
           finalShift = '08:00-20:00';
         }
-        const finalPhone = extractedPhone || '';
-        const finalAddress = extractedAddress || '';
+        const finalPhone = extractedPhone || (existingEmp?.phone || '');
+        const finalAddress = extractedAddress || (existingEmp?.address || '');
         
         let extractedSalaryType = 'fixed';
         if (mappings.salaryType && rawRow[mappings.salaryType]) {

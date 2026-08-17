@@ -245,6 +245,18 @@ export default function App() {
           let updated = { ...emp };
           let changed = false;
 
+          // Self-heal Gaurav Sharma if accidentally corrupted with Hardyal's Tape Plant / Plant Opr / Hathras data
+          if (emp.name && emp.name.toLowerCase().includes('gaurav') && emp.name.toLowerCase().includes('sharma')) {
+            if (updated.designation === 'Plant Opr.' || updated.designation === 'Plant Operator' || updated.role === 'Plant Operator' || updated.department === 'Tape Plant') {
+              updated.designation = 'Driver';
+              updated.role = 'Driver';
+              updated.department = 'Driver';
+              if (updated.phone === '75058-40271') updated.phone = '';
+              if (updated.address && (updated.address.includes('Arjunpur') || updated.address.includes('Hathras'))) updated.address = '';
+              changed = true;
+            }
+          }
+
           if (emp.shiftTime === '001') {
             fixedShiftsCount++;
             shift001EmpNames.push(emp.name || emp.id);
@@ -1874,9 +1886,18 @@ export default function App() {
       let matchedCount = 0;
 
       const updatedEmployees = employees.map(emp => {
-        let match = codeMap.get(emp.id.toLowerCase());
-        if (!match && emp.name) {
-          match = cleanNameMap.get(getCleanKey(emp.name));
+        const cleanEmpName = getCleanKey(emp.name || '');
+        // Prioritize matching by cleaned name so that custom employee names at an ID never get mixed up with old employees
+        let match = cleanEmpName ? cleanNameMap.get(cleanEmpName) : undefined;
+        if (!match && emp.id) {
+          const codeMatch = codeMap.get(emp.id.toLowerCase());
+          // Only use code match if the existing employee has no name or if the names match/contain each other
+          if (codeMatch) {
+            const cleanMatchName = getCleanKey(codeMatch.name || '');
+            if (!cleanEmpName || cleanEmpName === cleanMatchName || cleanEmpName.includes(cleanMatchName) || cleanMatchName.includes(cleanEmpName)) {
+              match = codeMatch;
+            }
+          }
         }
 
         if (match) {

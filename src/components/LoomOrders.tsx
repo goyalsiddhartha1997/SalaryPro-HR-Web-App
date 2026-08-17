@@ -87,6 +87,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   // --- ORDER EXPORT SELECTION MODAL STATES ---
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [exportOption, setExportOption] = useState<'dispatched' | 'not_dispatched' | 'both'>('dispatched');
+  const [exportIncludeTotalTarget, setExportIncludeTotalTarget] = useState<boolean>(false);
+  const [exportIncludeTotalPending, setExportIncludeTotalPending] = useState<boolean>(false);
 
   // --- MASTER ROLL LEDGER EXPORT MODAL STATES ---
   const [isMasterLedgerExportModalOpen, setIsMasterLedgerExportModalOpen] = useState<boolean>(false);
@@ -163,6 +165,19 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   const [masterRollModalTarget, setMasterRollModalTarget] = useState<any | null>(null);
   const masterLedgerFileInputRef = useRef<HTMLInputElement | null>(null);
   const dispatchLedgerFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // --- BULK DISPATCH MODAL STATES ---
+  const [isBulkDispatchModalOpen, setIsBulkDispatchModalOpen] = useState<boolean>(false);
+  const [bulkDispatchUploading, setBulkDispatchUploading] = useState<boolean>(false);
+  const [bulkDispatchSummary, setBulkDispatchSummary] = useState<{
+    totalProcessedRows: number;
+    totalRollsMatched: number;
+    matchedRolls: string[];
+    notFoundRolls: string[];
+    updatedOrdersCount: number;
+    errors: string[];
+  } | null>(null);
+  const bulkDispatchFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // --- MASTER ROLL LEDGER UNDO / REDO HISTORY STATES ---
   interface MasterLedgerHistoryEntry {
@@ -640,7 +655,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
   };
 
   // Export current modal order data to Excel
-  const handleExportOrderToExcel = async (selectedOption: 'dispatched' | 'not_dispatched' | 'both' = exportOption) => {
+  const handleExportOrderToExcel = async (
+    selectedOption: 'dispatched' | 'not_dispatched' | 'both' = exportOption,
+    incTarget: boolean = exportIncludeTotalTarget,
+    incPending: boolean = exportIncludeTotalPending
+  ) => {
     if (!modalOrder) return;
 
     try {
@@ -679,65 +698,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         return a.rollNo.localeCompare(b.rollNo, undefined, { numeric: true, sensitivity: 'base' });
       });
 
-      // 1. TOP EXECUTIVE BANNER ROW (Row 1)
-      worksheet.mergeCells('A1:R1');
-      const titleCell = worksheet.getCell('A1');
-      const printDateStr = `PRINT DATE: ${formatDateDDMMMYYYY(new Date())} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
-      titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • ORDER ${modalOrder.orderNo.toUpperCase()} MASTER ROLL DIRECTORY LEDGER - ${modeTitle} • ${printDateStr}`;
-      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
-      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      worksheet.getRow(1).height = 42;
-
-      for (let col = 1; col <= 18; col++) {
-        worksheet.getRow(1).getCell(col).border = thickBlackBorder;
-      }
-
-      // 2. METRICS CARDS (Rows 2 & 3)
-      const totalCount = allOrderRolls.length;
-      const dispCount = allOrderRolls.filter(i => i.dispatchStatus === 'Dispatched').length;
-      const notDispCount = totalCount - dispCount;
-      const sumNetWeight = filteredOrderRolls.reduce((acc, i) => acc + (i.netWt || 0), 0);
-      const sumTotalMeters = filteredOrderRolls.reduce((acc, i) => acc + (i.meters || 0), 0);
-
-      worksheet.mergeCells('A2:C2');
-      worksheet.mergeCells('D2:F2');
-      worksheet.mergeCells('G2:I2');
-      worksheet.mergeCells('J2:L2');
-      worksheet.mergeCells('M2:R2');
-
-      worksheet.mergeCells('A3:C3');
-      worksheet.mergeCells('D3:F3');
-      worksheet.mergeCells('G3:I3');
-      worksheet.mergeCells('J3:L3');
-      worksheet.mergeCells('M3:R3');
-
-      worksheet.getRow(2).height = 20;
-      worksheet.getRow(3).height = 24;
-
-      worksheet.getCell('A2').value = 'Total Registered Rolls:';
-      worksheet.getCell('D2').value = 'Dispatched Rolls:';
-      worksheet.getCell('G2').value = 'Non-Dispatched Rolls:';
-      worksheet.getCell('J2').value = 'Total Net Weight:';
-      worksheet.getCell('M2').value = 'Total Fabric Meters:';
-
-      worksheet.getCell('A3').value = `${totalCount} Rolls`;
-      worksheet.getCell('D3').value = `${dispCount} Rolls (${totalCount > 0 ? Math.round((dispCount / totalCount) * 100) : 0}%)`;
-      worksheet.getCell('G3').value = `${notDispCount} Rolls (${totalCount > 0 ? Math.round((notDispCount / totalCount) * 100) : 0}%)`;
-      worksheet.getCell('J3').value = `${sumNetWeight.toFixed(2)} KG`;
-      worksheet.getCell('M3').value = `${sumTotalMeters.toLocaleString()} Meters`;
-
-      for (let col = 1; col <= 18; col++) {
-        [2, 3].forEach(r => {
-          const c = worksheet.getRow(r).getCell(col);
-          c.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
-          c.alignment = { horizontal: 'center', vertical: 'middle' };
-          c.border = thickBlackBorder;
-        });
-      }
-
-      // 3. TABLE HEADER ROW (Row 5)
-      worksheet.getRow(4).height = 10;
-      const headers = [
+      // Headers for Sheet 1
+      const headers: string[] = [
         'Roll Number',
         'Size',
         'GSM',
@@ -748,6 +710,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         'Gross Wt (kg)',
         'Core Wt (kg)',
         'Net Wt (kg)',
+        ...(incTarget ? ['Total target (kgs)'] : []),
+        ...(incPending ? ['Total Pending (kgs)'] : []),
         'Meters',
         'Warp Strength',
         'Warp Elongation (%)',
@@ -758,6 +722,74 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         'Remarks'
       ];
 
+      const totalCols = headers.length;
+
+      // 1. TOP EXECUTIVE BANNER ROW (Row 1)
+      worksheet.mergeCells(1, 1, 1, totalCols);
+      const titleCell = worksheet.getCell('A1');
+      const printDateStr = `PRINT DATE: ${formatDateDDMMMYYYY(new Date())} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      titleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • ORDER ${modalOrder.orderNo.toUpperCase()} MASTER ROLL DIRECTORY LEDGER - ${modeTitle} • ${printDateStr}`;
+      titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(1).height = 42;
+
+      for (let col = 1; col <= totalCols; col++) {
+        worksheet.getRow(1).getCell(col).border = thickBlackBorder;
+      }
+
+      // 2. METRICS CARDS (Rows 2 & 3)
+      const totalCount = allOrderRolls.length;
+      const dispCount = allOrderRolls.filter(i => i.dispatchStatus === 'Dispatched').length;
+      const notDispCount = totalCount - dispCount;
+      const sumNetWeight = filteredOrderRolls.reduce((acc, i) => acc + (i.netWt || 0), 0);
+      const sumTotalMeters = filteredOrderRolls.reduce((acc, i) => acc + (i.meters || 0), 0);
+
+      // Distribute 5 cards across totalCols
+      const colStep = Math.max(2, Math.floor(totalCols / 5));
+      const m1End = colStep;
+      const m2End = colStep * 2;
+      const m3End = colStep * 3;
+      const m4End = colStep * 4;
+      const m5End = totalCols;
+
+      worksheet.mergeCells(2, 1, 2, m1End);
+      worksheet.mergeCells(2, m1End + 1, 2, m2End);
+      worksheet.mergeCells(2, m2End + 1, 2, m3End);
+      worksheet.mergeCells(2, m3End + 1, 2, m4End);
+      worksheet.mergeCells(2, m4End + 1, 2, m5End);
+
+      worksheet.mergeCells(3, 1, 3, m1End);
+      worksheet.mergeCells(3, m1End + 1, 3, m2End);
+      worksheet.mergeCells(3, m2End + 1, 3, m3End);
+      worksheet.mergeCells(3, m3End + 1, 3, m4End);
+      worksheet.mergeCells(3, m4End + 1, 3, m5End);
+
+      worksheet.getRow(2).height = 20;
+      worksheet.getRow(3).height = 24;
+
+      worksheet.getCell(2, 1).value = 'Total Registered Rolls:';
+      worksheet.getCell(2, m1End + 1).value = 'Dispatched Rolls:';
+      worksheet.getCell(2, m2End + 1).value = 'Non-Dispatched Rolls:';
+      worksheet.getCell(2, m3End + 1).value = 'Total Net Weight:';
+      worksheet.getCell(2, m4End + 1).value = 'Total Fabric Meters:';
+
+      worksheet.getCell(3, 1).value = `${totalCount} Rolls`;
+      worksheet.getCell(3, m1End + 1).value = `${dispCount} Rolls (${totalCount > 0 ? Math.round((dispCount / totalCount) * 100) : 0}%)`;
+      worksheet.getCell(3, m2End + 1).value = `${notDispCount} Rolls (${totalCount > 0 ? Math.round((notDispCount / totalCount) * 100) : 0}%)`;
+      worksheet.getCell(3, m3End + 1).value = `${sumNetWeight.toFixed(2)} KG`;
+      worksheet.getCell(3, m4End + 1).value = `${sumTotalMeters.toLocaleString()} Meters`;
+
+      for (let col = 1; col <= totalCols; col++) {
+        [2, 3].forEach(r => {
+          const c = worksheet.getRow(r).getCell(col);
+          c.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+          c.border = thickBlackBorder;
+        });
+      }
+
+      // 3. TABLE HEADER ROW (Row 5)
+      worksheet.getRow(4).height = 10;
       const headerRow = worksheet.getRow(5);
       headerRow.height = 28;
       headers.forEach((h, idx) => {
@@ -788,7 +820,12 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         const avgVal = Number(item.avgWtCalculated) || 0;
         const gsmCalcVal = (szVal > 0 && avgVal > 0) ? parseFloat((avgVal / szVal).toFixed(2)) : 0;
 
-        const rowValues = [
+        const matchingRow = (modalOrder.rows && item.subOrderIdx !== undefined) ? modalOrder.rows[item.subOrderIdx] : undefined;
+        const rowTargetKg = matchingRow?.totalQuantity || 0;
+        const rowCompletedKg = matchingRow?.productionCompleted || 0;
+        const rowPendingKg = Math.max(0, rowTargetKg - rowCompletedKg);
+
+        const rowValues: any[] = [
           item.rollNo,
           item.size,
           item.gsm,
@@ -799,6 +836,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           item.grossWt || 0,
           item.coreWt || 0,
           item.netWt || 0,
+          ...(incTarget ? [rowTargetKg] : []),
+          ...(incPending ? [rowPendingKg] : []),
           item.meters || 0,
           item.warpStrength || item.strength || '-',
           item.warpElongation || item.elongation || '-',
@@ -813,13 +852,25 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           const cell = r.getCell(colIdx + 1);
           cell.value = val;
           cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
-          cell.alignment = { horizontal: 'left', vertical: 'middle' };
           cell.border = thickBlackBorder;
 
-          if (colIdx === 3) { // GSM [calc]
+          const hName = headers[colIdx];
+          if (hName === 'GSM [calc]') {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
             cell.numFmt = '#,##0.00';
-          } else if (colIdx >= 5 && colIdx <= 10) { // Fabric Wt (5), Avg Wt calc (6), Gross (7), Core (8), Net (9), Meters (10)
-            cell.numFmt = colIdx === 6 ? '#,##0.0000' : '#,##0.00';
+          } else if (hName === 'Avg Wt [calc] (grams)') {
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.numFmt = '#,##0.0000';
+          } else if (['AVG WT (g)', 'Gross Wt (kg)', 'Core Wt (kg)', 'Net Wt (kg)', 'Total target (kgs)', 'Total Pending (kgs)'].includes(hName)) {
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.numFmt = '#,##0.00';
+          } else if (['Meters', 'GSM', 'Denier'].includes(hName)) {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.numFmt = '#,##0';
+          } else if (['Roll Number', 'Size', 'Dispatch Status'].includes(hName)) {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else {
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
           }
         });
 
@@ -829,7 +880,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       // 5. TOTALS ROW AT BOTTOM
       const totalsRow = worksheet.getRow(currentR);
       totalsRow.height = 26;
-      for (let c = 1; c <= 18; c++) {
+      for (let c = 1; c <= totalCols; c++) {
         const cell = totalsRow.getCell(c);
         cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
         cell.alignment = { horizontal: 'left', vertical: 'middle' };
@@ -837,14 +888,36 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       }
 
       totalsRow.getCell(1).value = 'TOTALS';
-      totalsRow.getCell(8).value = totalGrossWtSum;
-      totalsRow.getCell(8).numFmt = '#,##0.00';
-      totalsRow.getCell(9).value = totalCoreWtSum;
-      totalsRow.getCell(9).numFmt = '#,##0.00';
-      totalsRow.getCell(10).value = totalNetWtSum;
-      totalsRow.getCell(10).numFmt = '#,##0.00';
-      totalsRow.getCell(11).value = totalMetersSum;
-      totalsRow.getCell(11).numFmt = '#,##0';
+      totalsRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+      headers.forEach((hName, idx) => {
+        const colNum = idx + 1;
+        if (hName === 'Gross Wt (kg)') {
+          totalsRow.getCell(colNum).value = totalGrossWtSum;
+          totalsRow.getCell(colNum).numFmt = '#,##0.00';
+          totalsRow.getCell(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
+        } else if (hName === 'Core Wt (kg)') {
+          totalsRow.getCell(colNum).value = totalCoreWtSum;
+          totalsRow.getCell(colNum).numFmt = '#,##0.00';
+          totalsRow.getCell(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
+        } else if (hName === 'Net Wt (kg)') {
+          totalsRow.getCell(colNum).value = totalNetWtSum;
+          totalsRow.getCell(colNum).numFmt = '#,##0.00';
+          totalsRow.getCell(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
+        } else if (hName === 'Total target (kgs)') {
+          totalsRow.getCell(colNum).value = modalStats.totalTarget;
+          totalsRow.getCell(colNum).numFmt = '#,##0.00';
+          totalsRow.getCell(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
+        } else if (hName === 'Total Pending (kgs)') {
+          totalsRow.getCell(colNum).value = Math.max(0, modalStats.totalTarget - modalStats.totalCompleted);
+          totalsRow.getCell(colNum).numFmt = '#,##0.00';
+          totalsRow.getCell(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
+        } else if (hName === 'Meters') {
+          totalsRow.getCell(colNum).value = totalMetersSum;
+          totalsRow.getCell(colNum).numFmt = '#,##0';
+          totalsRow.getCell(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
+        }
+      });
 
       // 6. COLUMN WIDTHS
       worksheet.columns.forEach((col, idx) => {
@@ -885,6 +958,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         rollNos: string[];
         totalNetWeight: number;
         totalMeters: number;
+        subOrderIndices: Set<number>;
       }>();
 
       orderRolls.forEach((item) => {
@@ -905,6 +979,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
             rollNos: [],
             totalNetWeight: 0,
             totalMeters: 0,
+            subOrderIndices: new Set<number>()
           });
         }
 
@@ -912,6 +987,9 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         group.noOfRolls += 1;
         if (item.rollNo) {
           group.rollNos.push(String(item.rollNo).trim());
+        }
+        if (item.subOrderIdx !== undefined) {
+          group.subOrderIndices.add(item.subOrderIdx);
         }
 
         let netWtVal = Number(item.netWt) || 0;
@@ -935,8 +1013,23 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           }
           return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
         });
+
+        // Compute Target and Pending for this group
+        let groupTargetKg = 0;
+        let groupCompletedKg = 0;
+        group.subOrderIndices.forEach((idx) => {
+          const row = modalOrder.rows[idx];
+          if (row) {
+            groupTargetKg += row.totalQuantity || 0;
+            groupCompletedKg += row.productionCompleted || 0;
+          }
+        });
+        const groupPendingKg = Math.max(0, groupTargetKg - (groupCompletedKg || group.totalNetWeight));
+
         return {
           ...group,
+          targetWeight: groupTargetKg,
+          pendingWeight: groupPendingKg,
           rollNosListStr: sortedRolls.join(', ')
         };
       });
@@ -954,89 +1047,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         return a.denier - b.denier;
       });
 
-      // Pre-calculate overall summary totals for top metrics
-      const overallTotalNetWt = summaryList.reduce((sum, g) => sum + g.totalNetWeight, 0);
-      const overallTotalRolls = summaryList.reduce((sum, g) => sum + g.noOfRolls, 0);
-      const overallTotalMeters = summaryList.reduce((sum, g) => sum + g.totalMeters, 0);
-
-      // Banner / Header on Summary Sheet
-      summarySheet.mergeCells('A1:I1');
-      const sumTitleCell = summarySheet.getCell('A1');
-      sumTitleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • ORDER ${modalOrder.orderNo.toUpperCase()} SUMMARY REPORT - ${summaryModeTitle}`;
-      sumTitleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
-      sumTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      summarySheet.getRow(1).height = 36;
-
-      summarySheet.mergeCells('A2:I2');
-      const sumSubCell = summarySheet.getCell('A2');
-      sumSubCell.value = `ORDER #: ${modalOrder.orderNo} | FILTER OPTION: ${selectedOption.toUpperCase()} | ${printDateStr}`;
-      sumSubCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
-      sumSubCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      summarySheet.getRow(2).height = 22;
-
-      for (let col = 1; col <= 9; col++) {
-        summarySheet.getRow(1).getCell(col).border = thickBlackBorder;
-        summarySheet.getRow(2).getCell(col).border = thickBlackBorder;
-      }
-
-      summarySheet.getRow(3).height = 10; // blank row space
-
-      // --- TOP METRICS CARDS (Rows 4 & 5) ---
-      // Metric 1: Total Net Wt (kgs) [A4:C4 & A5:C5]
-      summarySheet.mergeCells('A4:C4');
-      summarySheet.mergeCells('A5:C5');
-      const m1Label = summarySheet.getCell('A4');
-      m1Label.value = 'TOTAL NET WT (KGS)';
-      m1Label.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
-      m1Label.alignment = { horizontal: 'center', vertical: 'middle' };
-
-      const m1Val = summarySheet.getCell('A5');
-      m1Val.value = overallTotalNetWt;
-      m1Val.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
-      m1Val.alignment = { horizontal: 'center', vertical: 'middle' };
-      m1Val.numFmt = '#,##0.00';
-
-      // Metric 2: Total No of Rolls [D4:F4 & D5:F5]
-      summarySheet.mergeCells('D4:F4');
-      summarySheet.mergeCells('D5:F5');
-      const m2Label = summarySheet.getCell('D4');
-      m2Label.value = 'TOTAL NO OF ROLLS';
-      m2Label.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
-      m2Label.alignment = { horizontal: 'center', vertical: 'middle' };
-
-      const m2Val = summarySheet.getCell('D5');
-      m2Val.value = overallTotalRolls;
-      m2Val.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
-      m2Val.alignment = { horizontal: 'center', vertical: 'middle' };
-      m2Val.numFmt = '#,##0';
-
-      // Metric 3: Total Meters [G4:I4 & G5:I5]
-      summarySheet.mergeCells('G4:I4');
-      summarySheet.mergeCells('G5:I5');
-      const m3Label = summarySheet.getCell('G4');
-      m3Label.value = 'TOTAL METERS';
-      m3Label.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
-      m3Label.alignment = { horizontal: 'center', vertical: 'middle' };
-
-      const m3Val = summarySheet.getCell('G5');
-      m3Val.value = overallTotalMeters;
-      m3Val.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
-      m3Val.alignment = { horizontal: 'center', vertical: 'middle' };
-      m3Val.numFmt = '#,##0';
-
-      summarySheet.getRow(4).height = 20;
-      summarySheet.getRow(5).height = 30;
-
-      // Apply borders to metric card cells A4:I5
-      for (let col = 1; col <= 9; col++) {
-        summarySheet.getRow(4).getCell(col).border = thickBlackBorder;
-        summarySheet.getRow(5).getCell(col).border = thickBlackBorder;
-      }
-
-      summarySheet.getRow(6).height = 12; // blank row space
-
       // Table Headers (Row 7)
-      const summaryHeaders = [
+      const summaryHeaders: string[] = [
         'S No',
         'Quality',
         'Size',
@@ -1045,8 +1057,94 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         'No of rolls',
         'Roll nos list',
         'Total net weight (kgs)',
+        ...(incTarget ? ['Total target (kgs)'] : []),
+        ...(incPending ? ['Total Pending (kgs)'] : []),
         'Total Meters'
       ];
+
+      const sumTotalCols = summaryHeaders.length;
+
+      // Banner / Header on Summary Sheet
+      summarySheet.mergeCells(1, 1, 1, sumTotalCols);
+      const sumTitleCell = summarySheet.getCell('A1');
+      sumTitleCell.value = `FORTUNE FLEXIPACK PVT LIMITED • ORDER ${modalOrder.orderNo.toUpperCase()} SUMMARY REPORT - ${summaryModeTitle}`;
+      sumTitleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
+      sumTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      summarySheet.getRow(1).height = 36;
+
+      summarySheet.mergeCells(2, 1, 2, sumTotalCols);
+      const sumSubCell = summarySheet.getCell('A2');
+      sumSubCell.value = `ORDER #: ${modalOrder.orderNo} | FILTER OPTION: ${selectedOption.toUpperCase()} | ${printDateStr}`;
+      sumSubCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+      sumSubCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      summarySheet.getRow(2).height = 22;
+
+      for (let col = 1; col <= sumTotalCols; col++) {
+        summarySheet.getRow(1).getCell(col).border = thickBlackBorder;
+        summarySheet.getRow(2).getCell(col).border = thickBlackBorder;
+      }
+
+      summarySheet.getRow(3).height = 10; // blank row space
+
+      // Pre-calculate overall summary totals for top metrics
+      const overallTotalNetWt = summaryList.reduce((sum, g) => sum + g.totalNetWeight, 0);
+      const overallTotalRolls = summaryList.reduce((sum, g) => sum + g.noOfRolls, 0);
+      const overallTotalMeters = summaryList.reduce((sum, g) => sum + g.totalMeters, 0);
+
+      // Distribute top metric cards across sumTotalCols
+      const sColStep = Math.max(2, Math.floor(sumTotalCols / 3));
+      const sm1End = sColStep;
+      const sm2End = sColStep * 2;
+      const sm3End = sumTotalCols;
+
+      summarySheet.mergeCells(4, 1, 4, sm1End);
+      summarySheet.mergeCells(5, 1, 5, sm1End);
+      const m1Label = summarySheet.getCell(4, 1);
+      m1Label.value = 'TOTAL NET WT (KGS)';
+      m1Label.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+      m1Label.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      const m1Val = summarySheet.getCell(5, 1);
+      m1Val.value = overallTotalNetWt;
+      m1Val.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      m1Val.alignment = { horizontal: 'center', vertical: 'middle' };
+      m1Val.numFmt = '#,##0.00';
+
+      summarySheet.mergeCells(4, sm1End + 1, 4, sm2End);
+      summarySheet.mergeCells(5, sm1End + 1, 5, sm2End);
+      const m2Label = summarySheet.getCell(4, sm1End + 1);
+      m2Label.value = 'TOTAL NO OF ROLLS';
+      m2Label.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+      m2Label.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      const m2Val = summarySheet.getCell(5, sm1End + 1);
+      m2Val.value = overallTotalRolls;
+      m2Val.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      m2Val.alignment = { horizontal: 'center', vertical: 'middle' };
+      m2Val.numFmt = '#,##0';
+
+      summarySheet.mergeCells(4, sm2End + 1, 4, sm3End);
+      summarySheet.mergeCells(5, sm2End + 1, 5, sm3End);
+      const m3Label = summarySheet.getCell(4, sm2End + 1);
+      m3Label.value = 'TOTAL METERS';
+      m3Label.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+      m3Label.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      const m3Val = summarySheet.getCell(5, sm2End + 1);
+      m3Val.value = overallTotalMeters;
+      m3Val.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
+      m3Val.alignment = { horizontal: 'center', vertical: 'middle' };
+      m3Val.numFmt = '#,##0';
+
+      summarySheet.getRow(4).height = 20;
+      summarySheet.getRow(5).height = 30;
+
+      for (let col = 1; col <= sumTotalCols; col++) {
+        summarySheet.getRow(4).getCell(col).border = thickBlackBorder;
+        summarySheet.getRow(5).getCell(col).border = thickBlackBorder;
+      }
+
+      summarySheet.getRow(6).height = 12; // blank row space
 
       const sumHeaderRow = summarySheet.getRow(7);
       sumHeaderRow.height = 28;
@@ -1062,6 +1160,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       let sumTotRolls = 0;
       let sumTotNetWt = 0;
       let sumTotMeters = 0;
+      let sumTotTarget = 0;
+      let sumTotPending = 0;
 
       summaryList.forEach((group, index) => {
         const r = summarySheet.getRow(sumR);
@@ -1070,8 +1170,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         sumTotRolls += group.noOfRolls;
         sumTotNetWt += group.totalNetWeight;
         sumTotMeters += group.totalMeters;
+        sumTotTarget += group.targetWeight;
+        sumTotPending += group.pendingWeight;
 
-        const rowVals = [
+        const rowVals: any[] = [
           index + 1,
           group.quality,
           group.size,
@@ -1080,6 +1182,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           group.noOfRolls,
           group.rollNosListStr,
           group.totalNetWeight,
+          ...(incTarget ? [group.targetWeight] : []),
+          ...(incPending ? [group.pendingWeight] : []),
           group.totalMeters
         ];
 
@@ -1089,21 +1193,20 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
           cell.border = thickBlackBorder;
 
-          if (colIdx === 0) { // S No
+          const hName = summaryHeaders[colIdx];
+          if (hName === 'S No' || hName === 'Size' || hName === 'GSM' || hName === 'DENIER') {
             cell.alignment = { horizontal: 'center', vertical: 'middle' };
-          } else if (colIdx === 1) { // Quality
+          } else if (hName === 'Quality') {
             cell.alignment = { horizontal: 'left', vertical: 'middle' };
-          } else if (colIdx >= 2 && colIdx <= 4) { // Size, GSM, Denier
-            cell.alignment = { horizontal: 'center', vertical: 'middle' };
-          } else if (colIdx === 5) { // No of rolls
+          } else if (hName === 'No of rolls') {
             cell.alignment = { horizontal: 'right', vertical: 'middle' };
             cell.numFmt = '#,##0';
-          } else if (colIdx === 6) { // Roll nos list
+          } else if (hName === 'Roll nos list') {
             cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
-          } else if (colIdx === 7) { // Total net weight
+          } else if (['Total net weight (kgs)', 'Total target (kgs)', 'Total Pending (kgs)'].includes(hName)) {
             cell.alignment = { horizontal: 'right', vertical: 'middle' };
             cell.numFmt = '#,##0.00';
-          } else if (colIdx === 8) { // Total Meters
+          } else if (hName === 'Total Meters') {
             cell.alignment = { horizontal: 'right', vertical: 'middle' };
             cell.numFmt = '#,##0';
           }
@@ -1115,7 +1218,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       // Summary Grand Total Row
       const sumTotalsRow = summarySheet.getRow(sumR);
       sumTotalsRow.height = 26;
-      for (let c = 1; c <= 9; c++) {
+      for (let c = 1; c <= sumTotalCols; c++) {
         const cell = sumTotalsRow.getCell(c);
         cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
         cell.border = thickBlackBorder;
@@ -1123,20 +1226,36 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
 
       sumTotalsRow.getCell(1).value = 'GRAND TOTAL';
       sumTotalsRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
-      sumTotalsRow.getCell(6).value = sumTotRolls;
-      sumTotalsRow.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' };
-      sumTotalsRow.getCell(6).numFmt = '#,##0';
-      sumTotalsRow.getCell(8).value = sumTotNetWt;
-      sumTotalsRow.getCell(8).alignment = { horizontal: 'right', vertical: 'middle' };
-      sumTotalsRow.getCell(8).numFmt = '#,##0.00';
-      sumTotalsRow.getCell(9).value = sumTotMeters;
-      sumTotalsRow.getCell(9).alignment = { horizontal: 'right', vertical: 'middle' };
-      sumTotalsRow.getCell(9).numFmt = '#,##0';
+
+      summaryHeaders.forEach((hName, idx) => {
+        const colNum = idx + 1;
+        if (hName === 'No of rolls') {
+          sumTotalsRow.getCell(colNum).value = sumTotRolls;
+          sumTotalsRow.getCell(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
+          sumTotalsRow.getCell(colNum).numFmt = '#,##0';
+        } else if (hName === 'Total net weight (kgs)') {
+          sumTotalsRow.getCell(colNum).value = sumTotNetWt;
+          sumTotalsRow.getCell(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
+          sumTotalsRow.getCell(colNum).numFmt = '#,##0.00';
+        } else if (hName === 'Total target (kgs)') {
+          sumTotalsRow.getCell(colNum).value = sumTotTarget;
+          sumTotalsRow.getCell(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
+          sumTotalsRow.getCell(colNum).numFmt = '#,##0.00';
+        } else if (hName === 'Total Pending (kgs)') {
+          sumTotalsRow.getCell(colNum).value = sumTotPending;
+          sumTotalsRow.getCell(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
+          sumTotalsRow.getCell(colNum).numFmt = '#,##0.00';
+        } else if (hName === 'Total Meters') {
+          sumTotalsRow.getCell(colNum).value = sumTotMeters;
+          sumTotalsRow.getCell(colNum).alignment = { horizontal: 'right', vertical: 'middle' };
+          sumTotalsRow.getCell(colNum).numFmt = '#,##0';
+        }
+      });
 
       // Column Auto-Widths for Summary Sheet
       summarySheet.columns.forEach((col, idx) => {
-        const colNum = idx + 1;
-        if (colNum === 7) { // Roll nos list column
+        const hName = summaryHeaders[idx];
+        if (hName === 'Roll nos list') {
           col.width = 45;
         } else {
           let maxLen = summaryHeaders[idx] ? summaryHeaders[idx].length : 10;
@@ -2190,17 +2309,17 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
           break;
         case 'warpStrength':
         case 'strength':
-          cmp = String(a.warpStrength || a.strength).localeCompare(String(b.warpStrength || b.strength), undefined, { numeric: true, sensitivity: 'base' });
+          cmp = String(a.warpStrength || a.strength || '').localeCompare(String(b.warpStrength || b.strength || ''), undefined, { numeric: true, sensitivity: 'base' });
           break;
         case 'warpElongation':
         case 'elongation':
-          cmp = (Number(a.warpElongation || a.elongation) || 0) - (Number(b.warpElongation || b.elongation) || 0);
+          cmp = String(a.warpElongation || a.elongation || '').localeCompare(String(b.warpElongation || b.elongation || ''), undefined, { numeric: true, sensitivity: 'base' });
           break;
         case 'weftStrength':
-          cmp = String(a.weftStrength).localeCompare(String(b.weftStrength), undefined, { numeric: true, sensitivity: 'base' });
+          cmp = String(a.weftStrength || '').localeCompare(String(b.weftStrength || ''), undefined, { numeric: true, sensitivity: 'base' });
           break;
         case 'weftElongation':
-          cmp = (Number(a.weftElongation) || 0) - (Number(b.weftElongation) || 0);
+          cmp = String(a.weftElongation || '').localeCompare(String(b.weftElongation || ''), undefined, { numeric: true, sensitivity: 'base' });
           break;
         case 'quality':
           cmp = a.quality.localeCompare(b.quality, undefined, { numeric: true, sensitivity: 'base' });
@@ -3505,6 +3624,355 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
     }
   };
 
+  const handleDownloadBulkDispatchTemplate = async () => {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'Fortune Flexipack';
+      workbook.lastModifiedBy = 'Fortune Flexipack';
+      workbook.created = new Date();
+      workbook.modified = new Date();
+
+      const worksheet = workbook.addWorksheet('Bulk Dispatch Template', {
+        properties: { tabColor: { argb: 'FF10B981' } }
+      });
+      worksheet.views = [{ showGridLines: true }];
+
+      // Header Row
+      const headers = [
+        'Roll number',
+        'Dispatch date',
+        'Vehicle truck number',
+        'Driver name',
+        'Driver phone',
+        'Invoice number',
+        'Challan/gate pass number',
+        'Customer/party name',
+        'Destination',
+        'Dispatch remarks/notes'
+      ];
+
+      const headerRow = worksheet.addRow(headers);
+      headerRow.height = 28;
+
+      headerRow.eachCell((cell) => {
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF064E3B' } // Deep emerald green
+        };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF047857' } },
+          left: { style: 'thin', color: { argb: 'FF047857' } },
+          bottom: { style: 'medium', color: { argb: 'FF065F46' } },
+          right: { style: 'thin', color: { argb: 'FF047857' } }
+        };
+      });
+
+      // Sample Data Row 1 (Multiple rolls separated by commas in single cell)
+      const sampleRow1 = worksheet.addRow([
+        '101, 102, 103, 104',
+        new Date().toISOString().split('T')[0],
+        'RJ-14-GA-5421',
+        'Sunil Sharma',
+        '9876543210',
+        'INV-2026-081',
+        'GP-4091',
+        'Fortune Packaging Ltd',
+        'Ahmedabad Warehouse',
+        'Full truckload dispatched via Gate 1'
+      ]);
+      sampleRow1.height = 24;
+
+      // Sample Data Row 2
+      const sampleRow2 = worksheet.addRow([
+        '105, 106, 108',
+        new Date().toISOString().split('T')[0],
+        'HR-26-AB-9876',
+        'Ramesh Patel',
+        '9811223344',
+        'INV-2026-082',
+        'GP-4092',
+        'Surat Pack Corp',
+        'Surat GIDC Gate 2',
+        'Express dispatch lot'
+      ]);
+      sampleRow2.height = 24;
+
+      [sampleRow1, sampleRow2].forEach((row) => {
+        row.eachCell((cell, colNumber) => {
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF1F2937' } };
+          cell.alignment = { vertical: 'middle', horizontal: colNumber === 1 || colNumber === 2 ? 'center' : 'left' };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+            left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+            bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+            right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
+          };
+        });
+      });
+
+      // Widths
+      worksheet.columns = [
+        { width: 30 }, // Roll number
+        { width: 16 }, // Dispatch date
+        { width: 22 }, // Vehicle truck number
+        { width: 20 }, // Driver name
+        { width: 18 }, // Driver phone
+        { width: 18 }, // Invoice number
+        { width: 24 }, // Challan/gate pass number
+        { width: 28 }, // Customer/party name
+        { width: 28 }, // Destination
+        { width: 35 }, // Dispatch remarks/notes
+      ];
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Bulk_Dispatch_Upload_Template.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      triggerAlert('success', 'Bulk Dispatch sample template downloaded successfully!');
+    } catch (err) {
+      console.error('Failed to download bulk dispatch template', err);
+      triggerAlert('warn', 'Failed to generate Bulk Dispatch sample template.');
+    }
+  };
+
+  const handleBulkDispatchFileUpload = async (file: File) => {
+    if (viewOnly) {
+      triggerAlert('warn', 'Portal is in read-only mode.');
+      return;
+    }
+
+    setBulkDispatchUploading(true);
+    setBulkDispatchSummary(null);
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(arrayBuffer);
+
+      const sheet = workbook.getWorksheet('Bulk Dispatch Template') || workbook.worksheets[0];
+      if (!sheet) {
+        triggerAlert('warn', 'Could not find a valid worksheet in the uploaded Excel file.');
+        setBulkDispatchUploading(false);
+        return;
+      }
+
+      const getCellValue = (cell: ExcelJS.Cell): any => {
+        if (cell.value === null || cell.value === undefined) return '';
+        if (typeof cell.value === 'object') {
+          if ('result' in cell.value) return cell.value.result ?? '';
+          if ('text' in cell.value) return cell.value.text ?? '';
+          if ('richText' in cell.value && Array.isArray((cell.value as any).richText)) {
+            return (cell.value as any).richText.map((t: any) => t.text).join('');
+          }
+        }
+        return cell.value;
+      };
+
+      let headerRowIndex = -1;
+      const colMap: Record<string, number> = {};
+
+      sheet.eachRow((row, rowNumber) => {
+        if (headerRowIndex !== -1) return;
+
+        const cellTexts: string[] = [];
+        row.eachCell((cell) => {
+          cellTexts.push(String(getCellValue(cell) || '').trim().toLowerCase());
+        });
+
+        if (cellTexts.some(v => v.includes('roll') || v.includes('roll number') || v.includes('roll no'))) {
+          headerRowIndex = rowNumber;
+          row.eachCell((cell, colIndex) => {
+            const txt = String(getCellValue(cell) || '').trim().toLowerCase();
+            if (txt.includes('roll')) colMap['rollNumber'] = colIndex;
+            else if (txt.includes('dispatch date') || txt.includes('date')) colMap['dispatchDate'] = colIndex;
+            else if (txt.includes('vehicle') || txt.includes('truck')) colMap['vehicleNo'] = colIndex;
+            else if (txt.includes('driver name') || (txt.includes('driver') && !txt.includes('phone'))) colMap['driverName'] = colIndex;
+            else if (txt.includes('driver phone') || txt.includes('phone') || txt.includes('mobile')) colMap['driverPhone'] = colIndex;
+            else if (txt.includes('invoice')) colMap['invoiceNo'] = colIndex;
+            else if (txt.includes('challan') || txt.includes('gate pass') || txt.includes('pass')) colMap['challanNo'] = colIndex;
+            else if (txt.includes('customer') || txt.includes('party')) colMap['customerName'] = colIndex;
+            else if (txt.includes('destination') || txt.includes('address')) colMap['destination'] = colIndex;
+            else if (txt.includes('remark') || txt.includes('note')) colMap['remarks'] = colIndex;
+          });
+        }
+      });
+
+      if (headerRowIndex === -1 || !colMap['rollNumber']) {
+        triggerAlert('warn', 'Header row with "Roll number" column was not found in the uploaded file.');
+        setBulkDispatchUploading(false);
+        return;
+      }
+
+      const orderUpdatesMap = new Map<string, LoomOrder>();
+      const ordersBeforeMap = new Map<string, LoomOrder>();
+      const matchedRolls: string[] = [];
+      const notFoundRolls: string[] = [];
+      const errors: string[] = [];
+      let totalProcessedRows = 0;
+
+      sheet.eachRow((row, rowNumber) => {
+        if (rowNumber <= headerRowIndex) return;
+
+        const getCol = (key: string) => colMap[key] ? getCellValue(row.getCell(colMap[key])) : undefined;
+
+        const rawRollVal = getCol('rollNumber');
+        if (rawRollVal === undefined || rawRollVal === null || rawRollVal === '') return;
+
+        totalProcessedRows++;
+
+        // Parse dispatch date (compulsory)
+        const dateVal = getCol('dispatchDate');
+        let formattedDate = new Date().toISOString().split('T')[0];
+        if (dateVal) {
+          if (dateVal instanceof Date) {
+            formattedDate = dateVal.toISOString().split('T')[0];
+          } else {
+            const dateStr = String(dateVal).trim();
+            if (dateStr) formattedDate = dateStr;
+          }
+        }
+
+        const vehicleNo = String(getCol('vehicleNo') || '').trim().toUpperCase();
+        const driverName = String(getCol('driverName') || '').trim();
+        const driverPhone = String(getCol('driverPhone') || '').trim();
+        const invoiceNo = String(getCol('invoiceNo') || '').trim();
+        const challanNo = String(getCol('challanNo') || '').trim();
+        const customerName = String(getCol('customerName') || '').trim();
+        const destination = String(getCol('destination') || '').trim();
+        const remarks = String(getCol('remarks') || '').trim();
+
+        // Split comma-separated roll numbers in single cell: e.g. "101, 102, 105"
+        const rollString = String(rawRollVal);
+        const rollItems = rollString
+          .split(/[,;\n\r]+/)
+          .map(r => r.trim())
+          .filter(r => r.length > 0 && r.toUpperCase() !== 'GRAND TOTAL' && !r.toLowerCase().includes('total'));
+
+        if (rollItems.length === 0) return;
+
+        for (const rollNo of rollItems) {
+          // Find matching roll in masterRollLedgerData
+          const item = masterRollLedgerData.find(m => m.rollNo.toLowerCase() === rollNo.toLowerCase());
+          if (!item) {
+            notFoundRolls.push(rollNo);
+            continue;
+          }
+
+          let targetOrder = orderUpdatesMap.get(item.orderId);
+          if (!targetOrder) {
+            const existingOrder = orders.find(o => o.id === item.orderId);
+            if (!existingOrder) {
+              notFoundRolls.push(rollNo);
+              continue;
+            }
+            if (!ordersBeforeMap.has(item.orderId)) {
+              ordersBeforeMap.set(item.orderId, JSON.parse(JSON.stringify(existingOrder)));
+            }
+            targetOrder = JSON.parse(JSON.stringify(existingOrder));
+            orderUpdatesMap.set(item.orderId, targetOrder!);
+          }
+
+          const rowObj = targetOrder!.rows[item.subOrderIdx];
+          if (!rowObj) {
+            notFoundRolls.push(rollNo);
+            continue;
+          }
+
+          if (!rowObj.rollDispatchStatus) rowObj.rollDispatchStatus = {};
+          if (!rowObj.rollDispatchDetails) rowObj.rollDispatchDetails = {};
+          if (!rowObj.dispatchedRolls) rowObj.dispatchedRolls = [];
+
+          const existingDetails = rowObj.rollDispatchDetails[item.rollNo] || {};
+
+          const newDetails: RollDispatchDetails = {
+            dispatchDate: formattedDate || existingDetails.dispatchDate || new Date().toISOString().split('T')[0],
+            vehicleNo: vehicleNo || existingDetails.vehicleNo || '',
+            driverName: driverName || existingDetails.driverName || '',
+            driverPhone: driverPhone || existingDetails.driverPhone || '',
+            invoiceNo: invoiceNo || existingDetails.invoiceNo || challanNo || '',
+            challanNo: challanNo || existingDetails.challanNo || '',
+            customerName: customerName || existingDetails.customerName || '',
+            destination: destination || existingDetails.destination || '',
+            dispatchedWeight: item.netWt || existingDetails.dispatchedWeight || 0,
+            dispatchedMeters: item.meters || existingDetails.dispatchedMeters || 0,
+            remarks: remarks || existingDetails.remarks || '',
+            dispatchedAt: new Date().toISOString(),
+          };
+
+          rowObj.rollDispatchStatus[item.rollNo] = 'Dispatched';
+          rowObj.rollDispatchDetails[item.rollNo] = newDetails;
+
+          const dispSet = new Set(rowObj.dispatchedRolls || []);
+          dispSet.add(item.rollNo);
+          rowObj.dispatchedRolls = Array.from(dispSet);
+
+          rowObj.productionCompleted = recalculateRowProductionCompleted(rowObj);
+          matchedRolls.push(item.rollNo);
+        }
+      });
+
+      if (matchedRolls.length === 0) {
+        triggerAlert('warn', `No matching rolls were found in the database out of the uploaded entries.`);
+        setBulkDispatchSummary({
+          totalProcessedRows,
+          totalRollsMatched: 0,
+          matchedRolls: [],
+          notFoundRolls,
+          updatedOrdersCount: 0,
+          errors: ['No roll numbers in the uploaded Excel matched active orders in your database.']
+        });
+        setBulkDispatchUploading(false);
+        return;
+      }
+
+      // Save all updated orders to Firestore
+      for (const updatedOrder of orderUpdatesMap.values()) {
+        const orderRef = doc(db, 'loomOrders', updatedOrder.id);
+        await setDoc(orderRef, updatedOrder);
+      }
+
+      // Record Undo/Redo history
+      pushLedgerHistory({
+        actionName: `Bulk Dispatch (${matchedRolls.length} Rolls)`,
+        summary: `Bulk dispatched ${matchedRolls.length} roll(s) across ${orderUpdatesMap.size} order(s)`,
+        details: [
+          `Matched Rolls: ${matchedRolls.slice(0, 8).join(', ')}${matchedRolls.length > 8 ? ` and ${matchedRolls.length - 8} more` : ''}`,
+          `Orders Updated: ${orderUpdatesMap.size}`,
+          `Not Found: ${notFoundRolls.length}`
+        ],
+        affectedOrdersBefore: Array.from(ordersBeforeMap.values()),
+        affectedOrdersAfter: Array.from(orderUpdatesMap.values())
+      });
+
+      setBulkDispatchSummary({
+        totalProcessedRows,
+        totalRollsMatched: matchedRolls.length,
+        matchedRolls,
+        notFoundRolls,
+        updatedOrdersCount: orderUpdatesMap.size,
+        errors
+      });
+
+      triggerAlert('success', `Bulk Dispatch processed: ${matchedRolls.length} roll(s) marked Dispatched!`);
+    } catch (err) {
+      console.error('Failed to process bulk dispatch Excel file:', err);
+      triggerAlert('warn', 'Failed to process Excel file. Please ensure it follows the sample template.');
+    } finally {
+      setBulkDispatchUploading(false);
+      if (bulkDispatchFileInputRef.current) {
+        bulkDispatchFileInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleSaveMasterRollEdit = async (item: typeof masterRollLedgerData[0]) => {
     if (viewOnly) {
       triggerAlert('warn', 'Portal is in read-only mode.');
@@ -3666,6 +4134,10 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       if (String(item.netWt || '') !== masterEditNetWt.trim()) details.push(`Net Wt: "${item.netWt || ''}" ➔ "${masterEditNetWt.trim()}" kg`);
       if (String(item.meters || '') !== masterEditMeters.trim()) details.push(`Meters: "${item.meters || ''}" ➔ "${masterEditMeters.trim()}" m`);
       if (String(item.quality || '').trim() !== masterEditQuality.trim()) details.push(`Quality: "${item.quality || ''}" ➔ "${masterEditQuality.trim()}"`);
+      if (String(item.warpStrength || item.strength || '').trim() !== masterEditWarpStrength.trim()) details.push(`Warp Strength: "${item.warpStrength || item.strength || ''}" ➔ "${masterEditWarpStrength.trim()}"`);
+      if (String(item.warpElongation || item.elongation || '').trim() !== masterEditWarpElongation.trim()) details.push(`Warp Elongation: "${item.warpElongation || item.elongation || ''}" ➔ "${masterEditWarpElongation.trim()}"`);
+      if (String(item.weftStrength || '').trim() !== masterEditWeftStrength.trim()) details.push(`Weft Strength: "${item.weftStrength || ''}" ➔ "${masterEditWeftStrength.trim()}"`);
+      if (String(item.weftElongation || '').trim() !== masterEditWeftElongation.trim()) details.push(`Weft Elongation: "${item.weftElongation || ''}" ➔ "${masterEditWeftElongation.trim()}"`);
       if (String(item.remarks || '').trim() !== masterEditRemarks.trim()) details.push(`Remarks: "${item.remarks || ''}" ➔ "${masterEditRemarks.trim()}"`);
       if (item.dispatchStatus !== masterEditDispatchStatus) details.push(`Dispatch Status: "${item.dispatchStatus}" ➔ "${masterEditDispatchStatus}"`);
 
@@ -4869,6 +5341,19 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   <span className="bg-emerald-950 text-emerald-300 text-[10px] font-black px-1.5 py-0.2 rounded-full font-mono border border-emerald-600/50">
                     {dispatchLedgerTotals.totalRolls}
                   </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBulkDispatchSummary(null);
+                    setIsBulkDispatchModalOpen(true);
+                  }}
+                  className="bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white font-black text-xs uppercase tracking-wider px-3.5 py-1.5 rounded-xl border border-emerald-600 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Upload Bulk Dispatch Excel sheet with comma-separated roll numbers"
+                >
+                  <Upload size={15} className="shrink-0 text-emerald-200 stroke-[2.5]" />
+                  <span>Upload Bulk Dispatch</span>
                 </button>
 
                 <button
@@ -7440,6 +7925,18 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   <>
                     <button
                       type="button"
+                      onClick={() => {
+                        setBulkDispatchSummary(null);
+                        setIsBulkDispatchModalOpen(true);
+                      }}
+                      className="bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white text-xs font-black uppercase tracking-wider px-3.5 py-2 rounded-xl border border-emerald-600 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
+                      title="Upload Bulk Dispatch Excel sheet with comma-separated roll numbers & download template"
+                    >
+                      <Upload size={14} className="stroke-[2.5]" />
+                      <span>Bulk Dispatch</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={handleTriggerMasterLedgerExcelUpload}
                       className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-black uppercase tracking-wider px-3 py-2 rounded-xl border border-sky-700 shadow-3xs flex items-center gap-1.5 transition-all cursor-pointer"
                       title="Upload Excel to Update Master Roll Ledger"
@@ -9019,15 +9516,14 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-zinc-700 mb-1">
-                      Warp Strength (kgf)
+                      Warp Strength (kgs)
                     </label>
                     <input
-                      type="number"
-                      step="any"
+                      type="text"
                       value={masterEditWarpStrength}
                       onChange={(e) => setMasterEditWarpStrength(e.target.value)}
-                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      placeholder="e.g. 85"
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
+                      placeholder="e.g. 35-38"
                     />
                   </div>
                   <div>
@@ -9035,25 +9531,23 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                       Warp Elongation (%)
                     </label>
                     <input
-                      type="number"
-                      step="any"
+                      type="text"
                       value={masterEditWarpElongation}
                       onChange={(e) => setMasterEditWarpElongation(e.target.value)}
-                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      placeholder="e.g. 18.5"
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
+                      placeholder="e.g. 16-16"
                     />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-zinc-700 mb-1">
-                      Weft Strength (kgf)
+                      Weft Strength (kgs)
                     </label>
                     <input
-                      type="number"
-                      step="any"
+                      type="text"
                       value={masterEditWeftStrength}
                       onChange={(e) => setMasterEditWeftStrength(e.target.value)}
-                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      placeholder="e.g. 82"
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
+                      placeholder="e.g. 35-38"
                     />
                   </div>
                   <div>
@@ -9061,12 +9555,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                       Weft Elongation (%)
                     </label>
                     <input
-                      type="number"
-                      step="any"
+                      type="text"
                       value={masterEditWeftElongation}
                       onChange={(e) => setMasterEditWeftElongation(e.target.value)}
-                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      placeholder="e.g. 19.0"
+                      className="w-full bg-zinc-50 border border-zinc-300 focus:border-amber-500 focus:bg-white rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
+                      placeholder="e.g. 16-16"
                     />
                   </div>
                 </div>
@@ -9171,7 +9664,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                       </span>
                     </div>
                     <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
-                      Exports all sub-order varieties/rows showing only roll numbers marked as <strong>Dispatched</strong>. Tonnage & weight columns are omitted.
+                      Exports all sub-order varieties/rows showing only roll numbers marked as <strong>Dispatched</strong>.
                     </p>
                   </div>
                 </label>
@@ -9201,7 +9694,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                       </span>
                     </div>
                     <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
-                      Exports all sub-order varieties/rows showing only roll numbers marked as <strong>Not Dispatched</strong>. Tonnage & weight columns are omitted.
+                      Exports all sub-order varieties/rows showing only roll numbers marked as <strong>Not Dispatched</strong>.
                     </p>
                   </div>
                 </label>
@@ -9231,10 +9724,71 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                       </span>
                     </div>
                     <p className="text-[11px] text-zinc-500 font-medium leading-relaxed">
-                      Exports full specification details including Target/Completed Weight (KG), Fabric Weight, and all roll numbers (standard complete layout).
+                      Exports all rolls with full specification details, summary metrics, and status.
                     </p>
                   </div>
                 </label>
+              </div>
+
+              {/* Optional Metric Columns Selection */}
+              <div className="pt-3 border-t border-zinc-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-black text-zinc-800 uppercase tracking-wide flex items-center gap-1.5">
+                    <CheckSquare size={14} className="text-amber-600" />
+                    <span>Include Additional Columns in Report:</span>
+                  </p>
+                  <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">Optional</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {/* Checkbox 1: Total target (kgs) */}
+                  <label
+                    className={`p-3 rounded-xl border-2 flex items-start gap-3 cursor-pointer transition-all ${
+                      exportIncludeTotalTarget
+                        ? 'bg-amber-50/90 border-amber-500 shadow-sm'
+                        : 'bg-zinc-50/60 border-zinc-200 hover:border-zinc-300 hover:bg-zinc-100/50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={exportIncludeTotalTarget}
+                      onChange={(e) => setExportIncludeTotalTarget(e.target.checked)}
+                      className="mt-0.5 text-amber-600 focus:ring-amber-500 rounded h-4 w-4 cursor-pointer"
+                    />
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-extrabold text-zinc-900 block leading-tight">
+                        Total target (kgs)
+                      </span>
+                      <p className="text-[10.5px] text-zinc-500 font-medium leading-tight">
+                        Include target weight column in report
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Checkbox 2: Total Pending (kgs) */}
+                  <label
+                    className={`p-3 rounded-xl border-2 flex items-start gap-3 cursor-pointer transition-all ${
+                      exportIncludeTotalPending
+                        ? 'bg-amber-50/90 border-amber-500 shadow-sm'
+                        : 'bg-zinc-50/60 border-zinc-200 hover:border-zinc-300 hover:bg-zinc-100/50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={exportIncludeTotalPending}
+                      onChange={(e) => setExportIncludeTotalPending(e.target.checked)}
+                      className="mt-0.5 text-amber-600 focus:ring-amber-500 rounded h-4 w-4 cursor-pointer"
+                    />
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-extrabold text-zinc-900 block leading-tight">
+                        Total Pending (kgs)
+                      </span>
+                      <p className="text-[10.5px] text-zinc-500 font-medium leading-tight">
+                        Include pending balance column in report
+                      </p>
+                    </div>
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -9249,7 +9803,7 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
               </button>
               <button
                 type="button"
-                onClick={() => handleExportOrderToExcel(exportOption)}
+                onClick={() => handleExportOrderToExcel(exportOption, exportIncludeTotalTarget, exportIncludeTotalPending)}
                 className="px-5 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
               >
                 <Download size={14} className="stroke-[2.5]" />
@@ -9795,16 +10349,28 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                   </button>
                 </div>
 
-                {!viewOnly && (
+                {!viewOnly ? (
                   <>
                     <button
                       type="button"
-                      onClick={handleTriggerDispatchLedgerExcelUpload}
-                      className="bg-sky-600 hover:bg-sky-500 active:scale-95 text-white font-black text-xs uppercase tracking-wider px-3.5 py-2 rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
-                      title="Upload Excel to Update Dispatch Ledger Data"
+                      onClick={() => {
+                        setBulkDispatchSummary(null);
+                        setIsBulkDispatchModalOpen(true);
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-xs uppercase tracking-wider px-3.5 py-2 rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                      title="Upload Bulk Dispatch Excel sheet with comma-separated roll numbers & download template"
                     >
-                      <Upload size={15} />
-                      <span className="hidden sm:inline">Upload Excel</span>
+                      <Upload size={15} className="stroke-[2.5]" />
+                      <span>Upload Bulk Dispatch</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleTriggerDispatchLedgerExcelUpload}
+                      className="bg-sky-600 hover:bg-sky-500 active:scale-95 text-white font-black text-xs uppercase tracking-wider px-3 py-2 rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                      title="Quick Import from standard Dispatch Ledger export"
+                    >
+                      <Upload size={14} />
+                      <span className="hidden sm:inline">Import Ledger</span>
                     </button>
                     <input
                       type="file"
@@ -9814,6 +10380,16 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                       className="hidden"
                     />
                   </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => triggerAlert('warn', 'Portal is currently in read-only mode.')}
+                    className="bg-zinc-800 text-zinc-400 font-bold text-xs uppercase tracking-wider px-3 py-2 rounded-xl border border-zinc-700 opacity-60 cursor-not-allowed flex items-center gap-1.5"
+                    title="Read-Only Mode: Bulk dispatch is disabled"
+                  >
+                    <Upload size={15} />
+                    <span>Upload Bulk Dispatch (Read-Only)</span>
+                  </button>
                 )}
 
                 <button
@@ -10408,6 +10984,195 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
                 }`}
               >
                 Acknowledge & Close
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* POP-UP WINDOW: UPLOAD BULK DISPATCH MODAL                                 */}
+      {/* ========================================================================= */}
+      {isBulkDispatchModalOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 bg-zinc-950/85 backdrop-blur-md animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-2xl sm:rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            
+            {/* Modal Header */}
+            <div className="bg-emerald-950 text-white px-4 py-3.5 sm:px-6 sm:py-4 flex justify-between items-center border-b border-emerald-900 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0 shadow-sm">
+                  <Upload size={22} className="stroke-[2.5]" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-emerald-300 leading-tight flex items-center gap-2 flex-wrap">
+                    <span>Upload Bulk Dispatch</span>
+                    <span className="bg-emerald-800 text-emerald-200 text-[10px] px-2 py-0.5 rounded-full font-mono border border-emerald-600">
+                      Multi-Roll Support
+                    </span>
+                  </h3>
+                  <p className="text-xs text-emerald-200/70 font-semibold truncate">
+                    Upload Excel file with comma-separated roll numbers to mark as Dispatched
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsBulkDispatchModalOpen(false);
+                  setBulkDispatchSummary(null);
+                }}
+                className="w-8 h-8 rounded-full bg-emerald-900/80 hover:bg-emerald-800 text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer shrink-0"
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-5">
+              
+              {/* Step 1: Download Template */}
+              <div className="bg-emerald-50/80 border border-emerald-200/90 rounded-2xl p-4 sm:p-5 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
+                      <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] font-black">1</span>
+                      Step 1: Download Sample Excel Template
+                    </span>
+                    <p className="text-xs text-emerald-800/90 leading-relaxed font-medium">
+                      Download the pre-formatted Excel template containing all required & optional fields.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadBulkDispatchTemplate}
+                    className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer shrink-0"
+                  >
+                    <Download size={15} className="stroke-[2.5]" />
+                    <span>Download Sample Template</span>
+                  </button>
+                </div>
+
+                <div className="bg-white/90 border border-emerald-200/80 rounded-xl p-3 text-[11px] text-zinc-700 space-y-1.5 shadow-3xs">
+                  <p className="font-bold text-emerald-950 flex items-center gap-1">
+                    <Info size={13} className="text-emerald-600 shrink-0" />
+                    How to fill the Excel Template:
+                  </p>
+                  <ul className="list-disc list-inside space-y-0.5 text-zinc-600 pl-1">
+                    <li><strong className="text-zinc-900">Roll number:</strong> Mandatory. Enter a single roll or <strong className="text-emerald-800">multiple roll numbers separated by commas</strong> in a single cell (e.g. <code className="bg-emerald-100/80 text-emerald-900 px-1 py-0.2 rounded font-mono font-bold">101, 102, 103, 104</code>).</li>
+                    <li><strong className="text-zinc-900">Dispatch date:</strong> Mandatory. Date format or <code className="bg-emerald-100/80 text-emerald-900 px-1 py-0.2 rounded font-mono">YYYY-MM-DD</code> (e.g. {new Date().toISOString().split('T')[0]}).</li>
+                    <li><strong className="text-zinc-900">Optional fields:</strong> Vehicle truck number, Driver name, Driver phone, Invoice number, Challan/gate pass number, Customer/party name, Destination, Dispatch remarks/notes.</li>
+                    <li>The app will automatically match each roll number with its specifications (size, GSM, quality, weight, meters) and record full dispatch details.</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Step 2: Upload Excel File */}
+              <div className="bg-zinc-50 border-2 border-dashed border-zinc-300 hover:border-emerald-500 rounded-2xl p-6 text-center space-y-3 transition-colors">
+                <input
+                  type="file"
+                  ref={bulkDispatchFileInputRef}
+                  accept=".xlsx, .xls"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleBulkDispatchFileUpload(file);
+                  }}
+                  className="hidden"
+                />
+
+                <div className="w-14 h-14 rounded-2xl bg-emerald-100 border border-emerald-200 text-emerald-600 flex items-center justify-center mx-auto shadow-sm">
+                  <Upload size={28} className="stroke-[2.5]" />
+                </div>
+
+                <div className="space-y-1">
+                  <h4 className="text-sm font-black text-zinc-900 uppercase tracking-wide">
+                    Step 2: Upload Completed Excel Sheet
+                  </h4>
+                  <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                    Select your completed <strong className="text-zinc-700">.xlsx</strong> file to automatically parse and dispatch all rolls.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={bulkDispatchUploading}
+                  onClick={() => bulkDispatchFileInputRef.current?.click()}
+                  className="bg-zinc-900 hover:bg-zinc-850 active:scale-95 text-amber-400 font-black text-xs uppercase tracking-wider px-6 py-2.5 rounded-xl border border-zinc-800 shadow-md transition-all cursor-pointer inline-flex items-center gap-2"
+                >
+                  {bulkDispatchUploading ? (
+                    <>
+                      <Clock size={14} className="animate-spin text-amber-400" />
+                      <span>Processing & Updating Database...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet size={15} className="text-emerald-400" />
+                      <span>Choose File to Upload</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Summary of Last Upload */}
+              {bulkDispatchSummary && (
+                <div className={`p-4 rounded-2xl border ${
+                  bulkDispatchSummary.totalRollsMatched > 0
+                    ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950'
+                    : 'bg-rose-50/90 border-rose-300 text-rose-950'
+                } space-y-2.5 animate-fade-in`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                      {bulkDispatchSummary.totalRollsMatched > 0 ? (
+                        <CheckCircle2 size={16} className="text-emerald-600" />
+                      ) : (
+                        <AlertCircle size={16} className="text-rose-600" />
+                      )}
+                      Upload Results
+                    </span>
+                    <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-white/80 border border-zinc-200">
+                      {bulkDispatchSummary.totalRollsMatched} Dispatched • {bulkDispatchSummary.updatedOrdersCount} Orders
+                    </span>
+                  </div>
+
+                  {bulkDispatchSummary.totalRollsMatched > 0 && (
+                    <div className="text-xs space-y-1">
+                      <p className="font-medium">
+                        Successfully marked <strong className="font-black text-emerald-900">{bulkDispatchSummary.totalRollsMatched} rolls</strong> as Dispatched across <strong className="font-bold">{bulkDispatchSummary.updatedOrdersCount} order(s)</strong>.
+                      </p>
+                      <p className="text-[11px] text-emerald-800 font-mono">
+                        Rolls: {bulkDispatchSummary.matchedRolls.slice(0, 15).join(', ')}
+                        {bulkDispatchSummary.matchedRolls.length > 15 && ` +${bulkDispatchSummary.matchedRolls.length - 15} more`}
+                      </p>
+                    </div>
+                  )}
+
+                  {bulkDispatchSummary.notFoundRolls.length > 0 && (
+                    <div className="p-2.5 bg-amber-100/70 border border-amber-300 rounded-xl text-[11px] text-amber-900 space-y-0.5">
+                      <span className="font-black uppercase block">Notice ({bulkDispatchSummary.notFoundRolls.length} rolls not found in DB):</span>
+                      <p className="font-mono">
+                        {bulkDispatchSummary.notFoundRolls.slice(0, 10).join(', ')}
+                        {bulkDispatchSummary.notFoundRolls.length > 10 && ` (+${bulkDispatchSummary.notFoundRolls.length - 10} more)`}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-zinc-50 px-5 py-3 border-t border-zinc-200 flex justify-end gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsBulkDispatchModalOpen(false);
+                  setBulkDispatchSummary(null);
+                }}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-zinc-200 hover:bg-zinc-300 text-zinc-700 transition-all cursor-pointer"
+              >
+                Close
               </button>
             </div>
 
