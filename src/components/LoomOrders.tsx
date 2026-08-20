@@ -3181,8 +3181,8 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         col.width = Math.min(Math.max(maxLen + 3, 10), 40);
       });
 
-      // --- SHEET 3: DISPATCHED ROLLS SPECIFICATIONS & DATA ---
-      const rollSheet = workbook.addWorksheet('Dispatched Rolls Data');
+      // --- SHEET 3: ROLLS DATA TO SEND TO PARTY ---
+      const rollSheet = workbook.addWorksheet('Rolls Data to Send to Party');
       rollSheet.views = [{ showGridLines: true }];
 
       // Unique Sets for Metrics Banner
@@ -3258,11 +3258,11 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
         'Roll Number',
         'Size',
         'GSM',
-        'Gross Weight (kg)',
-        'Core Width / Wt (kg)',
-        'Net Weight (kg)',
+        'GR Wt. (kg)',
+        'Core Wt (kg)',
+        'Net Wt (kg)',
         'Meters (m)',
-        'Average Weight Calculated (g)',
+        'AVG Wt [CALC] (g)',
         'Quality'
       ];
 
@@ -3347,6 +3347,173 @@ export default function LoomOrders({ triggerAlert, viewOnly = false }: LoomOrder
       // Column Auto-Widths
       rollSheet.columns.forEach((col, idx) => {
         let maxLen = rollHeaders[idx] ? rollHeaders[idx].length : 10;
+        col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
+          if (rowNumber >= 6) {
+            const val = cell.value ? String(cell.value) : '';
+            const lines = val.split('\n');
+            lines.forEach(l => { if (l.length > maxLen) maxLen = l.length; });
+          }
+        });
+        col.width = Math.min(Math.max(maxLen + 3, 10), 40);
+      });
+
+      // --- SHEET 4: ROLLS DATA COMPLETE (WITH STRENGTH, ELONGATION & CALCULATED GSM) ---
+      const completeSheet = workbook.addWorksheet('Rolls Data Complete');
+      completeSheet.views = [{ showGridLines: true }];
+
+      // Title Banner (Row 1)
+      completeSheet.mergeCells('A1:N1');
+      const completeTitleCell = completeSheet.getCell('A1');
+      completeTitleCell.value = 'FORTUNE FLEXIPACK PVT LIMITED • COMPLETE DISPATCHED ROLLS SPECIFICATION & LAB DATA';
+      completeTitleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
+      completeTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      for (let col = 1; col <= 14; col++) {
+        completeSheet.getCell(1, col).border = thickBlackBorder;
+      }
+
+      // Metrics Summary Block (Rows 2, 3 & 4)
+      completeSheet.mergeCells('A2:N2');
+      const completeSubCell = completeSheet.getCell('A2');
+      completeSubCell.value = `FILTER PERIOD: ${periodInfo} | CUSTOMER FILTER: ${dispatchLedgerSelectedCustomer} | VEHICLE FILTER: ${dispatchLedgerSelectedVehicle} | ${printDateDispatchStr}`;
+      completeSubCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+      completeSubCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      completeSheet.mergeCells('A3:D3');
+      completeSheet.mergeCells('E3:I3');
+      completeSheet.mergeCells('J3:N3');
+
+      completeSheet.getCell('A3').value = `Total Rolls Dispatched: ${dispatchLedgerTotals.totalRolls}`;
+      completeSheet.getCell('E3').value = `Total Weight Dispatched: ${dispatchLedgerTotals.totalWeight.toLocaleString('en-IN', { maximumFractionDigits: 2 })} kg (${dispatchLedgerTotals.totalWeightTons} MT)`;
+      completeSheet.getCell('J3').value = `Total Meters Dispatched: ${dispatchLedgerTotals.totalMeters.toLocaleString('en-IN', { maximumFractionDigits: 1 })} m`;
+
+      completeSheet.mergeCells('A4:D4');
+      completeSheet.mergeCells('E4:I4');
+      completeSheet.mergeCells('J4:N4');
+
+      completeSheet.getCell('A4').value = `Dispatch Date(s): ${datesListStr || periodInfo || '—'}`;
+      completeSheet.getCell('E4').value = `Customer(s): ${customersListStr || dispatchLedgerSelectedCustomer || '—'}`;
+      completeSheet.getCell('J4').value = `Vehicles: ${vehiclesListStr || '—'} | Invoices: ${invoicesListStr || '—'}`;
+
+      for (let r = 2; r <= 4; r++) {
+        for (let col = 1; col <= 14; col++) {
+          const cell = completeSheet.getCell(r, col);
+          cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          cell.border = thickBlackBorder;
+        }
+      }
+
+      completeSheet.addRow([]); // Blank row (Row 5)
+
+      // Table Headers (Row 6)
+      const completeHeaders = [
+        'Roll Number',
+        'Size',
+        'GSM',
+        'GSM Calculated',
+        'GR Wt. (kg)',
+        'Core Wt (kg)',
+        'Net Wt (kg)',
+        'Meters (m)',
+        'AVG Wt [CALC] (g)',
+        'Warp Strength (kgs)',
+        'Warp Elongation (%)',
+        'Weft Strength (kgs)',
+        'Weft Elongation (%)',
+        'Quality'
+      ];
+
+      const completeHeaderRow = completeSheet.addRow(completeHeaders);
+      completeHeaderRow.eachCell((cell) => {
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = thickBlackBorder;
+      });
+
+      // Data Rows for Sheet 4
+      sortedDispatchLedgerData.forEach((item) => {
+        const d = item.dispatchDetails || {};
+        const gross = item.grossWt || 0;
+        const core = item.coreWt || (item as any).coreWidth || 0;
+        const net = d.dispatchedWeight !== undefined ? d.dispatchedWeight : (item.netWt || 0);
+        const meters = d.dispatchedMeters !== undefined ? d.dispatchedMeters : (item.meters || 0);
+        const avgWt = item.avgWtCalculated || 0;
+
+        const szNum = parseFloat(String(item.size || '').replace(/[^0-9.]/g, '')) || 0;
+        const gsmCalcVal = (szNum > 0 && avgWt > 0) ? parseFloat((avgWt / szNum).toFixed(2)) : '—';
+
+        const warpStr = String(item.warpStrength || item.strength || '').trim() || '—';
+        const warpElg = String(item.warpElongation || item.elongation || '').trim() || '—';
+        const weftStr = String(item.weftStrength || '').trim() || '—';
+        const weftElg = String(item.weftElongation || '').trim() || '—';
+
+        const r = completeSheet.addRow([
+          item.rollNo,
+          item.size || '—',
+          item.gsm || '—',
+          gsmCalcVal,
+          gross,
+          core,
+          net,
+          meters,
+          avgWt,
+          warpStr,
+          warpElg,
+          weftStr,
+          weftElg,
+          item.quality || '—'
+        ]);
+
+        r.eachCell((cell, colNumber) => {
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+          cell.alignment = { 
+            horizontal: 'left', 
+            vertical: 'middle' 
+          };
+          cell.border = thickBlackBorder;
+          // Numeric format for GSM Calculated (col 4) and weights/meters (col 5 to 9)
+          if (colNumber === 4 && typeof cell.value === 'number') {
+            cell.numFmt = '#,##0.00';
+          }
+          if (colNumber >= 5 && colNumber <= 9) {
+            cell.numFmt = '#,##0.00';
+          }
+        });
+      });
+
+      // Total Row for Sheet 4
+      const completeTotalRow = completeSheet.addRow([
+        'TOTALS',
+        `${dispatchLedgerTotals.totalRolls} Rolls`,
+        '',
+        '',
+        totRollGross,
+        totRollCore,
+        totRollNet,
+        totRollMeters,
+        sortedDispatchLedgerData.length > 0 ? parseFloat((totRollAvgWtSum / sortedDispatchLedgerData.length).toFixed(2)) : 0,
+        '',
+        '',
+        '',
+        '',
+        ''
+      ]);
+
+      completeTotalRow.eachCell((cell, colNumber) => {
+        cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
+        cell.alignment = { 
+          horizontal: 'left', 
+          vertical: 'middle' 
+        };
+        cell.border = thickBlackBorder;
+        if (colNumber >= 5 && colNumber <= 9) {
+          cell.numFmt = '#,##0.00';
+        }
+      });
+
+      // Column Auto-Widths for Sheet 4
+      completeSheet.columns.forEach((col, idx) => {
+        let maxLen = completeHeaders[idx] ? completeHeaders[idx].length : 10;
         col.eachCell?.({ includeEmpty: false }, (cell, rowNumber) => {
           if (rowNumber >= 6) {
             const val = cell.value ? String(cell.value) : '';
