@@ -6,5 +6,7 @@
   "firestoreDatabaseId": "ai-studio-bc717a76-5bf1-4104-a6c8-538252b8c7da",
   "storageBucket": "triple-chariot-z83b3.firebasestorage.app",
   "messagingSenderId": "216792634612",
-  "measurementId": ""
+  "measurementId": "",
+  "oAuthClientId": "216792634612-ecumvv777qokuffns9u6944tltip6p9d.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }

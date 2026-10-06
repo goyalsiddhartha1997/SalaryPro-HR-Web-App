@@ -204,6 +204,7 @@ export default function EmployeeProfileDetails({
   const [editedDesignation, setEditedDesignation] = useState('');
   const [editedSalaryType, setEditedSalaryType] = useState<'fixed' | 'daily'>('fixed');
   const [editedSundayPaid, setEditedSundayPaid] = useState<'Paid' | 'Not Paid'>('Not Paid');
+  const [editedSalaryCalculationRule, setEditedSalaryCalculationRule] = useState<'totalMonthDays' | '26Days'>('26Days');
   const [editedMonthlySalary, setEditedMonthlySalary] = useState<number>(0);
   const [editedContractor, setEditedContractor] = useState('');
   const [editedActiveStatus, setEditedActiveStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
@@ -248,23 +249,34 @@ export default function EmployeeProfileDetails({
     Object.values(allPunchLogs || {}).forEach(empPunches => {
       Object.entries(empPunches || {}).forEach(([dateStr, punches]) => {
         if (punches && punches.length > 0) {
-          const hasInOrArr = punches.some(p => {
-            const uc = p.toUpperCase();
-            return uc.includes('IN') || uc.includes('ARR');
+          const hasValidPunch = punches.some(p => {
+            const s = p.trim();
+            return s !== '' && !s.startsWith('00:00') && !s.startsWith('0:00');
           });
-          if (hasInOrArr) {
+          if (hasValidPunch) {
             dates.add(dateStr);
           }
         }
       });
     });
+    // Also include any dates from local punchLogs
+    Object.keys(punchLogs || {}).forEach(dateStr => {
+      const p = punchLogs[dateStr]?.punches;
+      if (p && p.length > 0 && p.some(x => !x.startsWith('00:00') && x.trim() !== '')) {
+        dates.add(dateStr);
+      }
+    });
     return Array.from(dates).sort();
-  }, [allPunchLogs]);
+  }, [allPunchLogs, punchLogs]);
 
   // Synchronous punch logs mapping from the preloaded allPunchLogs prop
   useEffect(() => {
     if (!employee.id) return;
-    const empPunches = allPunchLogs[employee.id] || {};
+    const empPunches = allPunchLogs[employee.id] || 
+                       allPunchLogs[employee.id?.trim()] || 
+                       allPunchLogs[String(parseInt(employee.id, 10))] || 
+                       allPunchLogs[employee.id?.padStart(4, '0')] || 
+                       {};
     const formatted: Record<string, any> = {};
     Object.keys(empPunches).forEach(date => {
       formatted[date] = {
@@ -503,6 +515,7 @@ export default function EmployeeProfileDetails({
     setEditedDesignation(employee.designation || employee.role || 'Unassigned');
     setEditedSalaryType(employee.salaryType || 'fixed');
     setEditedSundayPaid(employee.sundayPaid || 'Not Paid');
+    setEditedSalaryCalculationRule((employee.salaryCalculationRule || sundayPaidRule || '26Days') as 'totalMonthDays' | '26Days');
     setEditedMonthlySalary(employee.monthlySalary || 0);
     setEditedContractor(employee.contractor || '');
     setEditedActiveStatus(employee.activeStatus || 'ACTIVE');
@@ -536,6 +549,7 @@ export default function EmployeeProfileDetails({
       designation: editedDesignation,
       salaryType: editedSalaryType,
       sundayPaid: editedSundayPaid,
+      salaryCalculationRule: editedSalaryCalculationRule,
       monthlySalary: editedMonthlySalary,
       contractor: editedContractor,
       activeStatus: editedActiveStatus,
@@ -634,7 +648,13 @@ export default function EmployeeProfileDetails({
   const totalMonthlyValue = baseSalary + allowanceTransport + allowanceMeal + allowanceInternet + benefitHealth + benefitLife + benefitDevice;
 
   const getAdjustedPunchesForDate = (dateStr: string): string[] => {
-    return getAdjustedPunches(employee.id, employee.shift, dateStr, allPunchLogs);
+    const fromGlobal = getAdjustedPunches(employee.id, employee.shift, dateStr, allPunchLogs);
+    if (fromGlobal && fromGlobal.length > 0) return fromGlobal;
+    const local = punchLogs[dateStr]?.punches;
+    if (local && local.length > 0) {
+      return local.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+    }
+    return [];
   };
 
   // Live dynamic absences count! Filter uploaded dates for current month/year and check if this employee has no punches
@@ -663,6 +683,8 @@ export default function EmployeeProfileDetails({
     });
   }, [uploadedDaysInThisMonth, employee.joiningDate, employee.resignDate]);
   
+  const effectiveSalaryRule = employee.salaryCalculationRule || sundayPaidRule || '26Days';
+
   const uploadedFullAbsencesCount = empUploadedDaysInThisMonth.filter(d => {
     const dayPunches = getAdjustedPunchesForDate(d);
     if (dayPunches.length === 0) {
@@ -670,12 +692,12 @@ export default function EmployeeProfileDetails({
       const isSunday = dateObj.getDay() === 0;
       const isFixed = (employee.salaryType || 'fixed') === 'fixed';
       if (isSunday && isFixed) {
-        if (sundayPaidRule === '26Days' && employee.sundayPaid === 'Paid') {
+        if (effectiveSalaryRule === '26Days') {
           return true;
         } else if (employee.sundayPaid === 'Not Paid') {
           return true;
         }
-        return false; // Absent on Sunday is not counted for fixed basis salary employees if Sunday is Paid
+        return false; // Absent on Sunday is not counted for fixed basis salary employees if Sunday is Paid under totalMonthDays rule
       }
       return true;
     }
@@ -687,8 +709,9 @@ export default function EmployeeProfileDetails({
     if (dayPunches.length > 0) {
       const minutes = getWorkMinutes(dayPunches);
       const shiftHours = getShiftTimingDurationHours(employee.shiftTime, employee.workingHours || 8);
-      const thresholdMinutes = shiftHours * 60 * 0.85;
-      return minutes < thresholdMinutes;
+      const standardShiftMins = shiftHours * 60;
+      const thresholdMinutes = standardShiftMins * 0.85; // 85% of shift duration rule
+      return minutes > 0 && minutes < thresholdMinutes;
     }
     return false;
   }).map(d => {
@@ -710,7 +733,7 @@ export default function EmployeeProfileDetails({
 
   // Let's perform precise live salary and deduction calculations based on actual live monthly absences for the new Salary & Deductions Breakdown Card
   const workingDays = new Date(calendarYear, calendarMonth + 1, 0).getDate();
-  const workingHoursPerDay = employee.workingHours || 8;
+  const workingHoursPerDay = getShiftTimingDurationHours(employee.shiftTime, employee.workingHours || 8);
   const isDailyBasis = employee.salaryType === 'daily';
 
   // Calculate employee's active tenure working days in this month
@@ -739,7 +762,7 @@ export default function EmployeeProfileDetails({
   }, [calendarYear, calendarMonth, employee.joiningDate, employee.resignDate]);
   
   const isSundayPaid = employee.sundayPaid === 'Paid';
-  const calculationDivisor = (sundayPaidRule === '26Days' && isSundayPaid) ? 26 : (workingDays > 0 ? workingDays : 26);
+  const calculationDivisor = effectiveSalaryRule === '26Days' ? 26 : (workingDays > 0 ? workingDays : 26);
   
   const dynamicDailyRate = isDailyBasis ? baseSalary : (baseSalary > 0 && calculationDivisor > 0 ? baseSalary/calculationDivisor : 0);
   const dynamicHourlyRate = dynamicDailyRate > 0 && workingHoursPerDay > 0 ? dynamicDailyRate / workingHoursPerDay : 0;
@@ -758,17 +781,17 @@ export default function EmployeeProfileDetails({
         const dateObj = new Date(d);
         const isSunday = dateObj.getDay() === 0;
         const isFixed = (employee.salaryType || 'fixed') === 'fixed';
-        if (isSunday && isFixed && isSundayPaid) {
+        if (isSunday && isFixed && isSundayPaid && effectiveSalaryRule !== '26Days') {
           liveSundayOTDays++;
         }
       }
     });
   } else {
-    liveSundayOTDays = isCurrentlyLedgerMonth ? (employee.sundayOTDays || 0) : 0;
+    liveSundayOTDays = (effectiveSalaryRule === '26Days') ? 0 : (isCurrentlyLedgerMonth ? (employee.sundayOTDays || 0) : 0);
   }
 
   const isFixed = employee.salaryType === 'fixed';
-  const isSundayOTEligible = isFixed && isSundayPaid;
+  const isSundayOTEligible = isFixed && isSundayPaid && effectiveSalaryRule !== '26Days';
   const liveSundayOTAmount = isSundayOTEligible ? (liveSundayOTDays * dynamicDailyRate) : 0;
   
   // Overtime logs for the specific active ledger month & year
@@ -791,23 +814,51 @@ export default function EmployeeProfileDetails({
   }, 0);
   
   const liveDeductionFullDay = dynamicDailyRate * absencesCount;
-  const selectedAbsentHours = activeMonthOverride.absentHours !== undefined
-    ? Number(activeMonthOverride.absentHours)
-    : (isCurrentlyLedgerMonth ? (employee.absentHours || 0) : 0);
-  const selectedAbsentMinutes = activeMonthOverride.absentMinutes !== undefined
-    ? Number(activeMonthOverride.absentMinutes)
-    : (isCurrentlyLedgerMonth ? (employee.absentMinutes || 0) : 0);
-  const liveTotalAbsentHours = selectedAbsentHours + (selectedAbsentMinutes / 60);
-  const liveDeductionHourly = dynamicHourlyRate * liveTotalAbsentHours;
-
-  let liveDeductionPartialDay = 0;
-  partialDaysList.forEach(pd => {
-    const workedHours = pd.minutes / 60;
-    const unworkedHours = Math.max(0, workingHoursPerDay - workedHours);
-    liveDeductionPartialDay += unworkedHours * dynamicHourlyRate;
-  });
   
-  const liveDeductionBiometrics = liveDeductionFullDay + liveDeductionHourly + liveDeductionPartialDay;
+  const totalAbsentMinutesForMonth = useMemo(() => {
+    // 1. Biometric partial absent minutes from uploaded punches:
+    let biometricPartialMinutes = 0;
+    if (uploadedDaysInThisMonth.length > 0) {
+      biometricPartialMinutes = uploadedPartialDays.reduce((acc, pd) => {
+        return acc + Math.max(0, workingHoursPerDay * 60 - pd.minutes);
+      }, 0);
+    } else if (isCurrentlyLedgerMonth && employee.partialDays && employee.partialDays.length > 0) {
+      biometricPartialMinutes = employee.partialDays.reduce((acc, pd) => {
+        return acc + Math.max(0, workingHoursPerDay * 60 - pd.minutes);
+      }, 0);
+    }
+
+    // 2. Manual absent hours/minutes override or base:
+    let manualMinutes = 0;
+    if (activeMonthOverride.absentHours !== undefined || activeMonthOverride.absentMinutes !== undefined) {
+      const h = Number(activeMonthOverride.absentHours || 0);
+      const m = Number(activeMonthOverride.absentMinutes || 0);
+      const overrideTotal = h * 60 + m;
+      if (biometricPartialMinutes > 0) {
+        if (overrideTotal > biometricPartialMinutes) {
+          manualMinutes = overrideTotal - biometricPartialMinutes;
+        }
+      } else {
+        manualMinutes = overrideTotal;
+      }
+    } else if (isCurrentlyLedgerMonth && (employee.absentHours || employee.absentMinutes)) {
+      const ledgerTotalMinutes = (employee.absentHours || 0) * 60 + (employee.absentMinutes || 0);
+      if (biometricPartialMinutes > 0) {
+        if (ledgerTotalMinutes > biometricPartialMinutes) {
+          manualMinutes = ledgerTotalMinutes - biometricPartialMinutes;
+        }
+      } else {
+        manualMinutes = ledgerTotalMinutes;
+      }
+    }
+
+    return biometricPartialMinutes + manualMinutes;
+  }, [activeMonthOverride, isCurrentlyLedgerMonth, employee.absentHours, employee.absentMinutes, employee.partialDays, uploadedDaysInThisMonth, uploadedPartialDays, workingHoursPerDay]);
+
+  const liveTotalAbsentHours = totalAbsentMinutesForMonth / 60;
+  const liveDeductionHourly = dynamicHourlyRate * liveTotalAbsentHours;
+  
+  const liveDeductionBiometrics = liveDeductionFullDay + liveDeductionHourly;
   
   const advance = activeMonthOverride.advancePayment !== undefined
     ? Number(activeMonthOverride.advancePayment)
@@ -926,7 +977,7 @@ export default function EmployeeProfileDetails({
           const isSunday = dateObj.getDay() === 0;
           const isFixed = (employee.salaryType || 'fixed') === 'fixed';
           if (isSunday && isFixed) {
-            if (sundayPaidRule === '26Days' && employee.sundayPaid === 'Paid') {
+            if (sundayPaidRule === '26Days') {
               return true;
             } else if (employee.sundayPaid === 'Not Paid') {
               return true;
@@ -1017,8 +1068,9 @@ export default function EmployeeProfileDetails({
 
             const absent = isAbsentDay(slot.day, slot.isCurrentMonth);
             const shiftHours = getShiftTimingDurationHours(employee.shiftTime, employee.workingHours || 8);
-            const thresholdMinutes = shiftHours * 60 * 0.85;
-            const isPartialPresent = hasPunches && (workMinutes < thresholdMinutes);
+            const standardShiftMins = shiftHours * 60;
+            const thresholdMinutes = standardShiftMins * 0.85; // 85% of shift duration rule
+            const isPartialPresent = hasPunches && (workMinutes > 0 && workMinutes < thresholdMinutes);
             const late = isLateDay(slot.day, slot.isCurrentMonth);
             const isSelected = slot.isCurrentMonth && slot.day === selectedDay;
 
@@ -1344,17 +1396,25 @@ export default function EmployeeProfileDetails({
                 <FileSpreadsheet size={15} />
               </div>
               <div>
-                <h5 className="font-bold text-slate-800 text-[11.5px] uppercase tracking-wide">Sunday Paid Calculation Rule</h5>
-                <p className="text-[10px] text-slate-500 font-medium">Select dynamic divisor for Sunday-paid personnel</p>
+                <h5 className="font-bold text-slate-800 text-[11.5px] uppercase tracking-wide">Salary Calculation Rule</h5>
+                <p className="text-[10px] text-slate-500 font-medium">
+                  {effectiveSalaryRule === '26Days' 
+                    ? '26 Days Rule: Daily salary = Total Salary / 26. Paid only for working days present. Sunday OT = 0.' 
+                    : 'Total Month Days Rule: Daily salary = Total Salary / Month Days.'}
+                </p>
               </div>
             </div>
             <select
-              value={sundayPaidRule}
-              onChange={(e) => setSundayPaidRule?.(e.target.value as 'totalMonthDays' | '26Days')}
+              value={effectiveSalaryRule}
+              onChange={(e) => {
+                const newRule = e.target.value as 'totalMonthDays' | '26Days';
+                onUpdateEmployee(employee.id, { salaryCalculationRule: newRule });
+                setSundayPaidRule?.(newRule);
+              }}
               className="bg-white border border-slate-200 text-slate-800 text-xs font-bold rounded-xl px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:outline-hidden cursor-pointer shadow-xs min-w-[170px]"
             >
-              <option value="totalMonthDays">Total Month Days (Default)</option>
               <option value="26Days">26 Days Rule</option>
+              <option value="totalMonthDays">Total Month Days</option>
             </select>
           </div>
 
@@ -1572,7 +1632,7 @@ export default function EmployeeProfileDetails({
                     <span className="text-xs font-bold text-slate-700 font-mono" title={isDailyBasis ? `${baseSalary} / ${workingHoursPerDay}` : `(${baseSalary} / ${calculationDivisor}) / ${workingHoursPerDay}`}>{formatINR(dynamicHourlyRate)} / hour</span>
                   </div>
 
-                  {isFixed && (sundayPaidRule === '26Days' || employee.sundayPaid === 'Paid') && (
+                  {isFixed && sundayPaidRule !== '26Days' && employee.sundayPaid === 'Paid' && (
                     <div className="flex justify-between items-center border-t border-slate-100/70 pt-2.5">
                       <div>
                         <span className="text-xs font-semibold text-slate-500 block">Sunday Overtime (OT)</span>
@@ -1612,23 +1672,16 @@ export default function EmployeeProfileDetails({
                     <span className="text-xs font-bold text-rose-600 font-mono">- {formatINR(liveDeductionFullDay)}</span>
                   </div>
                   
-                  <div className="flex justify-between items-center border-t border-slate-100 pt-2.5 font-sans">
-                    <div>
-                      <span className="text-xs font-semibold text-slate-500 block">Short Hours & Lates</span>
-                      <span className="text-[9px] text-rose-500 font-bold ml-0">{liveTotalAbsentHours.toFixed(2)} hours logged</span>
-                    </div>
-                    <span className="text-xs font-bold text-rose-600 font-mono">- {formatINR(liveDeductionHourly)}</span>
-                  </div>
-
-                  {liveDeductionPartialDay > 0 && (
+                  {(liveDeductionHourly > 0 || liveTotalAbsentHours > 0) && (
                     <div className="flex justify-between items-center border-t border-slate-100 pt-2.5 font-sans">
                       <div>
-                        <span className="text-xs font-semibold text-slate-500 block">Partial Present Deductions</span>
+                        <span className="text-xs font-semibold text-slate-500 block">Short Hours / Partial Days</span>
                         <span className="text-[9px] text-rose-500 font-bold ml-0">
-                          {partialDaysList.length} day(s) &lt; {(getShiftTimingDurationHours(employee.shiftTime, employee.workingHours || 8) * 0.85).toFixed(1)} hrs (worked {partialDaysList.reduce((acc, pd) => acc + (pd.minutes / 60), 0).toFixed(1)} hrs total)
+                          {liveTotalAbsentHours.toFixed(2)} hrs logged
+                          {partialDaysList.length > 0 ? ` (${partialDaysList.length} partial day${partialDaysList.length > 1 ? 's' : ''})` : ''}
                         </span>
                       </div>
-                      <span className="text-xs font-bold text-rose-600 font-mono">- {formatINR(liveDeductionPartialDay)}</span>
+                      <span className="text-xs font-bold text-rose-600 font-mono">- {formatINR(liveDeductionHourly)}</span>
                     </div>
                   )}
 
@@ -2459,6 +2512,18 @@ export default function EmployeeProfileDetails({
                 >
                   <option value="Paid">Sunday PAID</option>
                   <option value="Not Paid">Sunday NOT Paid</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block mb-1 text-slate-400">Calculation Rule</label>
+                <select 
+                  value={editedSalaryCalculationRule} 
+                  onChange={(e) => setEditedSalaryCalculationRule(e.target.value as '26Days' | 'totalMonthDays')}
+                  className="w-full bg-slate-50 border-0 focus:ring-1 focus:ring-teal-500 rounded-xl p-2.5 text-slate-800 font-bold text-emerald-900"
+                >
+                  <option value="26Days">26 Days Rule</option>
+                  <option value="totalMonthDays">Total Month Days</option>
                 </select>
               </div>
 

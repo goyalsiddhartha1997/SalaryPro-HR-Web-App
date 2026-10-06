@@ -41,7 +41,10 @@ export interface Employee {
   foodBalance?: number;
   foodRemarks?: string;
   foodDate?: string;
+  overtimeShifts?: number;
+  overtimeShiftAmount?: number;
   partialDays?: { date: string; minutes: number }[];
+  salaryCalculationRule?: '26Days' | 'totalMonthDays';
   sundayOTDays?: number;
   sundayOTAmount?: number;
   elapsedDays?: number;
@@ -60,6 +63,8 @@ export interface ComputedEmployee extends Employee {
   errorMessages: string[];
   sundayOTDays?: number;
   sundayOTAmount?: number;
+  overtimeShifts?: number;
+  overtimeShiftAmount?: number;
 }
 
 export interface SalarySettings {
@@ -241,5 +246,19 @@ export interface TapePlantRunningReport {
   totalEmployees?: number;
   remarks?: string;
   createdAt: string;
+}
+
+export interface OvertimeLog {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  date: string; // YYYY-MM-DD
+  arrTime: string; // "HH:MM"
+  outTime: string; // "HH:MM"
+  shiftPattern: string;
+  remarks?: string;
+  empShift?: string;
+  empShiftTime?: string;
+  createdAt?: string;
 }
 

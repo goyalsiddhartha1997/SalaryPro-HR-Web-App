@@ -8,7 +8,7 @@ import { Employee, ComputedEmployee } from './types';
 // Let's create a functional helper that validates and computes all required salaries
 export function calculateSalary(
   emp: Employee, 
-  sundayPaidRule: 'totalMonthDays' | '26Days' = 'totalMonthDays',
+  defaultSundayPaidRule: 'totalMonthDays' | '26Days' = 'totalMonthDays',
   ledgerMonth?: number,
   ledgerYear?: number
 ): ComputedEmployee {
@@ -69,9 +69,10 @@ export function calculateSalary(
   const safeAbsHours = Math.max(0, absHours);
   const safeAbsMins = Math.max(0, Math.min(59, absMins));
 
-  // Determine the dynamic calculation divisor
+  // Determine the dynamic calculation divisor (per-employee rule priority over default)
   const isSundayPaid = emp.sundayPaid === 'Paid';
-  const calculationDivisor = (sundayPaidRule === '26Days' && isSundayPaid) ? 26 : safeDays;
+  const effectiveRule: '26Days' | 'totalMonthDays' = emp.salaryCalculationRule || defaultSundayPaidRule || '26Days';
+  const calculationDivisor = effectiveRule === '26Days' ? 26 : safeDays;
 
   // Intermediate Calculations in full precision based on salary basis
   let rawDailyRate = 0;
@@ -83,7 +84,7 @@ export function calculateSalary(
     rawBaseMonthly = rawDailyRate * activeElapsed; // Theoretical base if they had worked full days
   } else {
     rawDailyRate = safeSalary / calculationDivisor;
-    rawBaseMonthly = (emp.elapsedDays !== undefined && emp.elapsedDays > 0) ? (rawDailyRate * emp.elapsedDays) : safeSalary;
+    rawBaseMonthly = (emp.elapsedDays !== undefined && emp.elapsedDays > 0) ? (rawDailyRate * emp.elapsedDays) : (rawDailyRate * safeDays);
   }
 
   // Handle Joining Date & Resign Date proration if set
@@ -143,29 +144,28 @@ export function calculateSalary(
     }
   }
 
-  const rawHourlyRate = rawDailyRate / safeHours;
+  const rawHourlyRate = safeHours > 0 ? (rawDailyRate / safeHours) : 0;
   
   const rawDeductionFullDay = rawDailyRate * safeFullAbs;
   const rawTotalAbsentHours = safeAbsHours + (safeAbsMins / 60);
   const rawDeductionHourly = rawHourlyRate * rawTotalAbsentHours;
-  
-  let rawDeductionPartialDay = 0;
-  if (emp.partialDays && emp.partialDays.length > 0) {
-    emp.partialDays.forEach(pd => {
-      const workedHours = pd.minutes / 60;
-      const unworkedHours = Math.max(0, safeHours - workedHours);
-      rawDeductionPartialDay += unworkedHours * rawHourlyRate;
-    });
-  }
+  const rawDeductionPartialDay = 0;
   
   // Calculate Sunday OT for fixed basis salary employees when Sunday is worked and Sunday is Paid
+  // Under 26 Days Rule, Sunday OT is always 0
   const isFixed = salaryType === 'fixed';
-  const sundayOTDays = emp.sundayOTDays || 0;
-  const isSundayOTEligible = isFixed && isSundayPaid;
+  const sundayOTDays = (effectiveRule === '26Days') ? 0 : (emp.sundayOTDays || 0);
+  const isSundayOTEligible = isFixed && isSundayPaid && effectiveRule !== '26Days';
   const rawSundayOTAmount = isSundayOTEligible ? (sundayOTDays * rawDailyRate) : 0;
 
-  const rawTotalDeduction = rawDeductionFullDay + rawDeductionHourly + rawDeductionPartialDay + advance + food;
-  let rawFinalPayable = Math.max(0, rawBaseMonthly + rawSundayOTAmount - rawTotalDeduction);
+  // Calculate Overtime Shifts Amount (if explicit overtimeShiftAmount is given, use it; otherwise compute overtimeShifts * rawDailyRate)
+  const overtimeShifts = Number(emp.overtimeShifts) || 0;
+  const rawOvertimeShiftAmount = emp.overtimeShiftAmount !== undefined && emp.overtimeShiftAmount !== null && Number(emp.overtimeShiftAmount) > 0
+    ? Number(emp.overtimeShiftAmount)
+    : Math.round(overtimeShifts * rawDailyRate * 100) / 100;
+
+  const rawTotalDeduction = rawDeductionFullDay + rawDeductionHourly + advance + food;
+  let rawFinalPayable = Math.max(0, rawBaseMonthly + rawSundayOTAmount + rawOvertimeShiftAmount - rawTotalDeduction);
 
   // If resign date is set for employee, final payable salary balance is 0
   if (emp.resignDate && emp.resignDate.trim() !== '') {
@@ -174,12 +174,13 @@ export function calculateSalary(
 
   return {
     ...emp,
+    salaryCalculationRule: effectiveRule,
     monthlySalary: salary,
     workingDays: days,
     workingHours: hours,
     fullDaysAbsent: fullAbs,
-    absentHours: absHours,
-    absentMinutes: absMins,
+    absentHours: safeAbsHours,
+    absentMinutes: safeAbsMins,
     salaryType,
     advancePayment: advance,
     foodBalance: food,
@@ -193,8 +194,10 @@ export function calculateSalary(
     grossSalary: Math.round(rawBaseMonthly * 100) / 100,
     hasErrors,
     errorMessages,
-    sundayOTDays: sundayOTDays,
-    sundayOTAmount: Math.round(rawSundayOTAmount * 100) / 100,
+    sundayOTDays: (effectiveRule === '26Days') ? 0 : sundayOTDays,
+    sundayOTAmount: (effectiveRule === '26Days') ? 0 : Math.round(rawSundayOTAmount * 100) / 100,
+    overtimeShifts: overtimeShifts,
+    overtimeShiftAmount: rawOvertimeShiftAmount,
   };
 }
 
@@ -1132,38 +1135,80 @@ INITIAL_EMPLOYEES.forEach(emp => {
 });
 
 export const getWorkMinutes = (punches: string[]): number => {
-  if (!punches || punches.length < 2) return 0;
-  let totalMinutes = 0;
-  let activeInTime: { h: number; m: number } | null = null;
+  if (!punches || punches.length === 0) return 0;
 
-  punches.forEach(p => {
-    const parts = p.trim().split(' ');
-    if (parts.length < 2) return;
-    const timeStr = parts[0];
-    const type = parts.slice(1).join(' ').toUpperCase();
+  const parsePunchTime = (p: string): { totalMins: number; isCheckIn: boolean; isCheckOut: boolean } | null => {
+    const trimmed = p.trim();
+    if (!trimmed || trimmed.startsWith('00:00') || trimmed.startsWith('0:00')) return null;
 
-    const [hStr, mStr] = timeStr.split(':');
-    const h = parseInt(hStr, 10);
-    const m = parseInt(mStr, 10);
+    // Match 12hr or 24hr format: e.g. 7:58, 07:58, 15:37, 7:58 a.m., 03:37 PM, 7:58:00
+    const match = trimmed.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?/i);
+    if (!match) return null;
 
-    if (isNaN(h) || isNaN(m)) return;
+    let h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    if (isNaN(h) || isNaN(m)) return null;
 
-    const isCheckIn = type.startsWith('IN') || type.startsWith('ARR') || type.includes('IN') || type.includes('ARR');
-    const isCheckOut = type.startsWith('OUT') || type.includes('OUT') || type.includes('DEP') || type.includes('EXIT');
-
-    if (isCheckIn) {
-      activeInTime = { h, m };
-    } else if (isCheckOut && activeInTime) {
-      const startMin = activeInTime.h * 60 + activeInTime.m;
-      const endMin = h * 60 + m;
-      let diff = endMin - startMin;
-      if (diff < 0) {
-        diff += 1440; // overnight crossing midnight support
-      }
-      totalMinutes += diff;
-      activeInTime = null;
+    const meridiem = match[3] ? match[3].toLowerCase().replace(/\./g, '') : null;
+    if (meridiem === 'pm' && h < 12) {
+      h += 12;
+    } else if (meridiem === 'am' && h === 12) {
+      h = 0;
     }
-  });
+
+    const uc = trimmed.toUpperCase();
+    const isCheckIn = uc.includes('IN') || uc.includes('ARR') || uc.includes('MASUK');
+    const isCheckOut = uc.includes('OUT') || uc.includes('DEP') || uc.includes('EXIT') || uc.includes('KELUAR');
+
+    return { totalMins: h * 60 + m, isCheckIn, isCheckOut };
+  };
+
+  const parsed = punches
+    .map(p => parsePunchTime(p))
+    .filter((p): p is { totalMins: number; isCheckIn: boolean; isCheckOut: boolean } => p !== null);
+
+  if (parsed.length < 2) return 0;
+
+  // Check if explicit IN/OUT pairing exists
+  const hasExplicitTypes = parsed.some(p => p.isCheckIn) && parsed.some(p => p.isCheckOut);
+
+  if (hasExplicitTypes) {
+    let totalMinutes = 0;
+    let activeInMins: number | null = null;
+
+    parsed.forEach(p => {
+      if (p.isCheckIn) {
+        activeInMins = p.totalMins;
+      } else if (p.isCheckOut && activeInMins !== null) {
+        let diff = p.totalMins - activeInMins;
+        if (diff < 0) {
+          diff += 1440; // overnight crossing midnight support
+        }
+        totalMinutes += diff;
+        activeInMins = null;
+      }
+    });
+
+    if (totalMinutes > 0) return totalMinutes;
+  }
+
+  // Fallback: chronological sorting and pairing
+  parsed.sort((a, b) => a.totalMins - b.totalMins);
+
+  if (parsed.length === 2) {
+    let diff = parsed[1].totalMins - parsed[0].totalMins;
+    if (diff < 0) diff += 1440;
+    return diff;
+  }
+
+  // Multiple punches (e.g. 4 punches): pair (0,1), (2,3)...
+  let totalMinutes = 0;
+  for (let i = 0; i + 1 < parsed.length; i += 2) {
+    let diff = parsed[i + 1].totalMins - parsed[i].totalMins;
+    if (diff < 0) diff += 1440;
+    totalMinutes += diff;
+  }
+
   return totalMinutes;
 };
 
@@ -1208,27 +1253,12 @@ export const isEmployeePresent = (
   workingHours?: number
 ): boolean => {
   if (!punchesList || punchesList.length === 0) return false;
-  const allZero = punchesList.every(p => {
-    const parts = p.trim().split(' ');
-    return parts[0] === '00:00';
+  const clean = punchesList.filter(p => {
+    const s = p.trim();
+    return s !== '' && !s.startsWith('00:00') && !s.startsWith('0:00');
   });
-  if (allZero) return false;
+  if (clean.length === 0) return false;
 
-  const hasOutPunch = punchesList.some(p => {
-    const uppercase = p.toUpperCase();
-    return uppercase.includes('OUT') || uppercase.includes('EXIT') || uppercase.includes('DEP');
-  });
-
-  if (hasOutPunch) {
-    return true;
-  }
-
-  const minutes = getWorkMinutes(punchesList);
-  const shiftHours = getShiftTimingDurationHours(shiftTime, workingHours || 8);
-  const threshold = shiftHours * 60 * 0.85;
-  if (minutes < threshold) {
-    return false;
-  }
   return true;
 };
 
@@ -1249,7 +1279,11 @@ export const getAdjustedPunches = (
   dateStr: string,
   allPunchLogs: Record<string, Record<string, string[]>>
 ): string[] => {
-  const empPunches = allPunchLogs[empId] || {};
+  const empPunches = allPunchLogs[empId] || 
+                     allPunchLogs[empId?.trim()] || 
+                     allPunchLogs[String(parseInt(empId, 10))] || 
+                     allPunchLogs[empId?.padStart(4, '0')] || 
+                     {};
   if (empShift === 'NIGHT') {
     const todayPunches = empPunches[dateStr] || [];
     const cleanToday = todayPunches.filter(p => !p.startsWith('00:00') && p.trim() !== '');

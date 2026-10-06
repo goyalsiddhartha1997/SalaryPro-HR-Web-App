@@ -34,7 +34,7 @@ import {
 import * as XLSX from 'xlsx-js-style';
 import { doc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { isEmployeePresent, getAdjustedPunches, getNextDateStr } from '../data';
+import { isEmployeePresent, getAdjustedPunches, getNextDateStr, getWorkMinutes, getShiftTimingDurationHours } from '../data';
 
 // Helper to filter out empty, padding or 00:00 punches to determine true physical triggers count
 const getCleanPunches = (punchesList: string[]): string[] => {
@@ -551,16 +551,9 @@ const repairPunches = (
       }
       appendPunch(exitMins, 'OUT', true);
       isModified = true;
-    } else {
-      const thresholdMins = activeRules.warningThreshold || 90;
-      const dist = standardExit >= lastMins ? standardExit - lastMins : 0;
-      if (dist > thresholdMins) {
-        const insertInAt = (lastMins + 10) % 1440;
-        appendPunch(insertInAt, 'IN', true);
-        appendPunch(standardExit, 'OUT', true);
-        isModified = true;
-      }
     }
+    // Note: If last.type === 'OUT', the employee explicitly checked out early.
+    // We preserve their actual punch out time and do not forge fake punches to shift exit.
   }
 
   // Format the reconstructed punches back to absolute clock standard
@@ -2510,9 +2503,15 @@ export default function AttendanceImport({
       const formattedD = formatDateDDMMMYYYY(dateStr);
       const dateWithDay = dayName ? `${formattedD} (${dayName})` : formattedD;
 
+      const shiftHours = getShiftTimingDurationHours(targetEmp.shiftTime, targetEmp.workingHours || 8);
+      const standardShiftMins = shiftHours * 60;
+      const thresholdMinutes = standardShiftMins * 0.85;
+      const workMinutes = getWorkMinutes(punches);
+      const isPartial = isPresent && (workMinutes < thresholdMinutes || punches.length % 2 !== 0);
+
       sheetData.push({
         'Date': dateWithDay,
-        'Attendance Status': isPresent ? 'Present' : 'Absent',
+        'Attendance Status': isPresent ? (isPartial ? 'Partial Present' : 'Present') : 'Absent',
         'ARR TIME': getPunchTime(punches, 0, highlightAutoPunches),
         'OUT1': getPunchTime(punches, 1, highlightAutoPunches),
         'IN2': getPunchTime(punches, 2, highlightAutoPunches),
@@ -2599,6 +2598,17 @@ export default function AttendanceImport({
         }
       });
     });
+    activeEmployees.forEach(emp => {
+      const pLogs = (emp as any).punchLogs || {};
+      Object.keys(pLogs).forEach(dateStr => {
+        if (dateStr.startsWith(monthStr)) {
+          const punches = pLogs[dateStr]?.punches || [];
+          if (punches.length > 0) {
+            monthlyActiveDatesSet.add(dateStr);
+          }
+        }
+      });
+    });
     const monthlyActiveDates = Array.from(monthlyActiveDatesSet);
 
     // Calculate maxDayWithLogs for checking up to that date only
@@ -2612,6 +2622,17 @@ export default function AttendanceImport({
         }
       }
     });
+
+    const getEmpAdjustedPunchesForExport = (emp: Employee, dateStr: string): string[] => {
+      const empShift = emp.shift || 'DAY';
+      const fromGlobal = getAdjustedPunches(emp.id, empShift, dateStr, allPunchLogs);
+      if (fromGlobal && fromGlobal.length > 0) return fromGlobal;
+      const local = (emp as any).punchLogs?.[dateStr]?.punches;
+      if (local && local.length > 0) {
+        return local.filter((p: string) => typeof p === 'string' && !p.startsWith('00:00') && p.trim() !== '');
+      }
+      return [];
+    };
 
     // Sort employees in ascending order based on the designation column
     const sortedEmployees = [...activeEmployees].sort((a, b) => {
@@ -2644,8 +2665,7 @@ export default function AttendanceImport({
         const dateStr = `${absentYear}-${String(absentMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         
         if (d <= maxDayWithLogs) {
-          const empShift = emp.shift || 'DAY';
-          const punches = getAdjustedPunches(emp.id, empShift, dateStr, allPunchLogs);
+          const punches = getEmpAdjustedPunchesForExport(emp, dateStr);
           const isPresent = isEmployeePresent(punches);
           if (isPresent) {
             datePAValues.push('P');
@@ -2755,12 +2775,19 @@ export default function AttendanceImport({
               const d = c - 5; // Column 6 is day 1, so c = 6 -> d = 1
               const emp = sortedEmployees[r - 2];
               const dateStr = `${absentYear}-${String(absentMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-              const empShift = emp.shift || 'DAY';
-              const punches = getAdjustedPunches(emp.id, empShift, dateStr, allPunchLogs);
-              const workObj = calculateDutyHours(punches);
-              const totalHours = workObj.hours + (workObj.minutes / 60);
+              const punches = getEmpAdjustedPunchesForExport(emp, dateStr);
+              const hasPunches = punches.length > 0;
+              const workMinutes = getWorkMinutes(punches);
+              const shiftHours = getShiftTimingDurationHours(emp.shiftTime, emp.workingHours || 8);
+              const standardShiftMins = shiftHours * 60;
+              const thresholdMinutes = standardShiftMins * 0.85; // 85% of shift duration rule
 
-              if (totalHours < 7) {
+              // In Attendance Map on Employees page and Excel exports, a day is marked Yellow (Partial Present) if:
+              // 1. Employee works less than 85% of that employee's shift duration (e.g. < 10.2h for 12h shift, < 7.65h for 9h shift)
+              // 2. Or punches are incomplete/odd count (e.g. single punch missed OUT or workMinutes === 0)
+              const isPartialPresent = hasPunches && (workMinutes < thresholdMinutes || punches.length % 2 !== 0);
+
+              if (isPartialPresent) {
                 worksheet[cellRef].s = shortHoursStyle;
               } else {
                 worksheet[cellRef].s = presentStyle;
@@ -3548,9 +3575,17 @@ export default function AttendanceImport({
                       let label = "Absent / Unlogged";
 
                       if (isEmployeePresent(punches)) {
+                        const shiftHours = getShiftTimingDurationHours(emp.shiftTime, emp.workingHours || 8);
+                        const standardShiftMins = shiftHours * 60;
+                        const thresholdMinutes = standardShiftMins * 0.85;
+                        const workMinutes = getWorkMinutes(punches);
+
                         if (punches.length % 2 !== 0) {
                           badgeColor = "bg-amber-50 text-amber-700 border-amber-100";
                           label = "Single punch (Missed OUT)";
+                        } else if (workMinutes < thresholdMinutes) {
+                          badgeColor = "bg-amber-50 text-amber-700 border-amber-100";
+                          label = "Partial Present (Short Hours)";
                         } else {
                           badgeColor = "bg-emerald-50 text-emerald-800 border-emerald-100";
                           label = "Shift Completed";

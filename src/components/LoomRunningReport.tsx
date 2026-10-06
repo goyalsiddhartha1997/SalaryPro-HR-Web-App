@@ -42,7 +42,8 @@ import {
   ChevronDown,
   User,
   Users,
-  Maximize2
+  Maximize2,
+  MessageSquare
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
@@ -1793,7 +1794,7 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
         rows: isAllStopped ? [] : cleanRows,
         createdAt: new Date().toISOString(),
         isAllStopped: isAllStopped,
-        remarks: isAllStopped ? remarks.trim() : ''
+        remarks: remarks.trim()
       };
 
       await setDoc(doc(db, 'loomRunningReports', docId), payload);
@@ -3175,6 +3176,31 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                   </div>
                 ) : (
                   <>
+                    {/* Shift Remarks & Log Notes Banner (when running) */}
+                    {report.remarks && report.remarks.trim() && (
+                      <div className="mb-3.5 bg-indigo-50/50 border border-indigo-150/90 rounded-2xl p-3.5 flex items-start gap-3 shadow-2xs animate-fade-in">
+                        <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0 border border-indigo-200/80 shadow-3xs mt-0.5">
+                          <MessageSquare size={16} />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-[10px] font-black text-indigo-900 uppercase tracking-widest flex items-center gap-1.5">
+                              Shift Remarks &amp; Log Notes
+                              <span className="px-2 py-0.5 rounded-full bg-indigo-100/90 text-indigo-800 text-[9px] font-bold">
+                                {report.shift === 'NIGHT' ? '🌙 Night Shift' : '☀️ Day Shift'}
+                              </span>
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-semibold">
+                              {formatDateLabel(report.date)}
+                            </span>
+                          </div>
+                          <p className="text-xs font-semibold text-slate-700 whitespace-pre-wrap leading-relaxed">
+                            {report.remarks}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Desktop View Table */}
                     <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[600px] border border-slate-150 rounded-2xl shadow-xs relative">
                       <table className="w-full text-left border-collapse min-w-[1700px]">
@@ -4012,6 +4038,27 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                         </table>
                       </div>
                     )}
+
+                    {/* Shift Remarks & Operational Log Notes Section */}
+                    <div className="mt-3 bg-slate-50/90 border border-slate-200/90 rounded-2xl p-3.5 shadow-2xs shrink-0" id="shift-remarks-input-section">
+                      <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+                        <label className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                          <MessageSquare size={14} className="text-indigo-600" />
+                          Shift Remarks &amp; Operational Log Notes
+                          <span className="text-[10px] text-slate-400 font-semibold normal-case">(optional for {entryShift === 'NIGHT' ? 'Night Shift' : 'Day Shift'})</span>
+                        </label>
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          Date: <span className="font-bold text-slate-700">{formatDateLabel(entryDate)}</span> • Shift: <span className="font-bold text-slate-700">{entryShift === 'NIGHT' ? '🌙 Night Shift' : '☀️ Day Shift'}</span>
+                        </span>
+                      </div>
+                      <textarea
+                        value={remarks}
+                        onChange={(e) => setRemarks(e.target.value)}
+                        placeholder="Enter shift remarks, log notes, machine breakdown details, maintenance notes, power disruptions, handover notes, or operator comments..."
+                        rows={2}
+                        className="w-full bg-white border border-slate-200 focus:border-indigo-500 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 transition-all resize-y min-h-[52px] max-h-[120px]"
+                      />
+                    </div>
                   </>
                 )}
               </div>
@@ -4893,7 +4940,24 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                   )}
                 </div>
               ) : (
-                <div className="w-full border border-slate-200 rounded-2xl shadow-xs bg-white relative">
+                <div className="space-y-3">
+                  {expandedReport.remarks && expandedReport.remarks.trim() && (
+                    <div className="bg-indigo-50/70 border border-indigo-150 rounded-2xl p-3.5 flex items-start gap-3 shadow-2xs">
+                      <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0 border border-indigo-200/80 shadow-3xs mt-0.5">
+                        <MessageSquare size={16} />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <span className="text-[10px] font-black text-indigo-900 uppercase tracking-widest block">
+                          Shift Remarks &amp; Operational Log Notes
+                        </span>
+                        <p className="text-xs font-semibold text-slate-700 whitespace-pre-wrap leading-relaxed">
+                          {expandedReport.remarks}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="w-full border border-slate-200 rounded-2xl shadow-xs bg-white relative">
                   <table className="w-full text-left border-collapse table-auto text-[9.5px] sm:text-[10.5px] xl:text-[11px]">
                     <thead className="sticky top-0 z-30 bg-slate-900 text-slate-100 font-black uppercase tracking-tight select-none shadow-sm">
                       <tr className="bg-slate-900 border-b border-slate-800">
@@ -5006,7 +5070,8 @@ export default function LoomRunningReport({ triggerAlert, viewOnly = false }: Lo
                     </tbody>
                   </table>
                 </div>
-              )}
+              </div>
+            )}
             </div>
 
             {/* Modal Footer */}

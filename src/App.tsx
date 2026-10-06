@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Employee, ComputedEmployee, SalarySettings } from './types';
+import { Employee, ComputedEmployee, SalarySettings, OvertimeLog } from './types';
 import { INITIAL_EMPLOYEES, calculateSalary, isEmployeePresent, getWorkMinutes, getShiftTimingDurationHours } from './data';
 import { ROSTER_MAP_CSV } from './rosterData';
 import Dashboard from './components/Dashboard';
@@ -31,7 +31,8 @@ import {
   getDoc,
   getDocs,
   query,
-  where
+  where,
+  onSnapshot
 } from 'firebase/firestore';
 import { 
   signInWithPopup,
@@ -128,6 +129,19 @@ const calculateWorkingHours = (shiftStr?: string): number | undefined => {
   return Math.max(0, originalHours - 0.5);
 };
 
+const calculateHoursWorked = (arr?: string, out?: string): number => {
+  if (!arr || !out) return 0;
+  const [arrHrs, arrMins] = arr.split(':').map(Number);
+  const [outHrs, outMins] = out.split(':').map(Number);
+  if (isNaN(arrHrs) || isNaN(arrMins) || isNaN(outHrs) || isNaN(outMins)) return 0;
+  
+  let diffMins = (outHrs * 60 + outMins) - (arrHrs * 60 + arrMins);
+  if (diffMins < 0) {
+    diffMins += 24 * 60; // Over midnight cross
+  }
+  return diffMins / 60;
+};
+
 export default function App() {
   // Store original Employee rows
   const [employees, setEmployees] = useState<Employee[]>(() => {
@@ -192,6 +206,7 @@ export default function App() {
     }
   });
   const [allMonthlyOverrides, setAllMonthlyOverrides] = useState<Record<string, Record<string, { 
+    salaryType?: 'fixed' | 'daily';
     workingDays?: number;
     fullDaysAbsent?: number;
     advancePayment?: number;
@@ -204,6 +219,8 @@ export default function App() {
     foodRemarks?: string;
     advanceDate?: string;
     foodDate?: string;
+    overtimeShifts?: number;
+    overtimeShiftAmount?: number;
     advances?: Array<{ id: string; amount: number; remarks: string; date: string }>;
   }>>>(() => {
     try {
@@ -213,6 +230,36 @@ export default function App() {
       return {};
     }
   });
+
+  // Streaming state for all overtime logs across employees
+  const [allOvertimeLogs, setAllOvertimeLogs] = useState<OvertimeLog[]>(() => {
+    try {
+      const cached = localStorage.getItem('salarypro_all_overtime_cache');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Real-time listener for overtime logs to keep payroll ledger in sync with employee overtime summaries
+  useEffect(() => {
+    const q = collection(db, 'overtimeLogs');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const logs: OvertimeLog[] = [];
+      snapshot.forEach((docSnap) => {
+        logs.push({ id: docSnap.id, ...docSnap.data() } as OvertimeLog);
+      });
+      setAllOvertimeLogs(logs);
+      try {
+        localStorage.setItem('salarypro_all_overtime_cache', JSON.stringify(logs));
+      } catch (e) {
+        console.warn("Storage limits reached for overtime logs cache", e);
+      }
+    }, (err) => {
+      console.warn("Failed to subscribe to overtime logs in App:", err);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // One-time fetch to pull latest updates with a manual sync option (to prevent massive reads on real-time listener loops)
   const [syncLoading, setSyncLoading] = useState(false);
@@ -447,6 +494,7 @@ export default function App() {
               overrides[empId] = {};
             }
             overrides[empId][monthStr] = {
+              salaryType: data.salaryType !== undefined ? data.salaryType : undefined,
               workingDays: data.workingDays !== undefined ? Number(data.workingDays) : undefined,
               fullDaysAbsent: data.fullDaysAbsent !== undefined ? Number(data.fullDaysAbsent) : undefined,
               advancePayment: data.advancePayment !== undefined ? Number(data.advancePayment) : undefined,
@@ -459,10 +507,25 @@ export default function App() {
               foodRemarks: data.foodRemarks !== undefined ? String(data.foodRemarks) : undefined,
               advanceDate: data.advanceDate !== undefined ? String(data.advanceDate) : undefined,
               foodDate: data.foodDate !== undefined ? String(data.foodDate) : undefined,
+              overtimeShifts: data.overtimeShifts !== undefined ? Number(data.overtimeShifts) : undefined,
+              overtimeShiftAmount: data.overtimeShiftAmount !== undefined ? Number(data.overtimeShiftAmount) : undefined,
               advances: Array.isArray(data.advances) ? data.advances : undefined,
             };
           }
         });
+
+        // 3. Also fetch all overtime logs during data sync
+        const overtimeSnapshot = await getDocs(collection(db, 'overtimeLogs'));
+        const otList: OvertimeLog[] = [];
+        overtimeSnapshot.forEach((docSnap) => {
+          otList.push({ id: docSnap.id, ...docSnap.data() } as OvertimeLog);
+        });
+        setAllOvertimeLogs(otList);
+        try {
+          localStorage.setItem('salarypro_all_overtime_cache', JSON.stringify(otList));
+        } catch (e) {
+          console.warn("Storage limits for overtime cache", e);
+        }
       } catch (subErr) {
         console.warn("Could not sync detailed subcollections using collection groups:", subErr);
       }
@@ -915,7 +978,7 @@ export default function App() {
 
       let calculatedAbsentDays = 0;
       let partialDaysList: { date: string; minutes: number }[] = [];
-
+      let totalPartialAbsentMins = 0;
       let sundayOTDays = 0;
 
       // Filter uploaded active dates for this employee's active tenure (joining date & resign date)
@@ -931,7 +994,11 @@ export default function App() {
 
       if (empActiveDatesArr.length > 0) {
         // Count absent days from biometric punch logs
-        const empPunches = allPunchLogs[emp.id] || {};
+        const empPunches = allPunchLogs[emp.id] || 
+                           allPunchLogs[emp.id?.trim()] || 
+                           allPunchLogs[String(parseInt(emp.id, 10))] || 
+                           allPunchLogs[emp.id?.padStart(4, '0')] || 
+                           {};
 
         const getAdjustedPunches = (dateStr: string) => {
           if (emp.shift === 'NIGHT') {
@@ -970,21 +1037,26 @@ export default function App() {
           }
         };
 
+        totalPartialAbsentMins = 0;
         empActiveDatesArr.forEach(date => {
           const clean = getAdjustedPunches(date);
           const hasPunches = clean.length > 0;
+          const effectiveRule: '26Days' | 'totalMonthDays' = emp.salaryCalculationRule || sundayPaidRule || '26Days';
+
           if (hasPunches) {
             const minutes = getWorkMinutes(clean);
             const shiftHours = getShiftTimingDurationHours(emp.shiftTime, emp.workingHours || 8);
-            const thresholdMinutes = shiftHours * 60 * 0.85;
-            if (minutes < thresholdMinutes) {
+            const standardShiftMins = shiftHours * 60;
+            const thresholdMinutes = standardShiftMins * 0.85; // 85% of shift duration rule
+            if (minutes > 0 && minutes < thresholdMinutes) {
               partialDaysList.push({ date, minutes });
+              totalPartialAbsentMins += Math.max(0, standardShiftMins - minutes);
             }
 
             const dateObj = new Date(date);
             const isSunday = dateObj.getDay() === 0;
             const isFixed = finalSalaryType === 'fixed';
-            if (isSunday && isFixed && emp.sundayPaid === 'Paid') {
+            if (isSunday && isFixed && emp.sundayPaid === 'Paid' && effectiveRule !== '26Days') {
               sundayOTDays++;
             }
           } else {
@@ -992,7 +1064,7 @@ export default function App() {
             const isSunday = dateObj.getDay() === 0;
             const isFixed = finalSalaryType === 'fixed';
             if (isSunday && isFixed) {
-              if (sundayPaidRule === '26Days' && emp.sundayPaid === 'Paid') {
+              if (effectiveRule === '26Days') {
                 calculatedAbsentDays++;
               } else if (emp.sundayPaid === 'Not Paid') {
                 calculatedAbsentDays++;
@@ -1016,12 +1088,68 @@ export default function App() {
       const calculatedHours = calculateWorkingHours(emp.shiftTime);
       const finalWorkingHours = monthOverrides.workingHours !== undefined ? monthOverrides.workingHours : calculatedHours;
 
-      const finalAbsentHours = monthOverrides.absentHours !== undefined ? monthOverrides.absentHours : (emp.absentHours || 0);
-      const finalAbsentMinutes = monthOverrides.absentMinutes !== undefined ? monthOverrides.absentMinutes : (emp.absentMinutes || 0);
+      const manualAbsentHours = monthOverrides.absentHours !== undefined ? monthOverrides.absentHours : (emp.absentHours || 0);
+      const manualAbsentMinutes = monthOverrides.absentMinutes !== undefined ? monthOverrides.absentMinutes : (emp.absentMinutes || 0);
+      const manualAbsentTotalMins = manualAbsentHours * 60 + manualAbsentMinutes;
+
+      // If biometric partial absent minutes exist, prevent double-deducting if manual hours already encapsulated them
+      let effectiveManualMins = manualAbsentTotalMins;
+      if (totalPartialAbsentMins > 0 && manualAbsentTotalMins > 0) {
+        if (manualAbsentTotalMins >= totalPartialAbsentMins) {
+          effectiveManualMins = manualAbsentTotalMins - totalPartialAbsentMins;
+        } else if (monthOverrides.absentHours === undefined) {
+          // If manual override was not explicitly typed by user for this month, don't double count
+          effectiveManualMins = 0;
+        }
+      }
+      const totalAbsentMinsCombined = effectiveManualMins + totalPartialAbsentMins;
+
+      const finalAbsentHours = Math.floor(totalAbsentMinsCombined / 60);
+      const finalAbsentMinutes = Math.round(totalAbsentMinsCombined % 60);
       const finalFoodBalance = monthOverrides.foodBalance !== undefined ? monthOverrides.foodBalance : (emp.foodBalance || 0);
       const finalFoodRemarks = monthOverrides.foodRemarks !== undefined ? monthOverrides.foodRemarks : (emp.foodRemarks || '');
       const finalAdvanceDate = monthOverrides.advanceDate !== undefined ? monthOverrides.advanceDate : emp.advanceDate;
       const finalFoodDate = monthOverrides.foodDate !== undefined ? monthOverrides.foodDate : emp.foodDate;
+      // Overtime calculation from allOvertimeLogs for the focused ledgerMonth & ledgerYear
+      const empOtLogs = allOvertimeLogs.filter(log => {
+        if (!log || !log.date || !log.employeeId) return false;
+        if (log.employeeId.trim().toLowerCase() !== emp.id.trim().toLowerCase()) return false;
+        const parts = log.date.split('-');
+        if (parts.length < 3) return false;
+        const logYear = parseInt(parts[0], 10);
+        const logMonth = parseInt(parts[1], 10); // 1-12
+        return logYear === ledgerYear && logMonth === ledgerMonth;
+      });
+
+      let calculatedOtHours = 0;
+      empOtLogs.forEach(log => {
+        calculatedOtHours += calculateHoursWorked(log.arrTime, log.outTime);
+      });
+
+      // Shifts count: if logs exist, calculate based on hours (12 hrs = 1 shift) or count of logs
+      const calculatedOtShifts = empOtLogs.length > 0 
+        ? (calculatedOtHours > 0 ? (calculatedOtHours % 12 === 0 ? calculatedOtHours / 12 : Math.round((calculatedOtHours / 12) * 100) / 100) : empOtLogs.length) 
+        : 0;
+
+      // Calculate OT Daily Rate & Amount (matching EmployeeProfileDetails.tsx exactly)
+      const otWorkingDays = new Date(ledgerYear, ledgerMonth, 0).getDate();
+      const otDailyRate = finalSalaryType === 'daily'
+        ? finalMonthlySalary
+        : (finalMonthlySalary > 0 && otWorkingDays > 0 ? finalMonthlySalary / otWorkingDays : 0);
+
+      let calculatedOtAmount = 0;
+      empOtLogs.forEach(log => {
+        const hw = calculateHoursWorked(log.arrTime, log.outTime);
+        calculatedOtAmount += (hw / 12) * otDailyRate;
+      });
+      calculatedOtAmount = Math.round(calculatedOtAmount * 100) / 100;
+
+      const finalOvertimeShifts = monthOverrides.overtimeShifts !== undefined 
+        ? monthOverrides.overtimeShifts 
+        : (emp.overtimeShifts !== undefined && emp.overtimeShifts > 0 ? emp.overtimeShifts : calculatedOtShifts);
+      const finalOvertimeShiftAmount = monthOverrides.overtimeShiftAmount !== undefined 
+        ? monthOverrides.overtimeShiftAmount 
+        : (emp.overtimeShiftAmount !== undefined && emp.overtimeShiftAmount > 0 ? emp.overtimeShiftAmount : calculatedOtAmount);
 
       const elapsedDays = activeDatesArr.length > 0 ? empActiveDatesArr.length : undefined;
 
@@ -1040,12 +1168,14 @@ export default function App() {
         foodBalance: finalFoodBalance,
         foodRemarks: finalFoodRemarks,
         foodDate: finalFoodDate,
+        overtimeShifts: finalOvertimeShifts,
+        overtimeShiftAmount: finalOvertimeShiftAmount,
         partialDays: partialDaysList,
         sundayOTDays: sundayOTDays,
         elapsedDays: elapsedDays,
       };
     });
-  }, [employees, allPunchLogs, allMonthlyOverrides, ledgerMonth, ledgerYear, sundayPaidRule]);
+  }, [employees, allPunchLogs, allMonthlyOverrides, allOvertimeLogs, ledgerMonth, ledgerYear, sundayPaidRule]);
 
   // Compute calculated row fields dynamically on active dataset changes
   const computedEmployees = useMemo(() => {
@@ -1516,16 +1646,34 @@ export default function App() {
         await setDoc(doc(db, 'employees', id), sanitized, { merge: true });
       }
 
-      if (updatedFields.monthlySalary !== undefined || updatedFields.salaryType !== undefined) {
+      if (
+        updatedFields.monthlySalary !== undefined || 
+        updatedFields.salaryType !== undefined ||
+        updatedFields.workingDays !== undefined ||
+        updatedFields.fullDaysAbsent !== undefined ||
+        updatedFields.workingHours !== undefined ||
+        updatedFields.absentHours !== undefined ||
+        updatedFields.absentMinutes !== undefined ||
+        updatedFields.advancePayment !== undefined ||
+        updatedFields.foodBalance !== undefined ||
+        updatedFields.overtimeShifts !== undefined ||
+        updatedFields.overtimeShiftAmount !== undefined
+      ) {
         const monthStr = `${ledgerYear}-${String(ledgerMonth).padStart(2, '0')}`;
         const overrideRef = doc(db, 'employees', finalDocId, 'monthlyPayroll', monthStr);
         const overrideData: any = {};
-        if (updatedFields.monthlySalary !== undefined) {
-          overrideData.monthlySalary = Number(updatedFields.monthlySalary);
-        }
-        if (updatedFields.salaryType !== undefined) {
-          overrideData.salaryType = updatedFields.salaryType;
-        }
+        if (updatedFields.monthlySalary !== undefined) overrideData.monthlySalary = Number(updatedFields.monthlySalary);
+        if (updatedFields.salaryType !== undefined) overrideData.salaryType = updatedFields.salaryType;
+        if (updatedFields.workingDays !== undefined) overrideData.workingDays = Number(updatedFields.workingDays);
+        if (updatedFields.fullDaysAbsent !== undefined) overrideData.fullDaysAbsent = Number(updatedFields.fullDaysAbsent);
+        if (updatedFields.workingHours !== undefined) overrideData.workingHours = Number(updatedFields.workingHours);
+        if (updatedFields.absentHours !== undefined) overrideData.absentHours = Number(updatedFields.absentHours);
+        if (updatedFields.absentMinutes !== undefined) overrideData.absentMinutes = Number(updatedFields.absentMinutes);
+        if (updatedFields.advancePayment !== undefined) overrideData.advancePayment = Number(updatedFields.advancePayment);
+        if (updatedFields.foodBalance !== undefined) overrideData.foodBalance = Number(updatedFields.foodBalance);
+        if (updatedFields.overtimeShifts !== undefined) overrideData.overtimeShifts = Number(updatedFields.overtimeShifts);
+        if (updatedFields.overtimeShiftAmount !== undefined) overrideData.overtimeShiftAmount = Number(updatedFields.overtimeShiftAmount);
+        
         try {
           await setDoc(overrideRef, overrideData, { merge: true });
           setAllMonthlyOverrides(p => {
@@ -1548,7 +1696,7 @@ export default function App() {
             return updatedOverrides;
           });
         } catch (subErr) {
-          console.error("Failed simultaneously writing salary update to monthly override doc:", subErr);
+          console.error("Failed simultaneously writing monthly override doc:", subErr);
         }
       }
 
@@ -2796,19 +2944,6 @@ export default function App() {
           {/* 3. Right Action buttons & profile block (Direct Sibling) */}
           <div className="flex items-center gap-2 select-none shrink-0 justify-between md:justify-end">
             
-            {/* Admin Database Export Button (Exclusive to sandydalhousie@gmail.com) */}
-            {loggedInEmail?.toLowerCase() === 'sandydalhousie@gmail.com' && (
-              <button 
-                onClick={handleExportFirestoreBackup}
-                disabled={isExportingDb}
-                className="h-8 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 border border-amber-600 text-zinc-950 font-black text-[9.5px] uppercase tracking-wider flex items-center gap-1.5 shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-95 disabled:opacity-50"
-                title="Export all Firestore collections as JSON backup (Exclusive to sandydalhousie@gmail.com)"
-              >
-                <Download size={13} className={`shrink-0 ${isExportingDb ? 'animate-bounce' : ''}`} />
-                <span>{isExportingDb ? 'Exporting...' : 'Export DB JSON'}</span>
-              </button>
-            )}
-
             {/* Back up saving trigger */}
             <button 
               onClick={triggerManualSave}
@@ -2990,13 +3125,6 @@ export default function App() {
             >
               <UserCheck size={11} />
               <span>Match Roster (Code/Name)</span>
-            </button>
-            <button 
-              onClick={handleResetData}
-              className="text-[#0c8569] hover:underline font-bold cursor-pointer font-mono"
-              title="Restores the sheet database to empty template except first 5 pre-filled staff"
-            >
-              Reset 160 Employees
             </button>
           </div>
         </div>

@@ -68,7 +68,7 @@ function CellInput({ value, onBlur, className, type = "text", ...props }: CellIn
   );
 }
 
-export type ColumnFilterKey = 'id' | 'name' | 'contractor' | 'activeStatus' | 'department' | 'designation' | 'sundayPaid' | 'shift' | 'salaryType' | 'monthlySalary';
+export type ColumnFilterKey = 'id' | 'name' | 'contractor' | 'activeStatus' | 'salaryCalculationRule' | 'department' | 'designation' | 'sundayPaid' | 'shift' | 'salaryType' | 'monthlySalary';
 
 export interface ExcelColumnFilter {
   searchQuery: string;
@@ -107,6 +107,9 @@ function ExcelColumnFilterDropdown({
       }
       if (columnKey === 'activeStatus') {
         return emp.activeStatus || 'ACTIVE';
+      }
+      if (columnKey === 'salaryCalculationRule') {
+        return emp.salaryCalculationRule === 'totalMonthDays' ? 'Total Month Days' : '26 Days Rule';
       }
       const val = emp[columnKey as keyof Employee];
       return val !== undefined && val !== null ? String(val).trim() : '(Blank)';
@@ -444,6 +447,7 @@ export default function ExcelTable({
     name: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
     contractor: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
     activeStatus: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
+    salaryCalculationRule: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
     department: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
     designation: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
     sundayPaid: { searchQuery: '', selectedValues: null, greaterThan: '', smallerThan: '' },
@@ -522,6 +526,8 @@ export default function ExcelTable({
             val = String(emp.monthlySalary || 0);
           } else if (colKey === 'activeStatus') {
             val = emp.activeStatus || 'ACTIVE';
+          } else if (colKey === 'salaryCalculationRule') {
+            val = emp.salaryCalculationRule === 'totalMonthDays' ? 'Total Month Days' : '26 Days Rule';
           } else {
             const v = emp[colKey as keyof Employee];
             val = v !== undefined && v !== null ? String(v).trim() : '(Blank)';
@@ -631,6 +637,8 @@ export default function ExcelTable({
     let totalPayable = 0;
     let totalAdvance = 0;
     let totalFood = 0;
+    let totalOvertimeShifts = 0;
+    let totalOvertimeAmount = 0;
 
     filteredEmployees.forEach(emp => {
       totalGross += emp.grossSalary || 0;
@@ -638,6 +646,8 @@ export default function ExcelTable({
       totalPayable += emp.finalPayable || 0;
       totalAdvance += emp.advancePayment || 0;
       totalFood += emp.foodBalance || 0;
+      totalOvertimeShifts += emp.overtimeShifts || 0;
+      totalOvertimeAmount += emp.overtimeShiftAmount || 0;
     });
 
     return {
@@ -645,7 +655,9 @@ export default function ExcelTable({
       deductions: Math.round(totalDeductions * 100) / 100,
       payable: Math.round(totalPayable * 100) / 100,
       advance: Math.round(totalAdvance * 100) / 100,
-      food: Math.round(totalFood * 100) / 100
+      food: Math.round(totalFood * 100) / 100,
+      overtimeShifts: Math.round(totalOvertimeShifts * 100) / 100,
+      overtimeAmount: Math.round(totalOvertimeAmount * 100) / 100,
     };
   }, [filteredEmployees]);
 
@@ -699,6 +711,11 @@ export default function ExcelTable({
 
     if (field === 'activeStatus') {
       onUpdateEmployee(id, { activeStatus: value as 'ACTIVE' | 'INACTIVE' });
+      return;
+    }
+
+    if (field === ('salaryCalculationRule' as keyof Employee)) {
+      onUpdateEmployee(id, { salaryCalculationRule: value as '26Days' | 'totalMonthDays' });
       return;
     }
 
@@ -762,7 +779,7 @@ export default function ExcelTable({
       parsedValue = Math.max(0, Math.round(parsedValue));
     } else if (field === 'workingHours') {
       parsedValue = Math.max(0, parsedValue);
-    } else if (field === 'fullDaysAbsent' || field === 'absentHours' || field === 'monthlySalary' || field === 'advancePayment' || field === 'foodBalance') {
+    } else if (field === 'fullDaysAbsent' || field === 'absentHours' || field === 'monthlySalary' || field === 'advancePayment' || field === 'foodBalance' || field === 'overtimeShifts' || field === 'overtimeShiftAmount') {
       parsedValue = Math.max(0, parsedValue);
     }
 
@@ -800,14 +817,14 @@ export default function ExcelTable({
 
     // 1. TOP TITLE HEADER ROW (Row 2)
     worksheet.getRow(1).height = 10; // Spacer
-    worksheet.mergeCells('A2:AE2');
+    worksheet.mergeCells('A2:AC2');
     const titleCell = worksheet.getCell('A2');
     const printDatePayrollStr = `PRINT DATE: ${formatDateDDMMMYYYY(new Date())} ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
     titleCell.value = `PAYROLL SALARY LEDGER REPORT • MONTH: ${currentMonthLabel} ${currentYearLabel} • SUNDAY RULE: ${sundayRuleLabel} • ${printDatePayrollStr}`;
     titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
     titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
     worksheet.getRow(2).height = 28;
-    for (let col = 1; col <= 31; col++) {
+    for (let col = 1; col <= 29; col++) {
       const c = worksheet.getRow(2).getCell(col);
       c.border = thickBlackBorder;
       c.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
@@ -830,6 +847,8 @@ export default function ExcelTable({
     let totalFullDeds = 0;
     let totalHourlyDeds = 0;
     let totalPartialDeds = 0;
+    let totalOvertimeShifts = 0;
+    let totalOvertimeAmount = 0;
     let totalDeductions = 0;
     let totalPayable = 0;
     let totalSundayOTDays = 0;
@@ -846,6 +865,8 @@ export default function ExcelTable({
       totalFullDeds += emp.deductionFullDay || 0;
       totalHourlyDeds += emp.deductionHourly || 0;
       totalPartialDeds += emp.deductionPartialDay || 0;
+      totalOvertimeShifts += emp.overtimeShifts || 0;
+      totalOvertimeAmount += emp.overtimeShiftAmount || 0;
       totalDeductions += emp.totalDeduction || 0;
       totalPayable += emp.finalPayable || 0;
       totalSundayOTDays += emp.sundayOTDays || 0;
@@ -856,13 +877,13 @@ export default function ExcelTable({
     });
 
     // 2. METRICS HEADER BANNER (Row 4)
-    worksheet.mergeCells('A4:AE4');
+    worksheet.mergeCells('A4:AC4');
     const mHeaderCell = worksheet.getCell('A4');
     mHeaderCell.value = 'PAYROLL LEDGER ALL METRICS & SUMMARY STATS';
     mHeaderCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } };
     mHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
     worksheet.getRow(4).height = 22;
-    for (let col = 1; col <= 31; col++) {
+    for (let col = 1; col <= 29; col++) {
       const c = worksheet.getRow(4).getCell(col);
       c.border = thickBlackBorder;
       c.fill = { type: 'pattern', pattern: 'none' };
@@ -870,53 +891,53 @@ export default function ExcelTable({
       c.alignment = { horizontal: 'center', vertical: 'middle' };
     }
 
-    // Row 5 & 6 (KPI Row 1)
-    worksheet.mergeCells('A5:F5'); worksheet.mergeCells('A6:F6');
-    worksheet.mergeCells('G5:L5'); worksheet.mergeCells('G6:L6');
-    worksheet.mergeCells('M5:R5'); worksheet.mergeCells('M6:R6');
-    worksheet.mergeCells('S5:X5'); worksheet.mergeCells('S6:X6');
-    worksheet.mergeCells('Y5:AE5'); worksheet.mergeCells('Y6:AE6');
+    // Row 5 & 6 (KPI Row 1) - 5 cards distributed across 29 columns: A:E (5), F:K (6), L:Q (6), R:W (6), X:AC (6)
+    worksheet.mergeCells('A5:E5'); worksheet.mergeCells('A6:E6');
+    worksheet.mergeCells('F5:K5'); worksheet.mergeCells('F6:K6');
+    worksheet.mergeCells('L5:Q5'); worksheet.mergeCells('L6:Q6');
+    worksheet.mergeCells('R5:W5'); worksheet.mergeCells('R6:W6');
+    worksheet.mergeCells('X5:AC5'); worksheet.mergeCells('X6:AC6');
 
     worksheet.getCell('A5').value = 'TOTAL STAFF / EMPLOYEES';
     worksheet.getCell('A6').value = `${totalStaffCount} Staff (${activeStaffCount} Active / ${inactiveStaffCount} Inactive)`;
 
-    worksheet.getCell('G5').value = 'TOTAL GROSS SALARY';
-    worksheet.getCell('G6').value = `INR ${totalGross.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    worksheet.getCell('F5').value = 'TOTAL GROSS SALARY';
+    worksheet.getCell('F6').value = `INR ${totalGross.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    worksheet.getCell('M5').value = 'TOTAL ADVANCES & FOOD BALANCE';
-    worksheet.getCell('M6').value = `Advance: INR ${totalAdvance.toLocaleString('en-IN')} | Food: INR ${totalFood.toLocaleString('en-IN')}`;
+    worksheet.getCell('L5').value = 'TOTAL ADVANCES & FOOD BALANCE';
+    worksheet.getCell('L6').value = `Advance: INR ${totalAdvance.toLocaleString('en-IN')} | Food: INR ${totalFood.toLocaleString('en-IN')}`;
 
-    worksheet.getCell('S5').value = 'TOTAL DEDUCTIONS';
-    worksheet.getCell('S6').value = `INR ${totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    worksheet.getCell('R5').value = 'TOTAL DEDUCTIONS';
+    worksheet.getCell('R6').value = `INR ${totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    worksheet.getCell('Y5').value = 'TOTAL FINAL NET PAYABLE SALARY';
-    worksheet.getCell('Y6').value = `INR ${totalPayable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    worksheet.getCell('X5').value = 'TOTAL FINAL NET PAYABLE SALARY';
+    worksheet.getCell('X6').value = `INR ${totalPayable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    // Row 7 & 8 (KPI Row 2)
-    worksheet.mergeCells('A7:F7'); worksheet.mergeCells('A8:F8');
-    worksheet.mergeCells('G7:L7'); worksheet.mergeCells('G8:L8');
-    worksheet.mergeCells('M7:R7'); worksheet.mergeCells('M8:R8');
-    worksheet.mergeCells('S7:X7'); worksheet.mergeCells('S8:X8');
-    worksheet.mergeCells('Y7:AE7'); worksheet.mergeCells('Y8:AE8');
+    // Row 7 & 8 (KPI Row 2) - 5 cards across 29 columns: A:E (5), F:K (6), L:Q (6), R:W (6), X:AC (6)
+    worksheet.mergeCells('A7:E7'); worksheet.mergeCells('A8:E8');
+    worksheet.mergeCells('F7:K7'); worksheet.mergeCells('F8:K8');
+    worksheet.mergeCells('L7:Q7'); worksheet.mergeCells('L8:Q8');
+    worksheet.mergeCells('R7:W7'); worksheet.mergeCells('R8:W8');
+    worksheet.mergeCells('X7:AC7'); worksheet.mergeCells('X8:AC8');
 
-    worksheet.getCell('A7').value = 'SUNDAY OT STATS';
-    worksheet.getCell('A8').value = `${totalSundayOTDays} OT Days | INR ${totalSundayOTAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    worksheet.getCell('A7').value = 'OVERTIME SUMMARY';
+    worksheet.getCell('A8').value = `${totalOvertimeShifts} OT Shifts | INR ${totalOvertimeAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
-    worksheet.getCell('G7').value = 'ABSENTEEISM SUMMARY';
-    worksheet.getCell('G8').value = `${totalAbsentDays} Days | ${totalAbsentHours} Hrs ${totalAbsentMins} Mins`;
+    worksheet.getCell('F7').value = 'SUNDAY OT STATS';
+    worksheet.getCell('F8').value = `${totalSundayOTDays} OT Days | INR ${totalSundayOTAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
-    worksheet.getCell('M7').value = 'DEDUCTION BREAKDOWN';
-    worksheet.getCell('M8').value = `Full: ${totalFullDeds.toLocaleString()} | Hourly: ${totalHourlyDeds.toLocaleString()} | Partial: ${totalPartialDeds.toLocaleString()}`;
+    worksheet.getCell('L7').value = 'ABSENTEEISM SUMMARY';
+    worksheet.getCell('L8').value = `${totalAbsentDays} Days | ${totalAbsentHours} Hrs ${totalAbsentMins} Mins`;
 
-    worksheet.getCell('S7').value = 'BASE MONTHLY SALARY POOL';
-    worksheet.getCell('S8').value = `INR ${totalMonthlyBase.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    worksheet.getCell('R7').value = 'DEDUCTION BREAKDOWN';
+    worksheet.getCell('R8').value = `Full: ${totalFullDeds.toLocaleString()} | Hourly: ${totalHourlyDeds.toLocaleString()}`;
 
-    worksheet.getCell('Y7').value = 'SUNDAY PAID RULE CONFIG';
-    worksheet.getCell('Y8').value = `${sundayRuleLabel}`;
+    worksheet.getCell('X7').value = 'SUNDAY PAID RULE CONFIG';
+    worksheet.getCell('X8').value = `${sundayRuleLabel}`;
 
     [5, 7].forEach(r => {
       worksheet.getRow(r).height = 18;
-      for (let col = 1; col <= 31; col++) {
+      for (let col = 1; col <= 29; col++) {
         const c = worksheet.getRow(r).getCell(col);
         c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
         c.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -927,7 +948,7 @@ export default function ExcelTable({
 
     [6, 8].forEach(r => {
       worksheet.getRow(r).height = 24;
-      for (let col = 1; col <= 31; col++) {
+      for (let col = 1; col <= 29; col++) {
         const c = worksheet.getRow(r).getCell(col);
         c.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FF000000' } };
         c.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -936,16 +957,38 @@ export default function ExcelTable({
       }
     });
 
-    // 3. DATA TABLE HEADER (Row 10)
+    // 3. DATA TABLE HEADER (Row 10) - Exactly matches all 29 columns present in the Payroll Ledger window
     worksheet.getRow(9).height = 12; // Spacer
     const headers = [
-      'S.No', 'Employee ID', 'Employee Name', 'Contractor Name', 'Active Status',
-      'Department', 'Designation', 'Shift', 'Salary Type', 'Sunday Paid Status',
-      'Shift Time', 'Contact Number', 'Address', 'Rate Indicator', 'Monthly Salary (INR)',
-      'Working Days in Month', 'Daily Rate (INR)', 'Working Hours', 'Hourly Rate (INR)',
-      'Full Days Absent', 'Absent Hours', 'Absent Minutes', 'Sunday OT Days', 'Sunday OT Amount (INR)',
-      'Deduction: Full Day (INR)', 'Deduction: Hourly (INR)', 'Deduction: Partial Day (INR)',
-      'Advance Payment (INR)', 'Food Balance (INR)', 'Total Deduction (INR)', 'Final Payable Salary (INR)'
+      'S.No',
+      'Employee ID',
+      'Employee Name',
+      'Contractor Name',
+      'Active Status',
+      'Calculation Rule',
+      'Joining Date',
+      'Resign Date',
+      'Department',
+      'Designation',
+      'Sunday Paid Status',
+      'Shift',
+      'Basis',
+      'Salary / Rate (INR)',
+      'Working Days in Month',
+      'Daily Rate (INR)',
+      'Working Hours per Day',
+      'Hourly Rate (INR)',
+      'Full Days Absent',
+      'Absent Hours',
+      'Absent Minutes',
+      'Deduction: Full Day (INR)',
+      'Deduction: Hourly (INR)',
+      'Advance Payment (INR)',
+      'Food Balance (INR)',
+      'Overtime no of shifts',
+      'Overtime Shift Amount (INR)',
+      'Total Deduction (INR)',
+      'Final Payable Salary (INR)'
     ];
 
     const headerRow = worksheet.getRow(10);
@@ -965,21 +1008,22 @@ export default function ExcelTable({
       const row = worksheet.getRow(currentR);
       row.height = 22;
 
+      const calculationRuleText = (emp.salaryCalculationRule || sundayPaidRule) === 'totalMonthDays' ? 'Total Month Days' : '26 Days Rule';
+
       const rowValues = [
         index + 1,
         emp.id || '',
         emp.name || '',
         emp.contractor || '',
         emp.activeStatus || 'ACTIVE',
+        calculationRuleText,
+        emp.joiningDate || '',
+        emp.resignDate || '',
         emp.department || '',
         emp.designation || emp.role || '',
-        String(emp.shift || 'DAY'),
-        String(emp.salaryType || 'fixed'),
         String(emp.sundayPaid || 'Not Paid'),
-        emp.shiftTime || '',
-        emp.phone || '',
-        emp.address || '',
-        emp.salaryType === 'daily' ? 'Per-Day' : 'Monthly Fixed',
+        String(emp.shift || 'DAY'),
+        emp.salaryType === 'daily' ? 'Daily' : 'Fixed',
         emp.monthlySalary || 0,
         emp.workingDays || 0,
         emp.dailyRate || 0,
@@ -988,13 +1032,12 @@ export default function ExcelTable({
         emp.fullDaysAbsent || 0,
         emp.absentHours || 0,
         emp.absentMinutes || 0,
-        emp.sundayOTDays || 0,
-        emp.sundayOTAmount || 0,
         emp.deductionFullDay || 0,
         emp.deductionHourly || 0,
-        emp.deductionPartialDay || 0,
         emp.advancePayment || 0,
         emp.foodBalance || 0,
+        emp.overtimeShifts || 0,
+        emp.overtimeShiftAmount || 0,
         emp.totalDeduction || 0,
         emp.finalPayable || 0
       ];
@@ -1012,23 +1055,25 @@ export default function ExcelTable({
       currentR++;
     });
 
-    // 5. SUMMARY ROW
+    // 5. SUMMARY ROW (Aligned with all 29 columns)
     const sumRow = worksheet.getRow(currentR);
     sumRow.height = 26;
     const sumValues = [
       '',
       `TOTAL ROWS: ${targetStaff.length}`,
       'Summary Ledger Sums',
-      '', '', '', '', '', '', '', '', '', '', '',
+      '', '', '', '', '', '', '', '', '', '',
       totalMonthlyBase,
-      0, 0, 0, 0, 0, 0, 0,
-      totalSundayOTDays,
-      totalSundayOTAmount,
+      0, 0, 0, 0,
+      totalAbsentDays,
+      totalAbsentHours,
+      totalAbsentMins,
       totalFullDeds,
       totalHourlyDeds,
-      totalPartialDeds,
       totalAdvance,
       totalFood,
+      totalOvertimeShifts,
+      totalOvertimeAmount,
       totalDeductions,
       totalPayable
     ];
@@ -1124,6 +1169,12 @@ export default function ExcelTable({
         const absentMinutes = Number(findFuzzyValue(row, ['Absent Minutes', 'absentMinutes', 'Total Absent Minutes']) || 0);
         const advancePayment = Number(findFuzzyValue(row, ['Advance Payment (INR)', 'advancePayment', 'Advance', 'Advances', 'Advance Paid']) || 0);
         const foodBalance = Number(findFuzzyValue(row, ['Food Balance (INR)', 'foodBalance', 'Food Bal', 'Meals', 'Food Bill', 'Canteen']) || 0);
+        const overtimeShifts = Number(findFuzzyValue(row, ['Overtime no of shifts', 'overtimeShifts', 'Overtime Shifts', 'OT Shifts', 'Overtime number of shifts']) || 0);
+        const overtimeShiftAmount = Number(findFuzzyValue(row, ['Overtime Shift Amount (INR)', 'overtimeShiftAmount', 'Overtime Shift Amount', 'OT Amount']) || 0);
+        const joiningDateVal = findFuzzyValue(row, ['Joining Date', 'joiningDate', 'Join Date', 'DOJ']);
+        const resignDateVal = findFuzzyValue(row, ['Resign Date', 'resignDate', 'Relieving Date', 'Exit Date', 'DOR']);
+        const sundayPaidVal = findFuzzyValue(row, ['Sunday Paid Status', 'Sunday Paid?', 'sundayPaid', 'Sunday Paid']);
+        const ruleVal = findFuzzyValue(row, ['Calculation Rule', 'salaryCalculationRule', 'Rule']);
 
         onUpdateEmployee(rawId.toString(), {
           id: rawId.toString(),
@@ -1142,7 +1193,13 @@ export default function ExcelTable({
           absentHours,
           absentMinutes,
           advancePayment,
-          foodBalance
+          foodBalance,
+          overtimeShifts,
+          overtimeShiftAmount,
+          ...(joiningDateVal ? { joiningDate: String(joiningDateVal) } : {}),
+          ...(resignDateVal ? { resignDate: String(resignDateVal) } : {}),
+          ...(sundayPaidVal ? { sundayPaid: String(sundayPaidVal).toLowerCase().includes('not') ? 'Not Paid' : 'Paid' } : {}),
+          ...(ruleVal ? { salaryCalculationRule: String(ruleVal).toLowerCase().includes('month') ? 'totalMonthDays' : '26Days' } : {})
         }, true);
       });
     };
@@ -1164,6 +1221,7 @@ export default function ExcelTable({
   const isNameFiltered = columnFilters.name.selectedValues !== null || columnFilters.name.greaterThan !== '' || columnFilters.name.smallerThan !== '';
   const isContractorFiltered = columnFilters.contractor.selectedValues !== null || columnFilters.contractor.greaterThan !== '' || columnFilters.contractor.smallerThan !== '';
   const isActiveStatusFiltered = columnFilters.activeStatus.selectedValues !== null || columnFilters.activeStatus.greaterThan !== '' || columnFilters.activeStatus.smallerThan !== '';
+  const isSalaryCalculationRuleFiltered = columnFilters.salaryCalculationRule?.selectedValues !== null || columnFilters.salaryCalculationRule?.greaterThan !== '' || columnFilters.salaryCalculationRule?.smallerThan !== '';
   const isDepartmentFiltered = columnFilters.department.selectedValues !== null || columnFilters.department.greaterThan !== '' || columnFilters.department.smallerThan !== '';
   const isDesignationFiltered = columnFilters.designation.selectedValues !== null || columnFilters.designation.greaterThan !== '' || columnFilters.designation.smallerThan !== '';
   const isSundayPaidFiltered = columnFilters.sundayPaid.selectedValues !== null || columnFilters.sundayPaid.greaterThan !== '' || columnFilters.sundayPaid.smallerThan !== '';
@@ -1621,6 +1679,37 @@ export default function ExcelTable({
                 </div>
               </th>
 
+              <th className="w-36 px-2 border-r border-slate-200 bg-emerald-50/60 font-bold text-emerald-900 text-[11px]">
+                <div className="flex items-center justify-between px-1 relative">
+                  <span>Calculation Rule</span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveFilterDropdown(activeFilterDropdown === 'salaryCalculationRule' ? null : 'salaryCalculationRule');
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`cursor-pointer p-0.5 rounded transition-colors ${
+                      isSalaryCalculationRuleFiltered ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-emerald-500 hover:text-emerald-700 hover:bg-emerald-100/60'
+                    }`}
+                    title="Filter / Sort"
+                  >
+                    <Filter size={11} />
+                  </button>
+                  {activeFilterDropdown === 'salaryCalculationRule' && (
+                    <ExcelColumnFilterDropdown
+                      columnKey="salaryCalculationRule"
+                      displayName="Calculation Rule"
+                      employees={employees}
+                      filterOpts={filterOpts}
+                      setFilterOpts={setFilterOpts}
+                      columnFilters={columnFilters}
+                      setColumnFilters={setColumnFilters}
+                      onClose={() => setActiveFilterDropdown(null)}
+                    />
+                  )}
+                </div>
+              </th>
+
               <th className="w-36 px-2.5 border-r border-slate-200 bg-sky-50/70 font-bold text-slate-600 text-[11px]">
                 <div className="flex items-center justify-between px-1">
                   <span>Joining Date</span>
@@ -1866,6 +1955,14 @@ export default function ExcelTable({
                 Food Bal. (₹)
               </th>
 
+              <th className="w-28 px-1 border-r border-slate-200 bg-amber-50/60 text-amber-900 font-bold leading-tight" title="Overtime number of shifts worked">
+                <div>Overtime no of shifts</div>
+              </th>
+
+              <th className="w-32 px-1.5 border-r border-slate-200 bg-amber-50/60 text-amber-900 font-bold text-[10.5px] leading-tight" title="Overtime Shift Amount in ₹">
+                <div>Overtime Shift Amount (₹)</div>
+              </th>
+
               <th className="w-32 px-1.5 border-r border-slate-200 bg-rose-50/50 font-bold text-rose-750">
                 <div className="flex items-center justify-between px-1">
                   <span>Total Ded. (₹)</span>
@@ -1969,6 +2066,18 @@ export default function ExcelTable({
                     >
                       <option value="ACTIVE" className="text-emerald-800 font-bold">ACTIVE</option>
                       <option value="INACTIVE" className="text-rose-700 font-bold">INACTIVE</option>
+                    </select>
+                  </td>
+
+                  <td className="p-1 border-r border-slate-150 align-middle text-center bg-emerald-50/30">
+                    <select 
+                      value={emp.salaryCalculationRule || sundayPaidRule || '26Days'}
+                      onChange={(e) => handleCellBlur(emp.id, 'salaryCalculationRule' as keyof Employee, e.target.value)}
+                      disabled={viewOnly}
+                      className="w-full h-7 border-0 bg-transparent text-center font-bold text-[10px] rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-emerald-500 cursor-pointer uppercase py-0 text-emerald-900"
+                    >
+                      <option value="26Days" className="text-slate-800 font-bold">26 Days Rule</option>
+                      <option value="totalMonthDays" className="text-slate-800 font-bold">Total Month Days</option>
                     </select>
                   </td>
 
@@ -2209,6 +2318,34 @@ export default function ExcelTable({
                     </div>
                   </td>
 
+                  <td className="bg-amber-50/40 px-1 border-r border-slate-150">
+                    <CellInput 
+                      type="number" 
+                      step="0.5"
+                      value={emp.overtimeShifts || ''} 
+                      onBlur={(val) => handleCellBlur(emp.id, 'overtimeShifts', val)}
+                      disabled={viewOnly}
+                      placeholder="0"
+                      min="0"
+                      className="w-full h-7 border-0 px-1 bg-transparent text-center font-bold text-amber-900 rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-amber-500 disabled:text-slate-500"
+                    />
+                  </td>
+
+                  <td className="bg-amber-50/40 text-right font-medium text-slate-800 px-1 border-r border-slate-150">
+                    <div className="flex items-center bg-transparent">
+                      <span className="text-[10px] text-amber-600 pl-1 select-none">₹</span>
+                      <CellInput 
+                        type="number" 
+                        value={emp.overtimeShiftAmount || ''} 
+                        onBlur={(val) => handleCellBlur(emp.id, 'overtimeShiftAmount', val)}
+                        disabled={viewOnly}
+                        placeholder="0"
+                        min="0"
+                        className="w-full h-7 border-0 px-1 bg-transparent text-right font-bold text-amber-900 rounded-sm focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-amber-500 disabled:text-slate-500"
+                      />
+                    </div>
+                  </td>
+
                   <td className="bg-rose-50/50 text-right font-mono font-bold text-rose-700 text-[11px] px-2.5 border-r border-slate-200 select-none relative group">
                     <span className={emp.totalDeduction > 0 ? 'text-rose-700' : 'text-slate-400'}>
                       {emp.totalDeduction > 0 ? formatINR(emp.totalDeduction).replace('INR', '') : '-'}
@@ -2232,7 +2369,7 @@ export default function ExcelTable({
             {/* Zero state display */}
             {totalItems === 0 && (
               <tr>
-                <td colSpan={23} className="h-44 text-center text-slate-400 text-xs">
+                <td colSpan={25} className="h-44 text-center text-slate-400 text-xs">
                   <div className="flex flex-col items-center justify-center space-y-2">
                     <AlertTriangle size={24} className="text-slate-300" />
                     <span>No employee records found matching current query or search criteria.</span>
@@ -2253,7 +2390,29 @@ export default function ExcelTable({
           {/* Table Totals double underlined summary Row, sticky at bottom */}
           {totalItems > 0 && (
             <tfoot>
-              <tr className="bg-slate-800 text-white font-bold text-[11.5px] tracking-wide text-center uppercase h-11 sticky bottom-0 z-10 border-t-2 border-slate-300 relative shadow-md"><td className="sticky left-0 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold select-none h-full text-slate-200">SUMS:</td><td className="sticky left-16 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold text-slate-200 font-mono text-[10px] select-none uppercase">{totalItems} rows</td><td className="sticky left-40 bg-slate-900 border-r border-slate-700 z-15 h-full"></td><td className="bg-slate-800 border-r border-slate-700"></td><td className="bg-slate-800 border-r border-slate-700"></td><td className="bg-slate-800 border-r border-slate-700"></td><td className="bg-slate-800 border-r border-slate-700"></td><td className="bg-slate-800 border-r border-slate-700"></td><td className="bg-slate-800 border-r border-slate-700"></td><td className="text-right p-2.5 border-r border-slate-700 font-mono text-sky-200 font-bold bg-slate-800 select-all">{formatINR(totals.gross).replace('INR', '')}</td><td colSpan={9} className="text-right px-4 text-slate-450 bg-slate-850 border-r border-slate-700 italic normal-case text-[10px] select-none font-medium">Totals recalculated live. Double border underline.</td><td className="text-right p-2.5 border-r border-slate-700 font-mono text-indigo-200 font-bold bg-slate-800 select-all">{formatINR(totals.advance).replace('INR', '')}</td><td className="text-right p-2.5 border-r border-slate-700 font-mono text-indigo-200 font-bold bg-slate-800 select-all">{formatINR(totals.food).replace('INR', '')}</td><td className="text-right p-2.5 border-r border-slate-700 font-mono font-bold text-rose-350 bg-slate-800 select-all">{formatINR(totals.deductions).replace('INR', '')}</td><td className="text-right p-2.5 font-mono text-[12px] font-extrabold text-emerald-300 bg-emerald-900/95 underline decoration-double decoration-emerald-400 decoration-2 select-all">{formatINR(totals.payable).replace('INR', '')}</td></tr>
+              <tr className="bg-slate-800 text-white font-bold text-[11.5px] tracking-wide text-center uppercase h-11 sticky bottom-0 z-10 border-t-2 border-slate-300 relative shadow-md">
+                <td className="sticky left-0 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold select-none h-full text-slate-200">SUMS:</td>
+                <td className="sticky left-16 bg-slate-900 px-3 text-left border-r border-slate-700 z-15 font-bold text-slate-200 font-mono text-[10px] select-none uppercase">{totalItems} rows</td>
+                <td className="sticky left-40 bg-slate-900 border-r border-slate-700 z-15 h-full"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="bg-slate-800 border-r border-slate-700"></td>
+                <td className="text-right p-2.5 border-r border-slate-700 font-mono text-sky-200 font-bold bg-slate-800 select-all">{formatINR(totals.gross).replace('INR', '')}</td>
+                <td colSpan={9} className="text-right px-4 text-slate-450 bg-slate-850 border-r border-slate-700 italic normal-case text-[10px] select-none font-medium">Totals recalculated live. Double border underline.</td>
+                <td className="text-right p-2.5 border-r border-slate-700 font-mono text-indigo-200 font-bold bg-slate-800 select-all">{formatINR(totals.advance).replace('INR', '')}</td>
+                <td className="text-right p-2.5 border-r border-slate-700 font-mono text-indigo-200 font-bold bg-slate-800 select-all">{formatINR(totals.food).replace('INR', '')}</td>
+                <td className="text-center p-2.5 border-r border-slate-700 font-mono text-amber-300 font-bold bg-slate-800 select-all">{totals.overtimeShifts > 0 ? totals.overtimeShifts : '-'}</td>
+                <td className="text-right p-2.5 border-r border-slate-700 font-mono text-amber-300 font-bold bg-slate-800 select-all">{totals.overtimeAmount > 0 ? formatINR(totals.overtimeAmount).replace('INR', '') : '-'}</td>
+                <td className="text-right p-2.5 border-r border-slate-700 font-mono font-bold text-rose-350 bg-slate-800 select-all">{formatINR(totals.deductions).replace('INR', '')}</td>
+                <td className="text-right p-2.5 font-mono text-[12px] font-extrabold text-emerald-300 bg-emerald-900/95 underline decoration-double decoration-emerald-400 decoration-2 select-all">{formatINR(totals.payable).replace('INR', '')}</td>
+              </tr>
             </tfoot>
           )}
         </table>
@@ -2321,6 +2480,18 @@ export default function ExcelTable({
                 <span className="text-slate-400 font-medium">Deductions:</span>
                 <span className="font-mono font-bold text-rose-350">{formatINR(totals.deductions).replace('INR', '')}</span>
               </div>
+              {totals.overtimeShifts > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-amber-400 font-medium">OT Shifts:</span>
+                  <span className="font-mono font-bold text-amber-300">{totals.overtimeShifts}</span>
+                </div>
+              )}
+              {totals.overtimeAmount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-amber-400 font-medium">OT Amount:</span>
+                  <span className="font-mono font-bold text-amber-300">{formatINR(totals.overtimeAmount).replace('INR', '')}</span>
+                </div>
+              )}
             </div>
             <div className="flex justify-between items-center pt-2.5 mt-1 border-t-2 border-slate-600">
               <span className="text-xs font-black text-slate-300 uppercase tracking-wide">Net Payable Summary:</span>
@@ -2691,6 +2862,19 @@ function MobileEmployeeCard({
                 <option value="NIGHT">NIGHT</option>
               </select>
             </div>
+
+            <div className="space-y-1 col-span-2">
+              <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block leading-none">Calculation Rule</label>
+              <select
+                value={emp.salaryCalculationRule || '26Days'}
+                onChange={(e) => handleCellBlur(emp.id, 'salaryCalculationRule' as keyof Employee, e.target.value)}
+                disabled={viewOnly}
+                className="w-full h-9 px-2.5 bg-emerald-50 border border-emerald-200 focus:border-emerald-500 rounded-lg font-bold uppercase focus:outline-hidden focus:ring-1 focus:ring-emerald-500 cursor-pointer text-emerald-900 text-xs"
+              >
+                <option value="26Days">26 Days Rule</option>
+                <option value="totalMonthDays">Total Month Days</option>
+              </select>
+            </div>
           </div>
         )}
 
@@ -2847,6 +3031,38 @@ function MobileEmployeeCard({
                     placeholder="0"
                     min="0"
                     className="w-full h-9 pl-6 pr-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-lg font-bold focus:outline-hidden focus:ring-1 focus:ring-blue-400"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] text-amber-800 font-extrabold uppercase tracking-widest block leading-none">Overtime Shifts</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  defaultValue={emp.overtimeShifts || ''}
+                  onBlur={(e) => handleCellBlur(emp.id, 'overtimeShifts', e.target.value)}
+                  disabled={viewOnly}
+                  placeholder="0"
+                  min="0"
+                  className="w-full h-9 px-2.5 bg-amber-50/50 hover:bg-amber-100/50 focus:bg-white border border-amber-200 focus:border-amber-400 rounded-lg font-bold text-amber-900 focus:outline-hidden focus:ring-1 focus:ring-amber-400 text-center"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-amber-800 font-extrabold uppercase tracking-widest block leading-none">OT Amount (₹)</label>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-amber-600 text-[10px] font-bold">₹</span>
+                  <input
+                    type="number"
+                    defaultValue={emp.overtimeShiftAmount || ''}
+                    onBlur={(e) => handleCellBlur(emp.id, 'overtimeShiftAmount', e.target.value)}
+                    disabled={viewOnly}
+                    placeholder="0"
+                    min="0"
+                    className="w-full h-9 pl-6 pr-2.5 bg-amber-50/50 hover:bg-amber-100/50 focus:bg-white border border-amber-200 focus:border-amber-400 rounded-lg font-bold text-amber-900 focus:outline-hidden focus:ring-1 focus:ring-amber-400"
                   />
                 </div>
               </div>
