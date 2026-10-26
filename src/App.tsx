@@ -950,8 +950,10 @@ export default function App() {
 
     return employees.map(emp => {
       const monthOverrides = allMonthlyOverrides[emp.id]?.[monthStr] || {};
-      const finalSalaryType = monthOverrides.salaryType !== undefined ? monthOverrides.salaryType : (emp.salaryType || 'fixed');
-      const finalMonthlySalary = monthOverrides.monthlySalary !== undefined ? Number(monthOverrides.monthlySalary) : (emp.monthlySalary || 0);
+      const finalSalaryType = emp.salaryType || monthOverrides.salaryType || 'fixed';
+      const finalMonthlySalary = (emp.monthlySalary !== undefined && emp.monthlySalary > 0)
+        ? Number(emp.monthlySalary)
+        : (monthOverrides.monthlySalary !== undefined ? Number(monthOverrides.monthlySalary) : 0);
       
       const totalDaysInMonth = new Date(ledgerYear, ledgerMonth, 0).getDate();
       let calculatedWorkingDays = totalDaysInMonth;
@@ -1085,8 +1087,10 @@ export default function App() {
       const finalAdvancePayment = monthOverrides.advancePayment !== undefined ? monthOverrides.advancePayment : (emp.advancePayment || 0);
       const finalAdvanceRemarks = monthOverrides.advanceRemarks !== undefined ? monthOverrides.advanceRemarks : (emp.advanceRemarks || '');
       
-      const calculatedHours = calculateWorkingHours(emp.shiftTime);
-      const finalWorkingHours = monthOverrides.workingHours !== undefined ? monthOverrides.workingHours : calculatedHours;
+      const calculatedHours = calculateWorkingHours(emp.shiftTime) ?? (emp.workingHours || 8);
+      const finalWorkingHours = (emp.workingHours !== undefined && emp.workingHours > 0) 
+        ? Number(emp.workingHours) 
+        : (monthOverrides.workingHours !== undefined ? monthOverrides.workingHours : calculatedHours);
 
       const manualAbsentHours = monthOverrides.absentHours !== undefined ? monthOverrides.absentHours : (emp.absentHours || 0);
       const manualAbsentMinutes = monthOverrides.absentMinutes !== undefined ? monthOverrides.absentMinutes : (emp.absentMinutes || 0);
@@ -1675,18 +1679,45 @@ export default function App() {
         if (updatedFields.overtimeShiftAmount !== undefined) overrideData.overtimeShiftAmount = Number(updatedFields.overtimeShiftAmount);
         
         try {
+          // If monthlySalary or salaryType is updated on employee card, propagate to all months in Firestore subcollection
+          if (updatedFields.monthlySalary !== undefined || updatedFields.salaryType !== undefined) {
+            try {
+              const monthlyDocsSnap = await getDocs(collection(db, 'employees', finalDocId, 'monthlyPayroll'));
+              if (!monthlyDocsSnap.empty) {
+                const batch = writeBatch(db);
+                monthlyDocsSnap.forEach(mDoc => {
+                  const mUpdate: any = {};
+                  if (updatedFields.monthlySalary !== undefined) mUpdate.monthlySalary = Number(updatedFields.monthlySalary);
+                  if (updatedFields.salaryType !== undefined) mUpdate.salaryType = updatedFields.salaryType;
+                  batch.set(mDoc.ref, mUpdate, { merge: true });
+                });
+                await batch.commit();
+              }
+            } catch (syncErr) {
+              console.warn("Could not batch sync monthlyPayroll subcollection docs:", syncErr);
+            }
+          }
+
           await setDoc(overrideRef, overrideData, { merge: true });
           setAllMonthlyOverrides(p => {
             const emp = p[finalDocId] || {};
+            const updatedEmp = { ...emp };
+            if (updatedFields.monthlySalary !== undefined || updatedFields.salaryType !== undefined) {
+              Object.keys(updatedEmp).forEach(mKey => {
+                updatedEmp[mKey] = {
+                  ...updatedEmp[mKey],
+                  ...(updatedFields.monthlySalary !== undefined ? { monthlySalary: Number(updatedFields.monthlySalary) } : {}),
+                  ...(updatedFields.salaryType !== undefined ? { salaryType: updatedFields.salaryType } : {})
+                };
+              });
+            }
+            updatedEmp[monthStr] = {
+              ...updatedEmp[monthStr],
+              ...overrideData
+            };
             const updatedOverrides = {
               ...p,
-              [finalDocId]: {
-                ...emp,
-                [monthStr]: {
-                  ...emp[monthStr],
-                  ...overrideData
-                }
-              }
+              [finalDocId]: updatedEmp
             };
             try {
               localStorage.setItem('salarypro_monthly_overrides_cache', JSON.stringify(updatedOverrides));

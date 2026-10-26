@@ -29,7 +29,10 @@ import {
   Moon,
   Filter,
   UserCheck,
-  UserX
+  UserX,
+  Briefcase,
+  Building2,
+  FileText
 } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import { doc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
@@ -1216,6 +1219,8 @@ export default function AttendanceImport({
   const [punchesCompDate2, setPunchesCompDate2] = useState<Record<string, string[]>>({});
   const [loadingComparison, setLoadingComparison] = useState<boolean>(false);
   const [showAbsentDetailsModal, setShowAbsentDetailsModal] = useState<boolean>(false);
+  const [showPresentSummaryModal, setShowPresentSummaryModal] = useState<boolean>(false);
+  const [summarySearchQuery, setSummarySearchQuery] = useState<string>('');
 
   // Load comparison punches dynamically for selected compare dates
   useEffect(() => {
@@ -1283,6 +1288,131 @@ export default function AttendanceImport({
       return !isEmployeePresent(actualPunches);
     });
   }, [activeEmployees, datePunches]);
+
+  // Dynamic list of present employees on the CURRENTLY selected date
+  const presentEmployeesOnSelectedDate = useMemo(() => {
+    return activeEmployees.filter(emp => {
+      const empShift = dateShifts[emp.id] || 'Day Shift';
+      if (viewShift !== 'All Shifts' && empShift !== viewShift) {
+        return false;
+      }
+      const punchesList = datePunches[emp.id] || [];
+      const actualPunches = punchesList.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+      return isEmployeePresent(actualPunches);
+    });
+  }, [activeEmployees, datePunches, dateShifts, viewShift]);
+
+  // Group present employees by Department -> Designation
+  const presentSummaryGroups = useMemo(() => {
+    const q = summarySearchQuery.trim().toLowerCase();
+
+    const filtered = q
+      ? presentEmployeesOnSelectedDate.filter(emp => {
+          const nameMatch = (emp.name || '').toLowerCase().includes(q);
+          const idMatch = (emp.id || '').toLowerCase().includes(q);
+          const deptMatch = (emp.department || '').toLowerCase().includes(q);
+          const desigMatch = (emp.designation || emp.role || '').toLowerCase().includes(q);
+          return nameMatch || idMatch || deptMatch || desigMatch;
+        })
+      : presentEmployeesOnSelectedDate;
+
+    const deptMap: Record<string, Record<string, Employee[]>> = {};
+
+    filtered.forEach(emp => {
+      const dept = (emp.department && emp.department.trim() !== '') ? emp.department.trim() : 'Unassigned';
+      const desig = (emp.designation && emp.designation.trim() !== '') 
+        ? emp.designation.trim() 
+        : ((emp.role && emp.role.trim() !== '') ? emp.role.trim() : 'Unassigned');
+
+      if (!deptMap[dept]) {
+        deptMap[dept] = {};
+      }
+      if (!deptMap[dept][desig]) {
+        deptMap[dept][desig] = [];
+      }
+      deptMap[dept][desig].push(emp);
+    });
+
+    const sortedDepts = Object.keys(deptMap).sort((a, b) => {
+      if (a.toLowerCase() === 'unassigned') return 1;
+      if (b.toLowerCase() === 'unassigned') return -1;
+      return a.localeCompare(b);
+    });
+
+    return sortedDepts.map(dept => {
+      const desigMap = deptMap[dept];
+      const sortedDesigs = Object.keys(desigMap).sort((a, b) => a.localeCompare(b));
+      let deptTotal = 0;
+
+      const designations = sortedDesigs.map(desig => {
+        const emps = desigMap[desig];
+        emps.sort((a, b) => {
+          const numA = parseInt(a.id, 10);
+          const numB = parseInt(b.id, 10);
+          if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+          return a.id.localeCompare(b.id, undefined, { numeric: true });
+        });
+        deptTotal += emps.length;
+        return {
+          designation: desig,
+          count: emps.length,
+          employees: emps
+        };
+      });
+
+      return {
+        department: dept,
+        totalPresent: deptTotal,
+        designations
+      };
+    });
+  }, [presentEmployeesOnSelectedDate, summarySearchQuery]);
+
+  const handleExportPresentSummaryExcel = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+      
+      const rows: any[][] = [
+        [`ATTENDANCE PRESENT SUMMARY - ${humanSelectedDate} (${historyDate})`],
+        [`Total Staff Present: ${presentEmployeesOnSelectedDate.length}`],
+        []
+      ];
+
+      rows.push(['Department', 'Designation', 'Present Count', 'Employee Code', 'Employee Name', 'Shift']);
+
+      presentSummaryGroups.forEach(deptGroup => {
+        deptGroup.designations.forEach(desigGroup => {
+          desigGroup.employees.forEach((emp, empIdx) => {
+            rows.push([
+              empIdx === 0 ? deptGroup.department : '',
+              empIdx === 0 ? desigGroup.designation : '',
+              empIdx === 0 ? desigGroup.count : '',
+              emp.id,
+              emp.name || 'Anonymous',
+              dateShifts[emp.id] || emp.shift || 'Day Shift'
+            ]);
+          });
+        });
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = [
+        { wch: 22 },
+        { wch: 25 },
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 28 },
+        { wch: 14 }
+      ];
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Present Summary');
+      XLSX.writeFile(wb, `Attendance_Present_Summary_${historyDate}.xlsx`);
+      triggerAlert?.('info', `Downloaded Present Attendance Summary for ${humanSelectedDate}`);
+    } catch (err) {
+      console.error("Failed to export summary Excel:", err);
+      triggerAlert?.('info', 'Failed to generate Summary Excel file');
+    }
+  };
 
   // Load daily punches for "historyDate" directly from the cached/preloaded and synced allPunchLogs prop
   useEffect(() => {
@@ -3119,7 +3249,7 @@ export default function AttendanceImport({
             </div>
 
             {/* Right: Manual Text Search Box */}
-            <div className="space-y-1.5 flex-grow min-w-[220px]">
+            <div className="space-y-1.5 flex-grow min-w-[200px]">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-mono">Freeform Text search</label>
               <div className="relative">
                 <span className="absolute left-3.5 top-3 text-slate-400">
@@ -3133,6 +3263,26 @@ export default function AttendanceImport({
                   className="w-full bg-slate-50 border border-slate-150 focus:bg-white rounded-xl py-2.5 pl-10 pr-4 text-xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-teal-500 transition-all text-slate-800 placeholder-slate-400"
                 />
               </div>
+            </div>
+
+            {/* Attendance Summary Action Button */}
+            <div className="space-y-1.5 shrink-0 flex flex-col justify-end">
+              <label className="text-[10px] font-black text-emerald-700 uppercase tracking-widest block font-mono">Staff Breakdown</label>
+              <button
+                type="button"
+                onClick={() => {
+                  setSummarySearchQuery('');
+                  setShowPresentSummaryModal(true);
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-xl py-2 px-4 text-xs font-black shadow-xs hover:shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer h-[38px] border border-emerald-500"
+                title={`View Department & Designation Summary of staff present on ${humanSelectedDate || historyDate}`}
+              >
+                <Users size={14} className="text-white" />
+                <span>Summary</span>
+                <span className="bg-emerald-800 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full font-mono">
+                  {presentCount}
+                </span>
+              </button>
             </div>
 
           </div>
@@ -3363,20 +3513,36 @@ export default function AttendanceImport({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             
             {/* KPI 1: Present staff */}
-            <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-xs flex items-center justify-between col-span-1">
-              <div className="space-y-1">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-mono">Staff Present on Date</span>
-                <span className="text-xl font-extrabold text-slate-800 font-sans block">{presentCount} <span className="text-slate-400 text-sm font-semibold">/ {totalStaff}</span></span>
-                <div className="w-32 bg-slate-100 h-1.5 rounded-full overflow-hidden mt-2">
-                  <div 
-                    className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-                    style={{ width: `${(presentCount / (totalStaff || 1)) * 100}%` }}
-                  />
+            <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-xs flex flex-col justify-between col-span-1">
+              <div className="flex items-center justify-between w-full">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-mono">Staff Present on Date</span>
+                  <span className="text-xl font-extrabold text-slate-800 font-sans block">{presentCount} <span className="text-slate-400 text-sm font-semibold">/ {totalStaff}</span></span>
+                  <div className="w-32 bg-slate-100 h-1.5 rounded-full overflow-hidden mt-2">
+                    <div 
+                      className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                      style={{ width: `${(presentCount / (totalStaff || 1)) * 100}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0">
+                  <Users size={20} />
                 </div>
               </div>
-              <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0">
-                <Users size={20} />
-              </div>
+
+              {presentCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSummarySearchQuery('');
+                    setShowPresentSummaryModal(true);
+                  }}
+                  className="mt-3.5 w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10.5px] font-bold py-1.5 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-emerald-150"
+                >
+                  <Users size={12} />
+                  <span>View Summary ({presentCount} Present)</span>
+                </button>
+              )}
             </div>
 
             {/* KPI 2: Total Biometric handshakes */}
@@ -5109,6 +5275,225 @@ export default function AttendanceImport({
                 Close list
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== PRESENT STAFF ATTENDANCE SUMMARY MODAL ==================== */}
+      {showPresentSummaryModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-5 font-sans select-none animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[88vh] flex flex-col overflow-hidden shadow-2xl border border-slate-100">
+            
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 bg-slate-50 border-b border-slate-150 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="bg-emerald-100 text-emerald-800 text-[9.5px] font-black uppercase tracking-wider font-mono px-2.5 py-0.5 rounded-md flex items-center gap-1.5 shadow-3xs">
+                    <Users size={12} />
+                    Attendance Summary
+                  </span>
+                  <span className="text-[10.5px] text-slate-600 font-bold bg-white border border-slate-200 px-2.5 py-0.5 rounded-full font-mono">
+                    {humanSelectedDate} ({historyDate})
+                  </span>
+                  {viewShift !== 'All Shifts' && (
+                    <span className="text-[9.5px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-full font-mono">
+                      {viewShift}
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-base sm:text-lg font-black text-slate-850 tracking-tight flex items-center gap-2 pt-1">
+                  <span>Staff Present by Department & Designation</span>
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  Showing <strong className="text-emerald-700 font-mono font-bold">{presentEmployeesOnSelectedDate.length}</strong> staff members verified present on this date.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 self-end sm:self-center">
+                <button
+                  type="button"
+                  onClick={handleExportPresentSummaryExcel}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold py-2 px-3.5 rounded-xl shadow-xs hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Download Present Staff Summary as Excel Spreadsheet"
+                >
+                  <Download size={13} />
+                  <span>Export Excel</span>
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setShowPresentSummaryModal(false)}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer bg-white hover:bg-slate-100 w-8 h-8 rounded-full flex items-center justify-center transition-all border border-slate-200"
+                  title="Close"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Filter / Search within modal */}
+            <div className="px-5 sm:px-6 py-3 bg-white border-b border-slate-150 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="relative flex-1 min-w-[220px]">
+                <span className="absolute left-3 top-2.5 text-slate-400">
+                  <Search size={14} />
+                </span>
+                <input
+                  type="text"
+                  placeholder="Search department, designation, employee name or code..."
+                  value={summarySearchQuery}
+                  onChange={(e) => setSummarySearchQuery(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-150 focus:bg-white rounded-xl py-2 pl-9 pr-3 text-xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-emerald-500 text-slate-800 placeholder-slate-400"
+                />
+              </div>
+
+              <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-500">
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  <span>{presentSummaryGroups.length} Departments</span>
+                </span>
+                <span className="text-slate-300">•</span>
+                <span>
+                  {presentSummaryGroups.reduce((acc, g) => acc + g.designations.length, 0)} Designations
+                </span>
+                <span className="text-slate-300">•</span>
+                <span className="font-bold text-slate-800 font-mono">
+                  {presentSummaryGroups.reduce((acc, g) => acc + g.totalPresent, 0)} Staff
+                </span>
+              </div>
+            </div>
+
+            {/* List Body */}
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1 bg-slate-50/50 space-y-5 custom-scrollbar">
+              {presentEmployeesOnSelectedDate.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 font-semibold space-y-2 bg-white rounded-2xl border border-slate-150">
+                  <span className="text-4xl block">📋</span>
+                  <p className="text-sm font-bold text-slate-700">No staff marked present for {humanSelectedDate}.</p>
+                  <p className="text-xs text-slate-400">There are no biometric punch handshakes recorded for this date.</p>
+                </div>
+              ) : presentSummaryGroups.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 font-semibold space-y-2 bg-white rounded-2xl border border-slate-150">
+                  <span className="text-3xl block">🔍</span>
+                  <p className="text-sm font-bold text-slate-700">No matches found for "{summarySearchQuery}".</p>
+                  <p className="text-xs text-slate-400">Try searching for a different employee name, code, department, or designation.</p>
+                </div>
+              ) : (
+                presentSummaryGroups.map(deptGroup => (
+                  <div 
+                    key={deptGroup.department} 
+                    className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden shadow-xs"
+                  >
+                    {/* 1. Department Header */}
+                    <div className="bg-slate-100/80 border-b border-slate-200 px-5 py-3.5 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs shrink-0">
+                          <Building2 size={15} />
+                        </div>
+                        <div>
+                          <h4 className="text-xs sm:text-sm font-black text-slate-800 uppercase tracking-wide">
+                            {deptGroup.department}
+                          </h4>
+                          <p className="text-[10px] text-slate-400 font-medium">
+                            {deptGroup.designations.length} {deptGroup.designations.length === 1 ? 'Designation' : 'Designations'}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-black px-3 py-1 rounded-full font-mono shadow-3xs">
+                        {deptGroup.totalPresent} {deptGroup.totalPresent === 1 ? 'Person Present' : 'People Present'}
+                      </span>
+                    </div>
+
+                    {/* 2. Designations in this Department */}
+                    <div className="p-4 space-y-4">
+                      {deptGroup.designations.map(desigGroup => (
+                        <div 
+                          key={desigGroup.designation}
+                          className="border border-slate-150 rounded-xl p-3.5 bg-slate-50/40 hover:bg-slate-50/70 transition-colors"
+                        >
+                          {/* Designation Title & Count */}
+                          <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-200/60">
+                            <div className="flex items-center gap-2">
+                              <Briefcase size={13} className="text-slate-400" />
+                              <span className="text-xs font-extrabold text-slate-700">
+                                {desigGroup.designation}
+                              </span>
+                            </div>
+                            <span className="text-[10.5px] font-bold text-slate-700 bg-white border border-slate-200 px-2.5 py-0.5 rounded-full font-mono shadow-3xs">
+                              {desigGroup.count} {desigGroup.count === 1 ? 'Person' : 'People'} Present
+                            </span>
+                          </div>
+
+                          {/* 3. Employees list: Names along with Employee Codes */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                            {desigGroup.employees.map(emp => {
+                              const rawPunches = datePunches[emp.id] || [];
+                              const cleanPunches = rawPunches.filter(p => !p.startsWith('00:00') && p.trim() !== '');
+                              const firstPunch = cleanPunches[0] || '';
+                              const shiftLabel = dateShifts[emp.id] || emp.shift || 'Day Shift';
+
+                              return (
+                                <div 
+                                  key={emp.id}
+                                  className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col justify-between gap-2 shadow-3xs hover:border-emerald-300 transition-all group"
+                                >
+                                  <div className="flex items-start justify-between gap-1.5">
+                                    <span className="font-mono font-black text-emerald-800 bg-emerald-50 border border-emerald-150 px-2 py-0.5 rounded text-[10.5px] shrink-0">
+                                      ID: {emp.id}
+                                    </span>
+                                    <span className="text-[8.5px] font-bold uppercase font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0">
+                                      {shiftLabel}
+                                    </span>
+                                  </div>
+
+                                  <div>
+                                    <h5 className="font-bold text-slate-850 text-xs block truncate leading-snug" title={emp.name}>
+                                      {emp.name || 'Anonymous'}
+                                    </h5>
+                                    {firstPunch && (
+                                      <span className="text-[9.5px] text-slate-400 font-mono block mt-1">
+                                        In: <strong className="text-slate-600">{firstPunch}</strong>
+                                        {cleanPunches.length > 1 && ` • Out: ${cleanPunches[cleanPunches.length - 1]}`}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {onViewEmployeeProfile && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setShowPresentSummaryModal(false);
+                                        onViewEmployeeProfile(emp.id);
+                                      }}
+                                      className="text-[10px] font-bold text-teal-700 hover:text-teal-900 flex items-center justify-between cursor-pointer pt-1.5 border-t border-slate-100 mt-0.5 w-full transition-colors"
+                                    >
+                                      <span>View Profile</span>
+                                      <ArrowRight size={10} className="group-hover:translate-x-0.5 transition-transform" />
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-150 flex items-center justify-between shrink-0 select-none">
+              <span className="text-xs text-slate-500 font-medium">
+                Showing {presentSummaryGroups.reduce((acc, g) => acc + g.totalPresent, 0)} of {presentEmployeesOnSelectedDate.length} present employees on {humanSelectedDate}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowPresentSummaryModal(false)}
+                className="bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-bold py-2 px-5 rounded-xl cursor-pointer transition-all shadow-xs"
+              >
+                Close Summary
+              </button>
+            </div>
+
           </div>
         </div>
       )}

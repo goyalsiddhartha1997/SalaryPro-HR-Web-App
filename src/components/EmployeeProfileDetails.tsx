@@ -475,9 +475,9 @@ export default function EmployeeProfileDetails({
     
     const targetMonthYearStr = `${otFilterYear}-${String(otFilterMonth + 1).padStart(2, '0')}`;
     const activeOverride = monthlyPayrollDocs[targetMonthYearStr] || {};
-    const baseSalaryForOt = activeOverride.monthlySalary !== undefined 
-      ? Number(activeOverride.monthlySalary) 
-      : (employee.monthlySalary || 0);
+    const baseSalaryForOt = (employee.monthlySalary !== undefined && employee.monthlySalary > 0)
+      ? Number(employee.monthlySalary) 
+      : (activeOverride.monthlySalary !== undefined ? Number(activeOverride.monthlySalary) : 0);
     
     const otDailyRate = otIsDailyBasis ? baseSalaryForOt : (baseSalaryForOt > 0 && otWorkingDays > 0 ? baseSalaryForOt / otWorkingDays : 0);
     const otHourlyRate = otDailyRate > 0 && otWorkingHoursPerDay > 0 ? otDailyRate / otWorkingHoursPerDay : 0;
@@ -533,6 +533,16 @@ export default function EmployeeProfileDetails({
     }
     if (editedResignDate.trim() && editedResignDate !== oldResign) {
       triggerAlert?.('info', "Employee's balance is nil and all dues have been paid.");
+    }
+
+    if (editedMonthlySalary > 0) {
+      setMonthlyPayrollDocs(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(k => {
+          next[k] = { ...next[k], monthlySalary: editedMonthlySalary, salaryType: editedSalaryType };
+        });
+        return next;
+      });
     }
 
     onUpdateEmployee(employee.id, {
@@ -632,9 +642,10 @@ export default function EmployeeProfileDetails({
   const targetMonthYearStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}`;
   const activeMonthOverride = monthlyPayrollDocs[targetMonthYearStr] || {};
 
-  const baseSalary = activeMonthOverride.monthlySalary !== undefined 
-    ? Number(activeMonthOverride.monthlySalary) 
-    : (employee.monthlySalary || 0);
+  // The employee profile card's master salary rate is the authoritative source of truth across all months and sections
+  const baseSalary = (employee.monthlySalary !== undefined && employee.monthlySalary > 0)
+    ? Number(employee.monthlySalary) 
+    : (activeMonthOverride.monthlySalary !== undefined ? Number(activeMonthOverride.monthlySalary) : 0);
   // Allowances: proportional to base (10% transport, 5% meal, 3% internet) if they are active
   const allowanceTransport = Math.round(baseSalary * 0.08);
   const allowanceMeal = Math.round(baseSalary * 0.05);
