@@ -2764,16 +2764,22 @@ export default function AttendanceImport({
       return [];
     };
 
-    // Sort employees in ascending order based on the designation column
+    // Sort employees: first by Department, then by Designation, then by Employee Name
     const sortedEmployees = [...activeEmployees].sort((a, b) => {
+      const deptA = (a.department || '').trim();
+      const deptB = (b.department || '').trim();
+      const deptComp = deptA.localeCompare(deptB, undefined, { sensitivity: 'base' });
+      if (deptComp !== 0) {
+        return deptComp;
+      }
       const desA = (a.designation || a.role || '').trim();
       const desB = (b.designation || b.role || '').trim();
-      const comp = desA.localeCompare(desB, undefined, { sensitivity: 'base' });
-      if (comp !== 0) {
-        return comp;
+      const desComp = desA.localeCompare(desB, undefined, { sensitivity: 'base' });
+      if (desComp !== 0) {
+        return desComp;
       }
-      const nameA = a.name || '';
-      const nameB = b.name || '';
+      const nameA = (a.name || '').trim();
+      const nameB = (b.name || '').trim();
       const nameComp = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
       if (nameComp !== 0) {
         return nameComp;
